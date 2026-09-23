@@ -128,8 +128,9 @@ fn behave(p: vec3f, i: u32, t: f32) -> vec3f {
   let neg = 1.0 - F.moodPos - F.moodNeu;
   q *= 1.0 + (F.mo_spreading * 0.3 + F.moodPos * 0.25 - neg * 0.12) * ss(0.0, 1.0, F.u) * (1.0 - exact) + F.s_energy * 0.1 * ss(0.0, 1.0, F.u);
   let jit = (F.mo_trembling * 0.02 + F.s_tension * 0.015 * F.s_arousal) * (1.0 - exact);
-  let h = u32(t * 30.0);
-  q += (vec3f(r1(i ^ h, 21u), r1(i ^ h, 22u), r1(i ^ h, 23u)) - 0.5) * jit;
+  // a tremble, smooth (8–14 Hz, each point its own phase) — never a per-frame random jump
+  let fq = 50.0 + 38.0 * r1(i, 21u);
+  q += vec3f(sin(t * fq + r1(i, 22u) * TAU), sin(t * fq * 1.31 + r1(i, 23u) * TAU), sin(t * fq * 0.77 + r1(i, 26u) * TAU)) * jit * 0.5;
   let ang = t * (0.03 + 0.25 * F.mo_circling + 0.1 * F.s_arousal) * (1.0 - exact);
   return vec3f(q.x * cos(ang) - q.z * sin(ang), q.y, q.x * sin(ang) + q.z * cos(ang));
 }
@@ -185,11 +186,17 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let coc = min(abs(z - dist) / z * aperture * res.y * 0.5, 22.0);
   // dust (85%): fine and sharp, and gone when out of focus; carriers (15%): the lens's discs
   let carrier = r1(i, 16u) < mix(0.15, 0.32, F.moodPos); // the positive glitters
-  let point = select(mix(0.55, 0.85, r1(i, 9u)), mix(0.8, 1.4, r1(i, 9u)), carrier);
+  // never smaller than a pixel (a sub-pixel point sparkles as the camera moves): a finer point is drawn
+  // at 1 px and dimmer instead
+  let fine = select(mix(0.55, 0.85, r1(i, 9u)), mix(0.8, 1.4, r1(i, 9u)), carrier);
+  let point = max(fine, 1.0);
   let rad = select(point, max(coc, point), carrier);
+  // out-of-focus points are thinned — faded in and out over a band, never popped
   let keep = select(exp(-coc / 2.5), min(1.0, pow(3.0 / rad, 2.0)), carrier);
-  if (r1(i, 10u) > keep) { return o; }
-  let energy = select(1.0, (point * point) / (rad * rad) / keep, carrier) * select(0.7, 1.8, carrier);
+  let fadeIn = clamp((keep - r1(i, 10u)) / 0.2 + 0.5, 0.0, 1.0);
+  if (fadeIn <= 0.0) { return o; }
+  let energy = select(1.0, (point * point) / (rad * rad) / keep, carrier) * select(0.7, 1.8, carrier)
+             * (fine * fine) / (point * point) * fadeIn;
 
   // brightness from the value it carries (a few blaze); a warm/cool ramp with depth, chosen by the word
   let v = P0.w;
