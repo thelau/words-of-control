@@ -53,7 +53,7 @@ const fixtures = JSON.parse(readFileSync('src/jev/fixtures.json', 'utf8'));
 const rows: [string, ReturnType<typeof stats>][] = [];
 rows.push(['room (rest)', stats(await sample(2000))]);
 // one performance per clip family, sampled through its verdict
-for (const [word, label] of [['fuck', 'verdict (fuck)'], ['mother', 'verdict (mother)'], ['dust', 'verdict (dust)'], ['nothing', 'haze (nothing)']] as const) {
+for (const [word, label] of [['fuck', 'verdict (fuck)'], ['mother', 'verdict (mother)'], ['dust', 'verdict (dust)'], ['nothing', 'drift (nothing)']] as const) {
   await page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [fixtures[word], word]);
   const plan = await page.evaluate(() => (window as any).__woc.show().plan);
   await page.waitForFunction((t) => { const w = (window as any).__woc; const s = w.show(); return !s || w.audioClock() - s.t0 >= t; }, plan.shots[0].start, { polling: 'raf' });
@@ -70,7 +70,7 @@ const solo = (clip: string, mode: string) => page.evaluate(([a, clip, mode]) => 
   const shots = clip ? [{ clip, start: 0.05, dur: 3.2, seed: 7, aborted: false, angles: [{ at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 }] }] : [];
   W.performPlan(A, { cuts, shots, blackAt: 3.3, end: 3.9 });
 }, [fixtures.fuck, clip, mode]);
-for (const clip of ['landscape', 'city', 'lattice', 'cloud', 'tube', 'relief', 'scan', 'chladni', 'haze']) {
+for (const clip of ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'relief', 'scan', 'chladni']) {
   await solo(clip, '');
   await page.waitForTimeout(700);
   layers.push([`clip ${clip}`, stats(await sample(2000))]);

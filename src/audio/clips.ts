@@ -3,7 +3,7 @@
  * uses. The data formations are heard the way the appraisal is (sine tones,
  * clicks, pulses — Ikeda's palette), streaming at the rate the points stream;
  * relief is a bowed plate, scan traces a surface, chladni is the plate ringing
- * in the mode that shapes its sand, haze barely touches the room. Every voice
+ * in the mode that shapes its sand, the drift (the void) barely touches the room. Every voice
  * is hard-cut with its shot and sends only to the short room.
  * Levels: each clip is calibrated to the same loudness, then scaled by how
  * loud and intense Jev heard the word (a dB curve).
@@ -14,12 +14,13 @@ import { D2, dbToGain, type AudioEngine } from './audio.ts';
 import type { Drone } from './drone.ts';
 import { plateModes } from '../show/chladni.ts';
 import { DATA_CLIPS } from '../show/director.ts';
+import { loud } from './score.ts';
 import { mulberry32 } from '../core/rng.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
-const CAL: Record<Shot['clip'], number> = { relief: 14, haze: 10, scan: 8, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6 };
+const CAL: Record<Shot['clip'], number> = { relief: 14, scan: 8, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10 };
 
 type V = { a: AudioEngine; drone: Drone; A: Appraisal; shot: Shot; start: number; end: number; out: AudioNode; rand: () => number };
 
@@ -29,8 +30,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, shot: Shot,
   const start = t0 + shot.start;
   const end = start + shot.dur;
   // how loud the word is, as Jev heard it: −20 dB for an indifferent word, 0 for a scream
-  const x = A.s.loudness * 0.5 + A.s.intensity * 0.5;
-  const level = dbToGain(lerp(-20, 0, x ** 1.3) + CAL[shot.clip]);
+  const level = dbToGain(lerp(-11, 0, loud(A) ** 1.3) + CAL[shot.clip]);
   const gate = c.createGain();
   gate.gain.setValueAtTime(0, start - 0.001);
   gate.gain.linearRampToValueAtTime(level, start + 0.004);
@@ -43,7 +43,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, shot: Shot,
   const v: V = { a, drone, A, shot, start, end, out: gate, rand: mulberry32(shot.seed) };
   switch (shot.clip) {
     case 'relief': return relief(v);
-    case 'haze': return haze(v);
+    case 'drift': return drift(v);
     case 'scan': return scan(v);
     case 'chladni': return chladni(v);
     default: return data(v);
@@ -106,8 +106,8 @@ function relief(v: V): number[] {
   return [f0 * 2, f0 * 3];
 }
 
-// ------------------------------------------------------------------ haze: barely touched
-function haze(v: V): number[] {
+// ------------------------------------------------------------------ drift: the void, barely touched
+function drift(v: V): number[] {
   const { a, A } = v;
   const c = a.ctx;
   const m = A.c.material.p;
@@ -154,21 +154,27 @@ function scan(v: V): number[] {
   const c = a.ctx;
   const sweeps = A.s.arousal > 0.55 ? 2 : 1;
   const sweepDur = (v.shot.dur / sweeps) / lerp(1, 0.6, A.lazy);
+  // the laser tracing a surface: noise through a narrow band gliding along the profile it crosses
+  // (the tape stands for the surface), plus the band's second harmonic, faint
   const base = D2 * 16 * Math.pow(2, lerp(-0.5, 0.5, A.s.pitch));
-  // one thin tone whose pitch traces the profile the laser crosses (the tape stands for the surface)
-  const o = c.createOscillator();
-  o.type = 'sine';
-  const steps = Math.floor(v.shot.dur / 0.05);
+  const bp = c.createBiquadFilter();
+  bp.type = 'bandpass'; bp.Q.value = 30;
+  const bp2 = c.createBiquadFilter();
+  bp2.type = 'bandpass'; bp2.Q.value = 30;
+  const steps = Math.floor(v.shot.dur / 0.03);
   for (let i = 0; i <= steps; i++) {
-    const t = v.start + i * 0.05;
-    const h = A.tape[(i * 3) % A.tape.length];
-    o.frequency.setValueAtTime(base * Math.pow(2, (h - 0.5) * 1.2), t);
+    const t = v.start + i * 0.03;
+    const k = (i / steps) * A.tape.length;
+    const h = A.tape[Math.floor(k) % A.tape.length] * (1 - (k % 1)) + A.tape[(Math.floor(k) + 1) % A.tape.length] * (k % 1);
+    const f = base * Math.pow(2, (h - 0.5) * 2);
+    bp.frequency.setTargetAtTime(f, t, 0.012);
+    bp2.frequency.setTargetAtTime(f * 2, t, 0.012);
   }
-  const g = c.createGain();
-  g.gain.value = 0.08;
-  o.connect(g).connect(v.out);
-  o.start(v.start);
-  o.stop(v.end + 0.02);
+  const g = c.createGain(); g.gain.value = 1.4;
+  const g2 = c.createGain(); g2.gain.value = 0.18;
+  const n = noiseSrc(v);
+  n.connect(bp).connect(g).connect(v.out);
+  n.connect(bp2).connect(g2).connect(v.out);
   // a click as each sweep begins
   const clicks = rendered(v, (L, R, sr) => {
     for (let k = 0; k < sweeps; k++) {
@@ -213,17 +219,23 @@ function chladni(v: V): number[] {
   });
   tone.start(v.start);
   tone.stop(v.end + 0.02);
-  // the sand hissing as it migrates (strongest just after each change of mode)
-  const hiss = rendered(v, (L, R, sr) => {
-    for (let i = 0; i < L.length; i++) {
-      const u = (i / sr) % seg / seg;
-      const x = (v.rand() * 2 - 1) * 0.02 * Math.exp(-u * 3);
-      L[i] += x; R[i] += x * 0.9;
+  // the sand migrating: grains knocking like tiny stones (resonant clicks, 700–2600 Hz), densest just
+  // after each change of mode, then settling — never a hiss
+  const grains = rendered(v, (L, R, sr) => {
+    const res = [700, 1150, 1800, 2600].map((f) => f * (0.9 + v.rand() * 0.2));
+    let t = 0;
+    while (t < v.shot.dur) {
+      const u = (t % seg) / seg;
+      t += -Math.log(1 - v.rand()) / (80 + 520 * Math.exp(-u * seg / 0.6));
+      const s0 = Math.floor(t * sr), f = res[Math.floor(v.rand() * 4)], pan = v.rand() * 1.4 - 0.7;
+      const amp = 0.03 * (0.3 + v.rand());
+      for (let i = 0; i < sr * 0.02 && s0 + i < L.length; i++) {
+        const x = Math.sin((2 * Math.PI * f * i) / sr) * Math.exp(-i / (sr * 0.004)) * amp;
+        L[s0 + i] += x * (1 - pan); R[s0 + i] += x * (1 + pan);
+      }
     }
   });
-  const hp = c.createBiquadFilter();
-  hp.type = 'highpass'; hp.frequency.value = 4000;
-  hiss.connect(hp).connect(v.out);
+  grains.connect(v.out);
   return modes.map(freqOf).slice(0, 1);
 }
 
@@ -247,7 +259,9 @@ function data(v: V): number[] {
         const val = tv(Math.floor(k)) * (1 - (k % 1)) + tv(Math.floor(k) + 1) * (k % 1);
         const f = f0 * Math.pow(2, (val - 0.5) * 0.5);
         ph += (2 * Math.PI * f) / sr; ph2 += (2 * Math.PI * f * 1.5) / sr;
-        const x = (Math.sin(ph) * 0.12 + Math.sin(ph2) * 0.04) * Math.min(1, i / (sr * 0.3));
+        // the tone holds 1.5 s, then breaks into grains (never a steady whistle)
+        const held = i / sr < 1.5 ? 1 : Math.exp(-(i / sr - 1.5) * 3) + ((i >> 9) % 3 === 0 ? 0.6 : 0);
+        const x = (Math.sin(ph) * 0.12 + Math.sin(ph2) * 0.04) * Math.min(1, i / (sr * 0.3)) * held;
         L[i] += x; R[i] += x * 0.9;
       }
       return;
@@ -287,7 +301,7 @@ function data(v: V): number[] {
         }
       } else {
         // cloud: each point a short FM tone, carrier and modulator from consecutive values
-        const fc = 200 + val * 1800, fm = 50 + tv(k + 1) * 600, idx = 1 + tv(k + 2) * 4;
+        const fc = 3000 + val * 9000, fm = 200 + tv(k + 1) * 1200, idx = 1 + tv(k + 2) * 3;
         const len = Math.floor(sr * 0.08);
         for (let i = 0; i < len && s0 + i < n; i++) {
           const tt = i / sr;
@@ -298,5 +312,29 @@ function data(v: V): number[] {
     }
   });
   src.connect(v.out);
+  // the points heard as points: a fine grain of 6–15 kHz blips and single-sample clicks, panned wide
+  const dust = rendered(v, (L, R, sr) => {
+    const rate = lerp(300, 3000, A.s.density * 0.5 + A.s.arousal * 0.5);
+    for (let t = 0; t < v.shot.dur; t += -Math.log(1 - v.rand()) / rate) {
+      const s0 = Math.floor(t * sr), pan = v.rand() * 2 - 1;
+      if (v.rand() < 0.5) { if (s0 < L.length) { L[s0] += 0.05 * (1 - pan); R[s0] += 0.05 * (1 + pan); } continue; }
+      const f = 6000 + v.rand() * 9000, len = Math.floor(sr * (0.002 + v.rand() * 0.002));
+      for (let i = 0; i < len && s0 + i < L.length; i++) {
+        const x = Math.sin((2 * Math.PI * f * i) / sr) * Math.sin((Math.PI * i) / len) * 0.02;
+        L[s0 + i] += x * (1 - pan); R[s0 + i] += x * (1 + pan);
+      }
+    }
+  });
+  dust.connect(v.out);
+  // under the landscape and the city: a floor of sub (two sines beating slowly)
+  if (form <= 1) {
+    const c = v.a.ctx;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, v.start);
+    g.gain.linearRampToValueAtTime(0.12, v.start + 0.8);
+    g.connect(v.out);
+    const fs = 38 + A.s.weight * 10;
+    for (const f of [fs, fs + 0.9]) { const o = c.createOscillator(); o.frequency.value = f; o.connect(g); o.start(v.start); o.stop(v.end + 0.05); }
+  }
   return [f0];
 }

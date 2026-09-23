@@ -9,7 +9,6 @@ import commonWGSL from './shaders/common.wgsl?raw';
 import roomWGSL from './shaders/room.wgsl?raw';
 import appraisalWGSL from './shaders/appraisal.wgsl?raw';
 import reliefWGSL from './shaders/relief.wgsl?raw';
-import hazeWGSL from './shaders/haze.wgsl?raw';
 import fieldWGSL from './shaders/field.wgsl?raw';
 import scanWGSL from './shaders/scan.wgsl?raw';
 import sandWGSL from './shaders/sand.wgsl?raw';
@@ -21,7 +20,7 @@ import bloomWGSL from './shaders/bloom.wgsl?raw';
 import compositeWGSL from './shaders/composite.wgsl?raw';
 import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
 
-export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'haze' | 'scan' | 'sand' | 'data';
+export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'scan' | 'sand' | 'data';
 
 const HDR: GPUTextureFormat = 'rgba16float';
 const BLOOM_LEVELS = 6;
@@ -131,7 +130,6 @@ export class Renderer {
 
     this.p.room = full('room', roomWGSL);
     this.p.appraisal = full('appraisal', appraisalWGSL);
-    this.p.haze = full('haze', hazeWGSL);
     this.p.blit = full('blit', blitWGSL);
     this.p.dof = full('dof', dofWGSL);
     this.p.composite = full('composite', compositeWGSL, this.format);
@@ -188,7 +186,7 @@ export class Renderer {
     const group = (name: string, pipe: GPURenderPipeline | GPUComputePipeline, entries: GPUBindGroupEntry[]) => {
       this.bg[name] = d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries });
     };
-    for (const k of ['room', 'haze']) group(k, this.p[k], [{ binding: 0, resource: uni }]);
+    for (const k of ['room']) group(k, this.p[k], [{ binding: 0, resource: uni }]);
     group('appraisal', this.p.appraisal, [
       { binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } },
       { binding: 2, resource: this.atlas.createView() },
@@ -326,7 +324,7 @@ export class Renderer {
     } else if (layer === 'sand') {
       const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
       const wg = Math.ceil(SAND_N / 16);
-      for (let k = 0; k < 3; k++) {
+      for (let k = 0; k < 2; k++) { // two steps a frame (the flow is scaled for it in sand.wgsl)
         cp.setPipeline(this.c.sandVelocity); cp.setBindGroup(0, this.bg.sandV); cp.dispatchWorkgroups(wg, wg);
         cp.setPipeline(this.c.sandTransport); cp.setBindGroup(0, this.bg.sandT); cp.dispatchWorkgroups(wg, wg);
         cp.setPipeline(this.c.sandRepose); cp.setBindGroup(0, this.bg.sandR); cp.dispatchWorkgroups(wg, wg);
@@ -404,7 +402,7 @@ export class Renderer {
 
   /** Draw every layer once so no pipeline compiles mid-performance. */
   warmUp(frame: Float32Array) {
-    for (const l of ['room', 'appraisal', 'relief', 'haze', 'scan', 'sand', 'data', 'black'] as Layer[]) this.render(l, frame, 0.9, l === 'appraisal');
+    for (const l of ['room', 'appraisal', 'relief', 'scan', 'sand', 'data', 'black'] as Layer[]) this.render(l, frame, 0.9, l === 'appraisal');
   }
 
   /** Clear the long-exposure buffer (a new scan shot starts from black). */

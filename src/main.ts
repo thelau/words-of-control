@@ -31,7 +31,6 @@ const query = new URLSearchParams(location.search);
 const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = {
   room: { bloom: 0.06, halation: 0, flat: 0 }, black: { bloom: 0, halation: 0, flat: 0 },
   appraisal: { bloom: 0.02, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
-  haze: { bloom: 0.08, halation: 0.03, flat: 0 },
   scan: { bloom: 0.1, halation: 0.05, flat: 1 },
   sand: { bloom: 0.05, halation: 0.03, flat: 0 },
   data: { bloom: 0.05, halation: 0.02, flat: 0 },

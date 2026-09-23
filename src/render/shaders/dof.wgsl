@@ -5,7 +5,7 @@
 
 @group(0) @binding(0) var src: texture_2d<f32>;
 
-const TAPS = 22;
+const TAPS = 16;
 const RMAX = 16.0;
 
 @fragment

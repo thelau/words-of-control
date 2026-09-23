@@ -63,13 +63,13 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   // one pixel's footprint on the bed (stretched along the view at grazing angles)
   let foot = tHit / (res.y * 0.5 * 2.2) * (1.0 + 1.0 / max(-rd.z, 0.1));
 
-  // cast shadow along the sun: 8 taps, stride growing with distance, jittered per pixel
+  // cast shadow along the sun: 6 taps, stride growing with distance, jittered per pixel
   let ld = normalize(L.xy);
   let rise = L.z / length(L.xy) / Hs; // sim height gained per cell toward the sun
   var shadow = 1.0;
   let jt = fract(dot(fc.xy, vec2f(0.0671, 0.00583)) * 52.98);
-  for (var i = 1; i <= 8; i++) {
-    let s = (f32(i) - jt * 0.8) * (0.9 + 0.35 * f32(i));
+  for (var i = 1; i <= 6; i++) {
+    let s = (f32(i) - jt * 0.8) * (0.9 + 0.5 * f32(i));
     let dh = h(uv + ld * s * e) - (h0 + s * rise);
     shadow = min(shadow, clamp(1.0 - dh * Hs * 0.9, 0.0, 1.0));
   }

@@ -33,7 +33,7 @@ fn flow(p: vec2i) -> vec2f {
   let e = 1.0 / f32(N);
   let g = vec2f(amp(uv + vec2f(e, 0.0)) - amp(uv - vec2f(e, 0.0)), amp(uv + vec2f(0.0, e)) - amp(uv - vec2f(0.0, e)));
   let shake = mix(0.5, 1.4, F.s_energy) * mix(1.0, 0.4, F.lazy);
-  let v = -normalize(g + vec2f(1e-6)) * clamp(amp(uv) * shake, 0.0, 1.0) * 0.22;
+  let v = -normalize(g + vec2f(1e-6)) * clamp(amp(uv) * shake, 0.0, 1.0) * 0.33;
   return v / max(1.0, (abs(v.x) + abs(v.y)) / 0.95);
 }
 

@@ -165,10 +165,10 @@ fn scatter(px: vec2f, res: vec2f) -> vec3f {
   var c = vec3f(0.0);
   let inside = q.x > -2.0 * F.dpr && q.y > -2.0 * F.dpr && q.x < side + 2.0 * F.dpr && q.y < side + 2.0 * F.dpr;
   if (!inside) { return c; }
-  let n = min(i32(F.tapeLen) - 1, 44);
+  let n = min(i32(F.tapeLen) - 1, 30);
   let shown = i32((0.35 + F.u) * f32(n)); // already part-drawn when the cut lands
   var prevPt = vec2f(tv(0), 1.0 - tv(1)) * side;
-  for (var i = 1; i < 44; i++) {
+  for (var i = 1; i < 30; i++) {
     if (i >= min(shown, n)) { break; }
     let pt = vec2f(tv(i), 1.0 - tv(i + 1)) * side;
     // most segments are far from this pixel: a bounding-box test skips them

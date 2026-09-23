@@ -1,5 +1,5 @@
 /**
- * Web Audio engine. Master: bus → 45 Hz high-pass (24 dB/oct) → limiter →
+ * Web Audio engine. Master: bus → 30 Hz high-pass (12 dB/oct) → limiter →
  * trim → hard ceiling (−1 dBFS) → out. Two spaces: a short room keeps the verdict's cuts hard; the long
  * hall is fed only in the last moment before the cut to black, so the tail
  * blooms once, over the black. Performances play through `perfDry` /
@@ -33,15 +33,13 @@ export class AudioEngine {
     this.hallSend.gain.value = 0;
     const out = c.createGain();
 
-    // two cascaded biquads = 24 dB/oct at 45 Hz: nothing below is intended
+    // one gentle 30 Hz high-pass: the sub impacts (41–60 Hz) keep their weight, rumble below is removed
     const hp1 = c.createBiquadFilter();
-    hp1.type = 'highpass'; hp1.frequency.value = 45; hp1.Q.value = 0.54;
-    const hp2 = c.createBiquadFilter();
-    hp2.type = 'highpass'; hp2.frequency.value = 45; hp2.Q.value = 1.31;
+    hp1.type = 'highpass'; hp1.frequency.value = 30; hp1.Q.value = 0.707;
     const limit = c.createDynamicsCompressor();
     limit.threshold.value = -3; limit.ratio.value = 20; limit.attack.value = 0.0005; limit.release.value = 0.08; limit.knee.value = 0;
     const trim = c.createGain();
-    trim.gain.value = 0.9; // true-peak margin after the limiter
+    trim.gain.value = 0.5; // headroom and true-peak margin after the limiter (loudest words ≈ −16 LUFS)
     // the Web Audio limiter lets fast transients through: a hard ceiling at −1 dBFS is the last guard
     const ceiling = c.createWaveShaper();
     const curve = new Float32Array(2048);
@@ -65,7 +63,7 @@ export class AudioEngine {
     this.perfDry.connect(this.hallSend);
     this.perfSend.connect(this.send);
     this.bus.connect(out);
-    out.connect(hp1).connect(hp2).connect(limit).connect(trim).connect(ceiling).connect(c.destination);
+    out.connect(hp1).connect(limit).connect(trim).connect(ceiling).connect(c.destination);
     this.record = c.createMediaStreamDestination();
     ceiling.connect(this.record);
 

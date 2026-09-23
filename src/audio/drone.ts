@@ -4,7 +4,7 @@
  * noise. Nothing periodic faster than ~0.25 Hz. It remembers: each reaction
  * leaves a residue (octaves and fifths only, τ ≈ 35 s), a colour (roughness =
  * more plate modes, brightness; τ ≈ 25 s) and a slow evening drift (τ ≈ 20 min).
- * It ducks at the cut to black and exhales (opens) under haze.
+ * It ducks at the cut to black and exhales (opens) under the drift.
  */
 import { D2, dbToGain, type AudioEngine } from './audio.ts';
 

@@ -8,12 +8,12 @@ import type { Appraisal } from '../jev/appraisal.ts';
 import { mulberry32 } from '../core/rng.ts';
 import type { Layer } from '../render/gpu.ts';
 
-/** The verdict vocabulary. The appraisal gone 3D — five data formations (field.wgsl), each the spatial
- *  form of a 2D reading — and three matters the data acts on: the relief (data → surface), scan (a laser
- *  reading), chladni (the word's bytes as sound shaping sand). Haze is the void. One language: monochrome,
- *  one accent, every mark from the word's data; each family answers to different dimensions of the reading. */
-export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube'] as const;
-export const CLIPS = [...DATA_CLIPS, 'relief', 'scan', 'chladni', 'haze'] as const;
+/** The verdict vocabulary. The appraisal gone 3D — data formations (field.wgsl), each the spatial form of
+ *  a 2D reading, and drift, the void — and three matters the data acts on: the relief (data → surface), scan
+ *  (a laser reading), chladni (the word's bytes as sound shaping sand). One language: monochrome, one accent,
+ *  every mark from the word's data; each family answers to different dimensions of the reading. */
+export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift'] as const;
+export const CLIPS = [...DATA_CLIPS, 'relief', 'scan', 'chladni'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
 /** Which renderer layer draws a clip. */
@@ -75,13 +75,14 @@ function affinity(A: Appraisal): Record<ClipId, number> {
     // the word's bytes as a sound shaping sand: heard, tonal, rhythmic, sand itself
     chladni: A.c.sense.p.hearing * 1.1 + m.sand * 0.8 + tx.grainy * 0.4 + rh.pulsing * 0.6 + mo.trembling * 0.6 + s.order * 0.3
       + s.sacred * 0.3 + em.joy * 0.2,
-    // the void, the lazy afternoon
-    haze: m.void * 0.9 + m.light * 0.6 + m.smoke * 0.4 + A.lazy * 1.0 + (1 - s.arousal) * 0.4 + m.water * 0.4,
+    // the void, the lazy afternoon: a sparse dust drifting
+    drift: m.void * 0.9 + m.light * 0.4 + m.smoke * 0.5 + A.lazy * 0.8 + (1 - s.arousal) * 0.3 + m.water * 0.3 + mo.drifting * 0.4,
   };
 }
 
 /** The clips of the last few performances: the room remembers, and the machine avoids repeating itself. */
 const recent: ClipId[] = [];
+const openers: ClipId[] = [];
 
 /** `salt` makes every performance of the same answers a little different (the room is live, never a replay). */
 export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan {
@@ -133,24 +134,26 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   const pace = clamp01(charge * 0.5 + dark * 0.6 - lazy * 0.5 - (em.calm + em.tender) * 0.3);
   // lengths (s): verdict 9–14 (the void 5), each shot ≥ 1.8, each camera angle ≥ 0.4 — never a flicker
   const verdictDur = empty ? 5 : lazy > 0.7 ? lerp(9, 13, lazy) : lerp(9, 14, clamp01(A.s.intensity * 0.5 + A.s.duration * 0.3 + (1 - pace) * 0.2));
-  const count = lazy > 0.7 ? 1 : Math.max(1, Math.min(7, Math.floor(verdictDur / 1.8 / 1.25), Math.round(lerp(1.5, 7, pace) - lazy * 2)));
+  const count = empty ? 1 : lazy > 0.7 ? 2 : Math.max(2, Math.min(7, Math.floor(verdictDur / 1.8 / 1.25), Math.round(lerp(1.5, 7, pace) - lazy * 2)));
   const gap = lazy > 0.7 ? 0 : lerp(0.5, 0.0, pace);
 
   // the hand-off: the verdict opens on the 3D form of the reading the appraisal showed most — the analysis
   // becomes space in one gesture (unless the word is idle or empty)
-  const COUNTERPART: Partial<Record<CutMode, ClipId>> = { barcode: 'city', numbers: 'landscape', spectrum: 'landscape', bits: 'lattice', scatter: 'cloud' };
+  const COUNTERPART: Partial<Record<CutMode, ClipId>> = { barcode: 'city', numbers: 'cloud', spectrum: 'landscape', bits: 'lattice', scatter: 'cloud' };
   const shown = new Map<ClipId, number>();
   for (const c of cuts) { const k = COUNTERPART[c.mode]; if (k) shown.set(k, (shown.get(k) ?? 0) + c.dur); }
-  const handOff = [...shown.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  // …never the formation the last performance opened on
+  const handOff = [...shown.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).find((k) => !openers.includes(k));
   // clips that suit the word, drawn by affinity with some chance (never the same twice in a row, a family at most twice)
-  const eligible = ranked.filter((c, i) => aff[c] >= aff[ranked[0]] * 0.45 || i < Math.min(count, 3) || c === handOff);
+  const eligible = ranked.filter((c, i) => aff[c] >= aff[ranked[0]] * 0.45 || i < count || c === handOff);
   const picks: ClipId[] = [];
   for (let i = 0; i < count; i++) {
-    const pool = eligible.filter((c) => c !== picks[i - 1] && picks.filter((x) => x === c).length < 2);
-    const from = pool.length ? pool : eligible;
+    // each clip once per verdict: a performance is a sequence of different images
+    const from = eligible.filter((c) => !picks.includes(c));
+    if (!from.length) break;
     // the first shot is the best match; after it, a weighted draw
-    // (nothing is the void: the pinprick of light in haze, always)
-    let c = empty ? 'haze' : lazy < 0.6 && handOff && from.includes(handOff) ? handOff : from[0];
+    // (nothing is the void: a sparse drift of dust, always)
+    let c = empty ? 'drift' : lazy < 0.6 && handOff && from.includes(handOff) ? handOff : from[0];
     if (i > 0) {
       const wts = from.map((x) => Math.pow(Math.max(aff[x], 1e-3), 2));
       let r = rand() * wts.reduce((a, b) => a + b, 0);
@@ -187,11 +190,13 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     t += d + lerp(0.25, 0.6, 1 - conf);
   }
   picks.forEach((clip, i) => {
-    const dur = ((verdictDur - gap * (count - 1)) * w[i]) / wsum;
+    const dur = ((verdictDur - gap * (picks.length - 1)) * w[i]) / wsum;
     shots.push({ clip, start: t, dur, seed: (rand() * 2 ** 31) | 0, aborted: false, angles: angles(dur) });
-    t += dur + (i < count - 1 ? gap : 0);
+    t += dur + (i < picks.length - 1 ? gap : 0);
   });
 
+  openers.push(picks[0]);
+  openers.splice(0, Math.max(0, openers.length - 3));
   recent.push(...new Set(picks));
   recent.splice(0, Math.max(0, recent.length - 6));
   const blackAt = t;

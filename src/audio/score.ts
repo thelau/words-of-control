@@ -14,13 +14,15 @@
  */
 import type { Appraisal } from '../jev/appraisal.ts';
 import type { Cut, Plan } from '../show/director.ts';
-import { D2, type AudioEngine } from './audio.ts';
+import { D2, dbToGain, type AudioEngine } from './audio.ts';
 import type { Drone } from './drone.ts';
 import { playShot } from './clips.ts';
 import { playBeds } from './beds.ts';
 import type { VoiceSpec } from './voice.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+/** How loud and intense Jev heard the word (0..1): every layer scales by it. */
+export const loud = (A: Appraisal) => A.s.loudness * 0.5 + A.s.intensity * 0.5;
 const VOICE_SR = 16000;
 
 let worker: Worker | null = null;
@@ -31,7 +33,8 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, plan
   const src = a.ctx.createBufferSource();
   src.buffer = buf;
   const g = a.ctx.createGain();
-  g.gain.value = 0.35; // precise, not big: the verdict carries the dynamics
+  // precise, not big: the appraisal follows the word's loudness but stays under the verdict
+  g.gain.value = 0.35 * dbToGain(lerp(-9, 0, loud(A)));
   src.connect(g).connect(a.perfDry);
   src.start(t0);
 
@@ -150,7 +153,7 @@ function renderAppraisal(ctx: BaseAudioContext, A: Appraisal, cuts: Cut[]): Audi
 function voices(a: AudioEngine, A: Appraisal, cuts: Cut[], t0: number) {
   if (!cuts.length) return;
   const count = Math.round(lerp(4, 16, A.s.density * 0.5 + A.s.arousal * 0.5));
-  render(a, t0, 0.22, spec(A, count, cuts.map((c) => ({ start: c.start, dur: c.dur, mode: c.mode })), cuts[cuts.length - 1].start + cuts[cuts.length - 1].dur, 0.8));
+  render(a, t0, 0.22 * dbToGain(lerp(-9, 0, loud(A))), spec(A, count, cuts.map((c) => ({ start: c.start, dur: c.dur, mode: c.mode })), cuts[cuts.length - 1].start + cuts[cuts.length - 1].dur, 0.8));
 }
 
 function spec(A: Appraisal, count: number, cuts: VoiceSpec['cuts'], end: number, spread: number): VoiceSpec {
