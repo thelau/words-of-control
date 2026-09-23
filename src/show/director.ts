@@ -87,8 +87,9 @@ export function direct(A: Appraisal): Plan {
   const verdictDur = empty ? 3.2 : lazy > 0.7 ? lerp(6, 9, lazy) : lerp(4.5, 9, clamp01(A.s.intensity * 0.7 + A.s.duration * 0.3));
   const gap = lazy > 0.7 ? 0 : lerp(0.45, 0.06, aro);
 
-  // only clips that genuinely suit the word; the strongest repeat (new seed) when more shots are needed
-  const eligible = ranked.filter((c) => aff[c] >= aff[ranked[0]] * 0.5);
+  // clips that genuinely suit the word; a multi-shot verdict always has a counterpoint (the runner-up),
+  // so no family plays more than twice — the strongest repeat (new seed, new framing) when more are needed
+  const eligible = ranked.filter((c, i) => aff[c] >= aff[ranked[0]] * 0.5 || i < Math.min(count, 2) || i < Math.ceil(count / 2));
   const picks: ClipId[] = [];
   for (let i = 0; i < count; i++) {
     let c = eligible[i % eligible.length];
