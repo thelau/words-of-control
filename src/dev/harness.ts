@@ -1,7 +1,7 @@
 /**
  * Dev harness (dev builds only; backtick toggles). While open, the keyboard
  * and mouse belong to the harness.
- *   click a word = perform its recorded Jev answers · 1–6 = play one clip alone
+ *   click a word = perform its recorded Jev answers · 1–9 = play one clip alone (CLIPS order)
  *   N next word · R replay · C record one performance to WebM
  */
 import type { App } from '../main.ts';
@@ -45,7 +45,7 @@ export async function mountHarness(app: App) {
     const s = app.show();
     const A = s?.A;
     if (!A) { play(lastWord || words[0]); return; }
-    const plan: Plan = { cuts: [{ start: 0, dur: 0.35, mode: 'line', variant: 1 }], shots: [{ clip, start: 0.5, dur: 7, seed: 12345, aborted: false, zoom: 1, offX: 0, offY: 0 }], blackAt: 7.5, end: 10.5 };
+    const plan: Plan = { cuts: [{ start: 0, dur: 0.35, mode: 'line', variant: 1 }], shots: [{ clip, start: 0.5, dur: 7, seed: 12345, aborted: false, angles: [{ at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 }] }], blackAt: 7.5, end: 10.5 };
     app.performPlan(A, plan);
   };
 

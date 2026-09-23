@@ -2,9 +2,9 @@
  * Record live Jev answers for OUR test words (never visitor input) into
  * src/jev/fixtures.json. Mock mode (?mock) and the e2e tests replay these, so
  * development is deterministic and costs no API calls.
- *   node scripts/fixtures.ts [word …]
+ *   node scripts/fixtures.ts [word …]   (given words are added to / refreshed in the existing file)
  */
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { askJev } from '../proxy/jev.ts';
 
 process.loadEnvFile('.env.local');
@@ -13,7 +13,7 @@ const WORDS = process.argv.slice(2).length ? process.argv.slice(2) : [
   'ocean', 'war', 'mmmm', 'table', 'hello', 'glass', 'thunder', 'sleep', 'rust', 'afternoon', 'why', 'kiss',
   'je t\'aime', '海', 'forever', 'scream', 'dust', 'home', 'want to die', 'fuck you', 'god', 'rain', 'laurent',
 ];
-const out: Record<string, unknown> = {};
+const out: Record<string, unknown> = process.argv.slice(2).length ? JSON.parse(readFileSync('src/jev/fixtures.json', 'utf8')) : {};
 for (const w of WORDS) {
   let r = await askJev(w, process.env.TYPESAFE_API_KEY);
   if (!r.ok && r.error.kind === 'timeout') r = await askJev(w, process.env.TYPESAFE_API_KEY);

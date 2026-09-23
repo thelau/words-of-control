@@ -10,7 +10,9 @@ const FRAME = [
   'lt', 'dur', 'u', 'seed', 'variant', 'variant2', 'mode', 'aborted', 'layerFade',
   // framing: every clip maps p = p / zoom + off (wide ↔ macro between repeated shots)
   'zoom', 'offX', 'offY',
-  // plate: the Chladni mode sounding now
+  // the camera angle within a shot (a new angle = a cut on the same continuous scene)
+  'angle',
+  // chladni: the mode sounding now
   'modeM', 'modeN',
   'charge', 'kick', 'flash', 'invert', 'exposure', 'bloom', 'grain',
   // the output (canvas) size; scenes may render smaller (resX/resY) and be upscaled
@@ -30,6 +32,8 @@ const APPRAISAL = [
   ...SCORES.map((k) => `s_${k}`), 'lazy', 'conf', 'tapeLen', 'byteLen',
   ...MATERIALS.map((k) => `m_${k}`), ...MOTIONS.map((k) => `mo_${k}`), ...SHAPES.map((k) => `sh_${k}`), ...TEXTURES.map((k) => `tx_${k}`),
   'baseR', 'baseG', 'baseB', 'accR', 'accG', 'accB',
+  // the colour clips' palette (from Jev's colour distribution): primary, second, contrast
+  'p1R', 'p1G', 'p1B', 'p2R', 'p2G', 'p2B', 'p3R', 'p3G', 'p3B',
 ];
 
 const FIELDS = [...FRAME, ...APPRAISAL];
@@ -76,5 +80,29 @@ export class Frame {
     const ranked = Object.entries(A.c.colour.p).sort((a, b) => b[1] - a[1]).map(([k]) => k);
     const acc = COLOURS[ranked.find((k) => !NEUTRAL.has(k)) ?? 'red'];
     this.set('accR', acc[0]); this.set('accG', acc[1]); this.set('accB', acc[2]);
+    const pal = palette(A);
+    pal.forEach((c, i) => { this.set(`p${i + 1}R`, c[0]); this.set(`p${i + 1}G`, c[1]); this.set(`p${i + 1}B`, c[2]); });
   }
+}
+
+type RGB = [number, number, number];
+const mixc = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+
+/** Three colours from what Jev sees: the two most likely colours (a neutral becomes pearl, steel or ink),
+ *  shifted by matter (fire warms, water and ice cool, flesh blushes), and a contrast for the edges of light. */
+export function palette(A: Appraisal): [RGB, RGB, RGB] {
+  const ranked = Object.entries(A.c.colour.p).sort((a, b) => b[1] - a[1]).map(([k]) => k);
+  const tone: Record<string, RGB> = { white: [0.95, 0.9, 1], grey: [0.55, 0.62, 0.72], black: [0.12, 0.14, 0.4] };
+  const pick = (k: string): RGB => tone[k] ?? COLOURS[k];
+  let p1 = pick(ranked[0]), p2 = pick(ranked[1] ?? ranked[0]);
+  const m = A.c.material.p;
+  const warm: RGB = [1, 0.42, 0.1], cold: RGB = [0.25, 0.45, 1], blush: RGB = [1, 0.45, 0.45];
+  p1 = mixc(p1, warm, Math.min(0.5, m.fire * 0.6));
+  p2 = mixc(p2, cold, Math.min(0.5, (m.water + m.ice) * 0.5));
+  p1 = mixc(p1, blush, Math.min(0.3, m.flesh * 0.4));
+  // the contrast: the complement of the primary, softened toward white (a rim of light, never a clash)
+  const mx = Math.max(...p1), mn = Math.min(...p1);
+  const comp: RGB = [mx + mn - p1[0], mx + mn - p1[1], mx + mn - p1[2]];
+  const p3 = mixc(comp, [1, 0.97, 0.94], 0.45);
+  return [p1, p2, p3];
 }

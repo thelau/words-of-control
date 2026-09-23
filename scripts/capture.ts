@@ -5,7 +5,7 @@
  *   node scripts/capture.ts [--dir v2] [--size 1280x720x1] word …
  * Needs ffmpeg for the sheets (frames are kept either way).
  */
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { openSession } from './lib/headless.ts';
@@ -33,12 +33,18 @@ for (const w of words) {
   const at: [string, number][] = [];
   const cuts = plan.cuts;
   for (const k of [0, Math.floor(cuts.length / 2), cuts.length - 1]) at.push([`cut-${cuts[k].mode}`, cuts[k].start + cuts[k].dur * 0.6]);
+  // one frame per camera angle (at most four per shot)
   plan.shots.forEach((sh: any, i: number) => {
-    at.push([`shot${i}-${sh.clip}-a`, sh.start + sh.dur * 0.25]);
-    if (!sh.aborted) at.push([`shot${i}-${sh.clip}-b`, sh.start + sh.dur * 0.8]);
+    const angles = sh.angles.slice(0, 4);
+    angles.forEach((a: any, k: number) => {
+      const end = k + 1 < sh.angles.length ? sh.angles[k + 1].at : sh.dur;
+      at.push([`shot${i}-${sh.clip}-${k}`, sh.start + a.at + (end - a.at) * 0.6]);
+    });
   });
   at.push(['black', plan.blackAt + 0.5]);
   const slug = w.replace(/[^\p{L}\p{N}]+/gu, '_');
+  // a new edit of this word replaces the old frames (a shorter plan would otherwise interleave stale ones)
+  for (const f of readdirSync(dir)) if (f.startsWith(`${slug}-`)) rmSync(`${dir}/${f}`);
   let n = 0;
   for (const [label, t] of at) {
     await s.page.waitForFunction((t) => { const w = (window as any).__woc; const sh = w.show(); return !sh || w.audioClock() - sh.t0 >= t; }, t, { polling: 'raf', timeout: 30000 });

@@ -2,6 +2,24 @@
 
 Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
+## 2026-09-23 (evening)
+
+- **Sand is the core material** ("I like the one that looks like sand moving texture"). **Retired:** the
+  fireworks/sparks and the broken-glass fracture ("ugly"). Verdict vocabulary now: sand in five behaviours
+  (Chladni, dunes, crater, furrow, drain) seen as sand, dark beads or points of light; relief, dust, haze, scan.
+- **Sensory overload, addictive; immense (not infinite) variety.** More randomness per performance; camera
+  angles and proximity vary; kaleidoscope / mirror / mosaic / strips framings are welcome.
+- **Edit pace follows the word:** dark, violent words cut sharp and fast; calm ones hold long takes. The verdict
+  runs longer than before.
+- **Appraisal:** keep the original reading types (barcode, numbers, spectrum, bits, scatter, line, word) and vary
+  within the barcode family; new reading types were rejected.
+- **Voices:** only in the appraisal. No voices under the verdict (unless one day something truly eerie).
+- **Sound:** violence as depth — long sub impacts with a beating vibration tail, pressure, rumble — never
+  plastic bangs or guns; dragging through sand sounds like stones and water, smooth, never a swoosh. Sound
+  needs as much variety as the image (beds drawn per performance).
+- **No ML at runtime** for variety: authored generators + combinatorics + randomness.
+- Laurent's framing: "in a way it's more *Sensory Words* than *Words of Control*" (title not decided).
+
 ## 2026-09-23 (later)
 
 - **Direction v2** (docs/DIRECTION-v2.md): Enter → *appraisal* (rapid, Ikeda-style data) → *verdict* as a

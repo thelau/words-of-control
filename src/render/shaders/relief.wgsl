@@ -110,8 +110,9 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let slow = mix(1.0, 0.3, F.lazy);
 
   // camera: slightly below and to the side of a standing slab, orbiting a few degrees over the shot
-  let yaw = (F.variant - 0.5) * 0.5 + (F.u * slow - 0.5) * 0.2;
-  let pitch = 0.1 + 0.06 * F.s_scale;
+  // each camera angle (F.angle) comes round the slab from its own side and height
+  let yaw = (F.variant - 0.5) * 0.5 + (F.angle - 0.5) * 1.1 + (F.u * slow - 0.5) * 0.2;
+  let pitch = 0.1 + 0.06 * F.s_scale + fract(F.angle * 5.3) * 0.35;
   let dist = Hs * 1.8 / F.zoom; // the slab fills ~¾ of the frame height when wide
   let aim = vec3f(F.offX * W * 0.5, F.offY * Hs * 0.5, H * 0.5);
   let cam = aim + vec3f(sin(yaw) * cos(pitch), -sin(pitch), cos(yaw) * cos(pitch)) * dist;

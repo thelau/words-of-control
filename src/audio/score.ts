@@ -8,7 +8,8 @@
  *   dry buffer, so sound and image cut together. The first cut replays how the
  *   word was typed.
  * - Voices: robot voices read the digits on screen (voice.ts, in a worker).
- * - Verdict: one voice per clip (clips.ts), hard-cut with the image.
+ * - Verdict: one voice per clip (clips.ts), hard-cut with the image, over one to
+ *   three beds drawn from the judgement, with every camera cut heard (beds.ts).
  * - Release: the hall blooms once at the cut to black; the drone ducks.
  */
 import type { Appraisal } from '../jev/appraisal.ts';
@@ -16,6 +17,7 @@ import type { Cut, Plan } from '../show/director.ts';
 import { D2, type AudioEngine } from './audio.ts';
 import type { Drone } from './drone.ts';
 import { playShot } from './clips.ts';
+import { playBeds } from './beds.ts';
 import type { VoiceSpec } from './voice.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -36,6 +38,7 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, plan
   voices(a, A, plan.cuts, t0);
   const residue: number[] = [];
   for (const shot of plan.shots) residue.push(...playShot(a, drone, A, shot, t0));
+  playBeds(a, A, plan, t0);
   a.cutAt(t0 + plan.blackAt, t0 + plan.end);
   drone.duck(t0 + plan.blackAt);
   drone.remember({
@@ -143,11 +146,15 @@ function renderAppraisal(ctx: BaseAudioContext, A: Appraisal, cuts: Cut[]): Audi
 }
 
 // ------------------------------------------------------------------ voices
+/** The appraisal chorus: reads the bytes and the tape as the cuts show them, doubling to a wall. */
 function voices(a: AudioEngine, A: Appraisal, cuts: Cut[], t0: number) {
   if (!cuts.length) return;
-  worker ??= new Worker(new URL('./voice.worker.ts', import.meta.url), { type: 'module' });
-  const m = A.c.material.p;
   const count = Math.round(lerp(4, 16, A.s.density * 0.5 + A.s.arousal * 0.5));
+  render(a, t0, 0.22, spec(A, count, cuts.map((c) => ({ start: c.start, dur: c.dur, mode: c.mode })), cuts[cuts.length - 1].start + cuts[cuts.length - 1].dur, 0.8));
+}
+
+function spec(A: Appraisal, count: number, cuts: VoiceSpec['cuts'], end: number, spread: number): VoiceSpec {
+  const m = A.c.material.p;
   // the first voice reads the word's own bytes; the others read the tape the screen shows
   const bytesDigits = [...A.bytes].flatMap((b) => String(b).split('').map(Number));
   const digits: number[][] = [bytesDigits.length ? bytesDigits : [0]];
@@ -160,11 +167,8 @@ function voices(a: AudioEngine, A: Appraisal, cuts: Cut[], t0: number) {
     digits.push(seq);
   }
   const h = A.s.age < 0.33 ? 4 : A.s.age < 0.66 ? 3 : 2;
-  const spec: VoiceSpec = {
-    sr: VOICE_SR,
-    digits,
-    cuts: cuts.map((c) => ({ start: c.start, dur: c.dur, mode: c.mode })),
-    end: cuts[cuts.length - 1].start + cuts[cuts.length - 1].dur,
+  return {
+    sr: VOICE_SR, digits, cuts, end,
     f0: D2 * h,
     formantScale: lerp(0.85, 1.25, 1 - A.s.age),
     rate: lerp(2.5, 7, A.s.arousal),
@@ -173,8 +177,14 @@ function voices(a: AudioEngine, A: Appraisal, cuts: Cut[], t0: number) {
     whisper: Math.min(1, m.smoke + m.void * 0.7),
     tin: Math.min(1, m.metal + m.glass * 0.6),
     drive: m.fire,
+    spread,
     seed: A.seed,
   };
+}
+
+/** Render a chorus in the worker and play it from `at`, sample-locked (joining in step if the worker was late). */
+function render(a: AudioEngine, at: number, gain: number, sp: VoiceSpec) {
+  worker ??= new Worker(new URL('./voice.worker.ts', import.meta.url), { type: 'module' });
   const id = nextId++;
   const onMessage = (e: MessageEvent<{ id: number; pcm: Float32Array }>) => {
     if (e.data.id !== id) return;
@@ -187,11 +197,11 @@ function voices(a: AudioEngine, A: Appraisal, cuts: Cut[], t0: number) {
     const src = a.ctx.createBufferSource();
     src.buffer = buf;
     const g = a.ctx.createGain();
-    g.gain.value = 0.22;
+    g.gain.value = gain;
     src.connect(g).connect(a.perfDry);
-    const late = Math.max(0, a.now - t0);
-    src.start(t0 + late, late); // sample-locked to the cuts; if the worker was late, join in step
+    const late = Math.max(0, a.now - at);
+    src.start(at + late, late);
   };
   worker.addEventListener('message', onMessage);
-  worker.postMessage({ id, spec });
+  worker.postMessage({ id, spec: sp });
 }

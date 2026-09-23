@@ -25,6 +25,7 @@ export type VoiceSpec = {
   whisper: number;       // 0..1 noise instead of pulses (smoke, void)
   tin: number;           // 0..1 short comb (metal, glass)
   drive: number;         // 0..1 saturation (fire)
+  spread: number;        // 0..1 stereo width of the chorus (the lead stays centred)
   seed: number;
 };
 
@@ -94,7 +95,7 @@ export function renderVoices(spec: VoiceSpec): Float32Array {
     // voices enter by doubling: 1 on the first cut, 2 on the second, 4, 8, 16…
     const entryCut = Math.min(spec.cuts.length - 1, Math.floor(Math.log2(v + 1)));
     let t = (spec.cuts[entryCut]?.start ?? 0) + (v ? rand() * 0.2 : 0);
-    const pan = v === 0 ? 0 : rand() * 1.6 - 0.8;
+    const pan = v === 0 ? 0 : (rand() * 2 - 1) * spec.spread;
     const gain = v === 0 ? 0.5 + 0.5 * spec.lead : (0.55 / Math.sqrt(voices)) * (1 - 0.4 * spec.lead);
     const scale = spec.formantScale * (1 + (rand() - 0.5) * 0.08);
     const r1 = new Res(sr), r2 = new Res(sr), r3 = new Res(sr), r4 = new Res(sr), rn = new Res(sr);

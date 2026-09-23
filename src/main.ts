@@ -21,8 +21,7 @@ import { momentAt, type Moment } from './show/timeline.ts';
 import { seedFromText } from './core/rng.ts';
 import { showSupport, hideSupport } from './support.ts';
 import { showError } from './errorPopup.ts';
-import { fractureRays } from './render/fractureRays.ts';
-import { plateMode } from './show/plateModes.ts';
+import { isSand, packSand, plateMode, sandEvents } from './show/sand.ts';
 
 export type State = 'idle' | 'typing' | 'analyzing' | 'performing' | 'barred' | 'support' | 'error';
 
@@ -32,10 +31,11 @@ const query = new URLSearchParams(location.search);
 const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = {
   room: { bloom: 0.06, halation: 0, flat: 0 }, black: { bloom: 0, halation: 0, flat: 0 },
   appraisal: { bloom: 0.02, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
-  fracture: { bloom: 0.05, halation: 0.06, flat: 0 }, grains: { bloom: 0.08, halation: 0.08, flat: 0 },
+  grains: { bloom: 0.08, halation: 0.08, flat: 0 },
   haze: { bloom: 0.08, halation: 0.03, flat: 0 },
   scan: { bloom: 0.1, halation: 0.05, flat: 1 },
-  plate: { bloom: 0.03, halation: 0.02, flat: 0 },
+  sand: { bloom: 0.05, halation: 0.03, flat: 0 },
+  iris: { bloom: 0.16, halation: 0.07, flat: 0 },
 };
 
 /** White balance from the matter: cold for glass, ice, water; warm for fire, sand, lazy afternoons. */
@@ -258,26 +258,22 @@ async function boot() {
         f('flash', m.flash); f('invert', m.invert ? 1 : 0);
         f('mode', m.mode);
         f('zoom', m.zoom); f('offX', m.offX); f('offY', m.offY);
+        f('angle', m.angle);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
-        if (m.key !== lastKey && (layer === 'grains' || layer === 'scan' || layer === 'plate')) {
+        if (m.key !== lastKey && (layer === 'grains' || layer === 'scan' || layer === 'sand')) {
           renderer.clearTrail();
-          f('mode', 1); // grains: spawn this frame; plate: lay fresh sand
+          f('mode', 1); // grains: spawn this frame; sand: lay a fresh bed
         }
-        if (layer === 'plate') {
+        if (m.key !== lastKey && m.clip && isSand(m.clip)) renderer.setSand(packSand(sandEvents(show.A, m.clip, m.seed, m.dur)));
+        if (m.clip === 'chladni') {
           const [mm, nn] = plateMode(show.A, m.seed, m.lt / m.dur);
           f('modeM', mm); f('modeN', nn);
         }
-        if (m.key !== lastKey && layer === 'fracture') {
-          const r = fractureRays(show.A, m.seed);
-          renderer.setFracture(r.data);
-          f('variant2', r.count);
-        }
         lastKey = m.key;
         const mat = show.A.c.material.p;
-        f('variant2', layer === 'scan' ? 1 : layer === 'fracture' ? frame.get('variant2') : 0);
-        const sparks = Math.min(1, show.A.c.motion.p.spreading + show.A.c.motion.p.breaking);
-        persist = layer === 'scan' ? Math.pow(0.985, dt * 60) // the scanner forgets: a form is only ever glimpsed as it is read
-          : Math.pow(Math.max(0.86 + 0.1 * Math.min(1, mat.smoke + mat.void * 0.5) + 0.04 * mat.fire, 0.95 * sparks), dt * 60);
+        f('variant2', layer === 'scan' ? 1 : 0);
+        persist = layer === 'scan' ? Math.pow(0.95, dt * 60) // the scanner forgets: a form is only ever glimpsed as it is read
+          : Math.pow(0.86 + 0.1 * Math.min(1, mat.smoke + mat.void * 0.5) + 0.04 * mat.fire, dt * 60);
       }
     }
     if (layer === 'room') {

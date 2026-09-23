@@ -36,14 +36,20 @@ many short ones; low confidence produces false starts and shots that don't resol
 
 - **Clip** = a self-contained generator (WebGPU scene + matching Web Audio voice) with one interface:
   `(analysis, seed, duration) → shot`. Every clip is composed around the centre.
-- **Library now (2026-09-23):** *relief* (raymarched monolith, raking light), *fracture* (lit glass shards /
-  a single cleave; each crack sings), *grains* (sparks with physics / dust in a light slab), *haze* (gobo
-  shaft, shutter light for idle afternoons, pinprick void, pool caustics), *scan* (a laser reads a hidden
-  surface; contours glimpsed and forgotten), *plate* (Chladni sand from the word's bytes; the plate sounds
-  its mode). Candidates next: iris, raked grooves, ink/reaction-diffusion, a held "still".
-- **Director** = picks 2–5 clips by affinity to the analysis (material, motion, emotion, texture…),
-  sets their parameters, orders them and cuts them to the edit rhythm (arousal, rhythm, confidence).
-  Deterministic from the word's seed + the answers.
+- **Library now (2026-09-23, evening):** sand is the core — one simulation (src/show/sand.ts, sand.wgsl) in
+  five behaviours: *chladni* (a sound's figure), *dunes* (wind ripples), *crater* (strikes), *furrow* (blades
+  drawn through), *drain* (pouring away), seen through a macro camera with depth of field as *sand*, dark
+  *beads* (pin-art) or *points* of light. Counterpoints: *relief* (monolith), *dust* (motes in a light slab),
+  *haze* (shutter light, the void), *scan* (a laser reading a surface).
+- **Coverage and framing:** each shot is cut between camera angles on the same continuous scene (grazing,
+  three-quarter, top-down, near/far, sometimes tilted); some angles break the frame (kaleidoscope, mirror,
+  mosaic of 1:1 crops, offset strips). Every camera cut is heard (beds.ts accents).
+- **Sound beds** (src/audio/beds.ts): 12 authored textures (pressure, rumble, dread, metal, swells, heartbeat,
+  static, choir, tape, pulse, bells, breath), 1–3 drawn per performance under the clips.
+- **Director** = picks 1–7 clips by affinity to the analysis (material, motion, emotion, texture…) with a
+  weighted draw, sets their parameters, orders them and cuts them to the edit pace (dark/violent → fast,
+  calm → long takes). Seeded by the word + the answers + a per-performance salt; it remembers the last
+  performances and avoids repeating them (except for idle words).
 - Grow the library over time; each clip is polished in isolation in the harness.
 
 ## Point to decide: "no text, no numbers" (SPEC §1.1, §1.9)

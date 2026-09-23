@@ -1,36 +1,37 @@
 /**
  * WebGPU renderer: one scene per frame (room, appraisal, a verdict clip, or
  * black) into an HDR target, then bloom and the film composite. Scenes are
- * fullscreen shaders except relief (compute height field + shading) and
- * grains (compute simulation + streaks into a persistence buffer).
+ * fullscreen shaders except relief (compute height field + shading), sand
+ * (compute simulation + camera) and grains (compute simulation + streaks into
+ * a persistence buffer).
  */
 import commonWGSL from './shaders/common.wgsl?raw';
 import roomWGSL from './shaders/room.wgsl?raw';
 import appraisalWGSL from './shaders/appraisal.wgsl?raw';
 import reliefWGSL from './shaders/relief.wgsl?raw';
-import fractureWGSL from './shaders/fracture.wgsl?raw';
 import hazeWGSL from './shaders/haze.wgsl?raw';
+import irisWGSL from './shaders/iris.wgsl?raw';
 import grainsWGSL from './shaders/grains.wgsl?raw';
 import grainsDrawWGSL from './shaders/grains_draw.wgsl?raw';
 import scanWGSL from './shaders/scan.wgsl?raw';
-import plateWGSL from './shaders/plate.wgsl?raw';
-import plateDrawWGSL from './shaders/plate_draw.wgsl?raw';
+import sandWGSL from './shaders/sand.wgsl?raw';
+import sandDrawWGSL from './shaders/sand_draw.wgsl?raw';
 import fadeWGSL from './shaders/fade.wgsl?raw';
 import blitWGSL from './shaders/blit.wgsl?raw';
+import dofWGSL from './shaders/dof.wgsl?raw';
 import bloomWGSL from './shaders/bloom.wgsl?raw';
 import compositeWGSL from './shaders/composite.wgsl?raw';
 import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
-import { MAX_RAYS, RAY_VEC4 } from './fractureRays.ts';
-import type { ClipId } from '../show/director.ts';
+import { SAND_VEC4 } from '../show/sand.ts';
 
-export type Layer = 'room' | 'black' | 'appraisal' | ClipId;
+export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'grains' | 'haze' | 'scan' | 'sand' | 'iris';
 
 const HDR: GPUTextureFormat = 'rgba16float';
 const BLOOM_LEVELS = 6;
 const TAPE_MAX = 1024;
-const RELIEF_RES = 640;
+const RELIEF_RES = 512;
 const GRAINS_DEFAULT = 150_000;
-const PLATE_N = 384;
+const SAND_N = 512;
 const WORD_W = 2048;
 const WORD_H = 160;
 
@@ -50,7 +51,10 @@ export class Renderer {
   private fBuf!: GPUBuffer;
   private tapeBuf!: GPUBuffer;
   private grainBuf!: GPUBuffer;
-  private raysBuf!: GPUBuffer;
+  private sandEv!: GPUBuffer;
+  private sandVel!: GPUBuffer;
+  private sandTex!: GPUTexture;
+  private wrapSampler!: GPUSampler;
   private sand: GPUBuffer[] = [];
   private sampler!: GPUSampler;
   private atlas!: GPUTexture;
@@ -103,8 +107,11 @@ export class Renderer {
     this.fBuf = d.createBuffer({ size: FRAME_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.tapeBuf = d.createBuffer({ size: TAPE_MAX * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.grainBuf = d.createBuffer({ size: this.grainCount * 32, usage: GPUBufferUsage.STORAGE });
-    this.sand = [0, 1].map(() => d.createBuffer({ size: PLATE_N * PLATE_N * 4, usage: GPUBufferUsage.STORAGE }));
-    this.raysBuf = d.createBuffer({ size: MAX_RAYS * RAY_VEC4 * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.sand = [0, 1].map(() => d.createBuffer({ size: SAND_N * SAND_N * 4, usage: GPUBufferUsage.STORAGE }));
+    this.sandEv = d.createBuffer({ size: SAND_VEC4 * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.sandVel = d.createBuffer({ size: SAND_N * SAND_N * 8, usage: GPUBufferUsage.STORAGE });
+    this.sandTex = d.createTexture({ size: [SAND_N, SAND_N], format: HDR, usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
+    this.wrapSampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat' });
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
     this.atlas = await makeGlyphAtlas(d);
     this.wordTex = d.createTexture({ size: [WORD_W, WORD_H], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
@@ -132,9 +139,10 @@ export class Renderer {
 
     this.p.room = full('room', roomWGSL);
     this.p.appraisal = full('appraisal', appraisalWGSL);
-    this.p.fracture = full('fracture', fractureWGSL);
     this.p.haze = full('haze', hazeWGSL);
+    this.p.iris = full('iris', irisWGSL);
     this.p.blit = full('blit', blitWGSL);
+    this.p.dof = full('dof', dofWGSL);
     this.p.composite = full('composite', compositeWGSL, this.format);
 
     const relief = mod('relief', pre + reliefWGSL);
@@ -159,13 +167,15 @@ export class Renderer {
       fragment: { module: scan, entryPoint: 'fs', targets: [{ format: HDR, blend: add }] },
     });
 
-    const plate = mod('plate', pre + plateWGSL);
-    this.c.plateTransport = d.createComputePipeline({ layout: 'auto', compute: { module: plate, entryPoint: 'transport' } });
-    this.c.plateRepose = d.createComputePipeline({ layout: 'auto', compute: { module: plate, entryPoint: 'repose' } });
-    const plateDraw = mod('plate_draw', pre + plateDrawWGSL);
-    this.p.plate = d.createRenderPipeline({
-      layout: 'auto', vertex: { module: plateDraw, entryPoint: 'vs_full' },
-      fragment: { module: plateDraw, entryPoint: 'fs', targets: [{ format: HDR }] },
+    const sand = mod('sand', pre + sandWGSL);
+    this.c.sandVelocity = d.createComputePipeline({ layout: 'auto', compute: { module: sand, entryPoint: 'velocity' } });
+    this.c.sandTransport = d.createComputePipeline({ layout: 'auto', compute: { module: sand, entryPoint: 'transport' } });
+    this.c.sandBake = d.createComputePipeline({ layout: 'auto', compute: { module: sand, entryPoint: 'bake' } });
+    this.c.sandRepose = d.createComputePipeline({ layout: 'auto', compute: { module: sand, entryPoint: 'repose' } });
+    const sandDraw = mod('sand_draw', pre + sandDrawWGSL);
+    this.p.sand = d.createRenderPipeline({
+      layout: 'auto', vertex: { module: sandDraw, entryPoint: 'vs_full' },
+      fragment: { module: sandDraw, entryPoint: 'fs', targets: [{ format: HDR }] },
     });
 
     const fade = mod('fade', fadeWGSL);
@@ -189,8 +199,7 @@ export class Renderer {
     const group = (name: string, pipe: GPURenderPipeline | GPUComputePipeline, entries: GPUBindGroupEntry[]) => {
       this.bg[name] = d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries });
     };
-    for (const k of ['room', 'haze']) group(k, this.p[k], [{ binding: 0, resource: uni }]);
-    group('fracture', this.p.fracture, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.raysBuf } }]);
+    for (const k of ['room', 'haze', 'iris']) group(k, this.p[k], [{ binding: 0, resource: uni }]);
     group('appraisal', this.p.appraisal, [
       { binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } },
       { binding: 2, resource: this.atlas.createView() },
@@ -201,17 +210,19 @@ export class Renderer {
     group('scan', this.p.scan, [{ binding: 0, resource: uni }, { binding: 2, resource: this.heightTex.createView() }, { binding: 3, resource: this.sampler }]);
     // sand ping-pong: transport A→B, repose B→A (the drawing reads A)
     const sb = (b: GPUBuffer) => ({ buffer: b });
-    group('plateT', this.c.plateTransport, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }, { binding: 2, resource: sb(this.sand[1]) }]);
-    group('plateR', this.c.plateRepose, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[1]) }, { binding: 2, resource: sb(this.sand[0]) }]);
-    group('plate', this.p.plate, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }]);
+    group('sandV', this.c.sandVelocity, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }, { binding: 3, resource: sb(this.sandEv) }, { binding: 4, resource: sb(this.sandVel) }]);
+    group('sandT', this.c.sandTransport, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }, { binding: 2, resource: sb(this.sand[1]) }, { binding: 3, resource: sb(this.sandEv) }, { binding: 4, resource: sb(this.sandVel) }]);
+    group('sandR', this.c.sandRepose, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[1]) }, { binding: 2, resource: sb(this.sand[0]) }]);
+    group('sandB', this.c.sandBake, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }, { binding: 3, resource: sb(this.sandEv) }, { binding: 5, resource: this.sandTex.createView() }]);
+    group('sand', this.p.sand, [{ binding: 0, resource: uni }, { binding: 1, resource: this.sandTex.createView() }, { binding: 2, resource: sb(this.sandEv) }, { binding: 3, resource: this.wrapSampler }]);
     group('grainsSim', this.c.grainsSim, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.grainBuf } }]);
     group('grains', this.p.grains, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.grainBuf } }]);
     this.resize();
   }
 
-  /** The crack pattern of the fracture shot about to play (fractureRays.ts). */
-  setFracture(data: Float32Array) {
-    this.d.queue.writeBuffer(this.raysBuf, 0, data);
+  /** The events of the sand shot about to play (sand.ts packSand). */
+  setSand(data: Float32Array) {
+    this.d.queue.writeBuffer(this.sandEv, 0, data);
   }
 
   /** Draw the typed word once for the appraisal's opening cut (any script; never stored). */
@@ -258,6 +269,7 @@ export class Renderer {
     this.trail = mkLow();
     this.buildBloom();
     this.bg.blit = this.d.createBindGroup({ layout: this.p.blit.getBindGroupLayout(0), entries: [{ binding: 0, resource: this.trail.view }] });
+    this.bg.dof = this.d.createBindGroup({ layout: this.p.dof.getBindGroupLayout(0), entries: [{ binding: 0, resource: this.trail.view }] });
     this.bg.composite = this.d.createBindGroup({
       layout: this.p.composite.getBindGroupLayout(0),
       entries: [
@@ -305,6 +317,7 @@ export class Renderer {
   render(layer: Layer, frame: Float32Array, persist = 0.9, hi = false) {
     const d = this.d;
     d.queue.writeBuffer(this.fBuf, 0, frame);
+    this.lastLayer = layer;
     const enc = d.createCommandEncoder();
     const timed = !!this.qs && !this.qBusy;
     // the frame's first pass stamps its start; the composite stamps its end
@@ -325,28 +338,24 @@ export class Renderer {
     if (layer === 'black') {
       enc.beginRenderPass({ colorAttachments: [{ view: this.scene.view, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }], ...stamp() }).end();
     } else if (layer === 'relief') {
-      const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
-      cp.setPipeline(this.c.reliefHeight);
-      cp.setBindGroup(0, this.bg.reliefHeight);
-      cp.dispatchWorkgroups(RELIEF_RES / 16, RELIEF_RES / 16);
-      cp.end();
+      this.reliefHeight(enc, stamp);
       fullPass(this.p.relief, this.bg.relief);
-    } else if (layer === 'plate') {
+    } else if (layer === 'sand') {
       const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
-      const wg = Math.ceil(PLATE_N / 16);
+      const wg = Math.ceil(SAND_N / 16);
       for (let k = 0; k < 3; k++) {
-        cp.setPipeline(this.c.plateTransport); cp.setBindGroup(0, this.bg.plateT); cp.dispatchWorkgroups(wg, wg);
-        cp.setPipeline(this.c.plateRepose); cp.setBindGroup(0, this.bg.plateR); cp.dispatchWorkgroups(wg, wg);
+        cp.setPipeline(this.c.sandVelocity); cp.setBindGroup(0, this.bg.sandV); cp.dispatchWorkgroups(wg, wg);
+        cp.setPipeline(this.c.sandTransport); cp.setBindGroup(0, this.bg.sandT); cp.dispatchWorkgroups(wg, wg);
+        cp.setPipeline(this.c.sandRepose); cp.setBindGroup(0, this.bg.sandR); cp.dispatchWorkgroups(wg, wg);
       }
+      cp.setPipeline(this.c.sandBake); cp.setBindGroup(0, this.bg.sandB); cp.dispatchWorkgroups(wg, wg);
       cp.end();
-      fullPass(this.p.plate, this.bg.plate);
+      // the camera draws into the spare low-res target with its blur in alpha; the lens resolves it into the scene
+      fullPass(this.p.sand, this.bg.sand, this.trail.view);
+      fullPass(this.p.dof, this.bg.dof, this.scene.view, {});
     } else if (layer === 'scan') {
       // the hidden surface, then the laser into the long exposure
-      const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
-      cp.setPipeline(this.c.reliefHeight);
-      cp.setBindGroup(0, this.bg.reliefHeight);
-      cp.dispatchWorkgroups(RELIEF_RES / 16, RELIEF_RES / 16);
-      cp.end();
+      this.reliefHeight(enc, stamp);
       const tp = enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'load', storeOp: 'store' }] });
       tp.setPipeline(this.p.fade);
       tp.setBlendConstant({ r: persist, g: persist, b: persist, a: persist });
@@ -403,9 +412,23 @@ export class Renderer {
     }
   }
 
+  private lastLayer: Layer = 'room';
+  private heightTick = 0;
+  private heightLayer: Layer | null = null;
+  /** The relief's height field drifts slowly: recomputed every other frame (and at once when its layer starts). */
+  private reliefHeight(enc: GPUCommandEncoder, stamp: () => { timestampWrites?: GPURenderPassTimestampWrites }) {
+    if (this.heightTick++ % 2 === 1 && this.heightLayer === this.lastLayer) return;
+    this.heightLayer = this.lastLayer;
+    const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
+    cp.setPipeline(this.c.reliefHeight);
+    cp.setBindGroup(0, this.bg.reliefHeight);
+    cp.dispatchWorkgroups(RELIEF_RES / 16, RELIEF_RES / 16);
+    cp.end();
+  }
+
   /** Draw every layer once so no pipeline compiles mid-performance. */
   warmUp(frame: Float32Array) {
-    for (const l of ['room', 'appraisal', 'relief', 'fracture', 'haze', 'grains', 'scan', 'plate', 'black'] as Layer[]) this.render(l, frame, 0.9, l === 'appraisal');
+    for (const l of ['room', 'appraisal', 'relief', 'haze', 'grains', 'scan', 'sand', 'iris', 'black'] as Layer[]) this.render(l, frame, 0.9, l === 'appraisal');
   }
 
   /** Clear the long-exposure buffer (a new grains shot starts from black). */

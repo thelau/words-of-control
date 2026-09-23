@@ -1,4 +1,5 @@
 const TAU: f32 = 6.28318530718;
+const PI: f32 = 3.14159265359;
 
 struct Particle {
   a: vec4f, // pos.xy, vel.xy   (world units: 1 = half the short screen side, origin = centre, y up)

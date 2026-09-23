@@ -33,8 +33,46 @@ fn hexDigit(b: u32, hi: bool) -> f32 { return f32(select(b & 15u, (b >> 4u) & 15
 
 // ---------------------------------------------------------------- modes
 fn barcode(px: vec2f, res: vec2f) -> vec3f {
+  // four styles of the same reading (the bits of the tape, scrolling), chosen per cut:
+  // 0 full-height bars · 1 stacked bands, each its own stretch of tape and speed ·
+  // 2 horizontal rows falling · 3 bars whose width is the value, mirrored from the centre
+  let style = u32(fract(F.variant * 13.7) * 4.0);
   let w = F.dpr * (1.0 + floor(F.variant * 3.0));
-  let speed = (300.0 + 2200.0 * F.s_arousal) * F.dpr * select(1.0, -1.0, F.variant > 0.5);
+  var speed = (300.0 + 2200.0 * F.s_arousal) * F.dpr * select(1.0, -1.0, F.variant > 0.5);
+  if (style == 1u) {
+    let bands = 3.0 + floor(F.s_density * 5.0);
+    let b = floor(px.y / res.y * bands);
+    if (fract(px.y / res.y * bands) > 0.86) { return vec3f(0.0); } // a black seam between bands
+    let bs = fract(sin(b * 12.9898 + F.variant * 7.0) * 43758.5453);
+    speed *= (0.3 + 1.7 * bs) * select(1.0, -1.0, bs > 0.5);
+    let wb = F.dpr * (1.0 + floor(bs * 4.0));
+    let idx = i32(floor((px.x + F.lt * speed) / wb)) + i32(b * 97.0);
+    let bit = (byteOf(idx / 8) >> u32(idx % 8)) & 1u;
+    return select(ink(), acc(), tv(idx / 8) > 0.93) * f32(bit);
+  }
+  if (style == 2u) {
+    let idx = i32(floor((px.y + F.lt * speed * 0.35) / w));
+    let bit = (byteOf(idx / 8) >> u32(idx % 8)) & 1u;
+    let side = res.x * (0.2 + 0.25 * F.s_scale);
+    if (abs(px.x - res.x * 0.5) > side) { return vec3f(0.0); }
+    return select(ink(), acc(), tv(idx / 8) > 0.93) * f32(bit);
+  }
+  if (style == 3u) {
+    // bars as wide as their value: a byte of 255 is a slab, a byte of 3 a hairline
+    let x = abs(px.x - res.x * 0.5) + F.lt * speed * 0.2;
+    var pos = 0.0;
+    var k = i32(F.variant * 50.0);
+    var on = 0.0;
+    for (var j = 0; j < 48; j++) {
+      let wv = (1.0 + tv(k) * 14.0) * F.dpr;
+      if (x < pos + wv) { on = f32(j % 2 == 0); break; }
+      pos += wv;
+      k++;
+    }
+    let band = res.y * (0.3 + 0.5 * F.s_intensity);
+    if (abs(px.y - res.y * 0.5) > band * 0.5) { return vec3f(0.0); }
+    return select(ink(), acc(), tv(k) > 0.9) * on;
+  }
   let idx = i32(floor((px.x + F.lt * speed) / w));
   let bit = (byteOf(idx / 8) >> u32(idx % 8)) & 1u;
   let band = select(res.y, res.y * (0.18 + 0.2 * F.variant), fract(F.variant * 7.0) > 0.45);
@@ -125,16 +163,18 @@ fn scatter(px: vec2f, res: vec2f) -> vec3f {
   let o = (res - vec2f(side)) * 0.5;
   let q = px - o;
   var c = vec3f(0.0);
-  let e = min(min(q.x, q.y), min(side - q.x, side - q.y));
-  if (abs(e) < F.dpr * 0.6) { c += ink() * 0.25; }
   let inside = q.x > -2.0 * F.dpr && q.y > -2.0 * F.dpr && q.x < side + 2.0 * F.dpr && q.y < side + 2.0 * F.dpr;
   if (!inside) { return c; }
   let n = min(i32(F.tapeLen) - 1, 44);
-  let shown = i32(F.u * 1.15 * f32(n));
+  let shown = i32((0.35 + F.u) * f32(n)); // already part-drawn when the cut lands
   var prevPt = vec2f(tv(0), 1.0 - tv(1)) * side;
   for (var i = 1; i < 44; i++) {
     if (i >= min(shown, n)) { break; }
     let pt = vec2f(tv(i), 1.0 - tv(i + 1)) * side;
+    // most segments are far from this pixel: a bounding-box test skips them
+    let lo = min(pt, prevPt) - vec2f(3.0 * F.dpr);
+    let hi = max(pt, prevPt) + vec2f(3.0 * F.dpr);
+    if (any(q < lo) || any(q > hi)) { prevPt = pt; continue; }
     let dv = q - pt;
     let d2 = dot(dv, dv);
     if (d2 < 9.0 * F.dpr * F.dpr) { c += ink() * exp(-d2 / (0.8 * F.dpr * F.dpr)); }
@@ -143,9 +183,12 @@ fn scatter(px: vec2f, res: vec2f) -> vec3f {
     let ba = pt - prevPt;
     let dl = length(pa - ba * clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0));
     if (dl < F.dpr) { c += ink() * 0.28 * (1.0 - dl / F.dpr); }
-    if (i == min(shown, n) - 1 && (abs(q.x - pt.x) < F.dpr * 0.5 || abs(q.y - pt.y) < F.dpr * 0.5)) { c += acc() * 0.7; }
     prevPt = pt;
   }
+  // the crosshair on the newest reading
+  let last = max(min(shown, n) - 1, 0);
+  let lp = vec2f(tv(last), 1.0 - tv(last + 1)) * side;
+  if (last > 0 && (abs(q.x - lp.x) < F.dpr * 0.5 || abs(q.y - lp.y) < F.dpr * 0.5)) { c += acc() * 0.7; }
   return c;
 }
 

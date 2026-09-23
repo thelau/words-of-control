@@ -1,0 +1,191 @@
+// SAND (drawing) — a macro camera close over the terrain, tilted like a
+// photographer crouching at its edge, a low sun raking across it. The terrain
+// is seen as one of four materials (sand.ts SAND_MATERIALS): sand grains with
+// glints; dark polished pins (pin-art); a dust of coloured light; dotted
+// contour lines in colour. Beyond sand, the bed stands on hills (baked in
+// sand.wgsl) and the camera marches it. Cast shadows, a pool of light falling
+// off into darkness (the bed never shows its edge), and the circle of
+// confusion in alpha for the lens (dof.wgsl).
+
+@group(0) @binding(0) var<uniform> F: FrameU;
+@group(0) @binding(1) var bed: texture_2d<f32>; // baked by sand.wgsl: h, slope ×16, curvature ×4
+@group(0) @binding(2) var<storage, read> E: array<vec4f>;
+@group(0) @binding(3) var wrapS: sampler; // linear, repeat: the bed is periodic
+
+const N = 512u;
+
+fn bedAt(uv: vec2f) -> vec4f { return textureSampleLevel(bed, wrapS, uv, 0.0); }
+/** Height at uv (periodic, bilinear), in sim units. */
+fn h(uv: vec2f) -> f32 { return bedAt(uv).x; }
+
+fn pal(i: i32) -> vec3f {
+  if (i == 0) { return vec3f(F.p1R, F.p1G, F.p1B); }
+  if (i == 1) { return vec3f(F.p2R, F.p2G, F.p2B); }
+  return vec3f(F.p3R, F.p3G, F.p3B);
+}
+
+@fragment
+fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
+  let res = vec2f(F.resX, F.resY);
+  let beh = E[0].x;
+  let chladni = beh < 0.5;
+  let mat = E[1].z;
+  let slow = mix(1.0, 0.35, F.lazy);
+  let u = F.u * slow;
+  // heights: one sim unit is Hs cells tall, so the angle of repose renders at ~33°
+  let lim = mix(0.45, 0.85, F.s_hardness) / f32(N) * 60.0;
+  let Hs = 0.65 / lim;
+  let zs = Hs / f32(N); // world height (uv units) per sim unit
+
+  // camera: each angle (F.angle) is a new setup — grazing, three-quarter or straight down, from any
+  // direction, near or far, sometimes tilted — aimed near the event, drifting slowly while it rolls
+  let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01)) * 0.5 + 0.5;
+  let T = E[1].xy + vec2f(F.offX, F.offY) * 0.12 + vec2f(cos(ah.x * TAU), sin(ah.x * TAU)) * F.lt * 0.012;
+  let yaw = F.seed * 1.618 + F.angle * TAU + (u - 0.5) * 0.12;
+  let kind = fract(F.angle * 7.31);
+  var pitch = select(select(mix(1.2, 1.5, ah.y), mix(0.5, 0.85, ah.y), kind < 0.7), mix(0.18, 0.4, ah.y), kind < 0.35);
+  if (chladni) { pitch = max(pitch, 0.9); }
+  let dist = mix(0.62, 0.52, u) * mix(0.35, 1.3, ah.x * ah.y + 0.2) / F.zoom;
+  let roll = select(0.0, (ah.x - 0.5) * 0.7, fract(F.angle * 3.7) > 0.7);
+  let fwd = vec3f(cos(yaw) * cos(pitch), sin(yaw) * cos(pitch), -sin(pitch));
+  let cam = vec3f(T, h(T) * zs) - fwd * dist;
+  let rt0 = normalize(cross(fwd, select(vec3f(0.0, 0.0, 1.0), vec3f(cos(yaw), sin(yaw), 0.0), pitch > 1.45)));
+  let up0 = cross(rt0, fwd);
+  let rt = rt0 * cos(roll) + up0 * sin(roll);
+  let up = up0 * cos(roll) - rt0 * sin(roll);
+  let ndc = (fc.xy - res * 0.5) / (res.y * 0.5) * vec2f(1.0, -1.0);
+  let rd = normalize(fwd * 2.2 + rt * ndc.x + up * ndc.y);
+  if (rd.z > -0.02) { return vec4f(0.0, 0.0, 0.0, 16.0); }
+
+  // march the terrain (the bed on its hills), then refine the hit
+  let zTop = 8.0 * zs;
+  let t0 = select(0.0, (zTop - cam.z) / rd.z, cam.z > zTop);
+  let t1 = -cam.z / rd.z + 0.02;
+  let dtm = (t1 - t0) / 40.0;
+  var tt = t0;
+  var hitT = t1;
+  for (var i = 0; i < 40; i++) {
+    let q = cam + rd * tt;
+    if (q.z <= h(q.xy) * zs) { hitT = tt; break; }
+    tt += dtm;
+  }
+  var lo = max(hitT - dtm, t0);
+  var hi = hitT;
+  for (var j = 0; j < 5; j++) {
+    let mid = (lo + hi) * 0.5;
+    let q = cam + rd * mid;
+    if (q.z <= h(q.xy) * zs) { hi = mid; } else { lo = mid; }
+  }
+  let tHit = hi;
+  let uv = (cam + rd * tHit).xy;
+
+  // the surface
+  let e = 1.0 / f32(N);
+  let B = bedAt(uv);
+  let h0 = B.x;
+  var n = normalize(vec3f(-B.y / 16.0 * Hs, -B.z / 16.0 * Hs, 1.0));
+  let lap = B.w / 4.0;
+
+  // the sun: low and raking, from the side-back of the camera; it wanders a little over the shot
+  let az = yaw + mix(1.9, 2.5, F.variant) + (u - 0.5) * 0.25;
+  let el = mix(0.1, 0.3, F.s_light) + select(0.0, 0.25, chladni);
+  let L = normalize(vec3f(cos(az) * cos(el), sin(az) * cos(el), sin(el)));
+  let V = -rd;
+
+  // one pixel's footprint on the bed (stretched along the view at grazing angles)
+  let foot = tHit / (res.y * 0.5 * 2.2) * (1.0 + 1.0 / max(-rd.z, 0.1));
+
+  // cast shadow along the sun: 8 taps, stride growing with distance, jittered per pixel
+  let ld = normalize(L.xy);
+  let rise = L.z / length(L.xy) / Hs; // sim height gained per cell toward the sun
+  var shadow = 1.0;
+  let jt = fract(dot(fc.xy, vec2f(0.0671, 0.00583)) * 52.98);
+  for (var i = 1; i <= 8; i++) {
+    let s = (f32(i) - jt * 0.8) * (0.9 + 0.35 * f32(i));
+    let dh = h(uv + ld * s * e) - (h0 + s * rise);
+    shadow = min(shadow, clamp(1.0 - dh * Hs * 0.9, 0.0, 1.0));
+  }
+  let ao = clamp(1.0 + lap * Hs * 1.5, 0.55, 1.0);
+  let lit = max(dot(n, L), 0.0) * shadow;
+  var c = vec3f(0.0);
+
+  if (mat < 0.5) {
+    // SAND — each grain tilts the normal a little, only where a grain spans ≥ ~3 px (smaller would sparkle)
+    let gsz = f32(N) * 3.0;
+    let gA = ss(0.4, 0.2, foot * gsz);
+    let gh = hash22(floor(uv * gsz));
+    n = normalize(n + vec3f(gh * 0.28 * gA, 0.0));
+    let sandCol = mix(vec3f(0.8, 0.7, 0.56), vec3f(F.baseR, F.baseG, F.baseB), 0.25) * (0.9 + 0.2 * gh.y * gA);
+    c = sandCol * (max(dot(n, L), 0.0) * shadow * 2.2 + 0.035 * ao * (0.5 + 0.5 * n.z));
+    // glints: a few grains are mirrors
+    let spec = pow(max(dot(reflect(-L, n), V), 0.0), 60.0);
+    c += vec3f(1.0, 0.95, 0.88) * spec * step(0.985, gh.x * 0.5 + 0.5) * shadow * gA * 4.0;
+  } else if (mat < 1.5) {
+    // PINS — a dense field of dark polished pin heads (pin-art): each catches its own highlight
+    let K = f32(N) * 0.45;
+    let q = uv * K;
+    let cell = floor(q);
+    let o = fract(q) - 0.5 + hash22(cell) * 0.12;
+    let rr = 0.44;
+    let d2 = dot(o, o);
+    let inPin = step(d2, rr * rr);
+    let bz = sqrt(max(rr * rr - d2, 0.0));
+    let bn = normalize(normalize(vec3f(o, bz)) + vec3f(n.xy * 1.5, 0.0));
+    let bA = ss(0.3, 0.14, foot * K); // heads resolve only when ≥ ~4 px (smaller would shimmer)
+    let nb = normalize(mix(n, bn, bA * inPin));
+    let base = vec3f(0.13, 0.13, 0.14) + vec3f(F.baseR, F.baseG, F.baseB) * 0.04;
+    let spec = pow(max(dot(reflect(-L, nb), V), 0.0), 40.0);
+    let gap = mix(1.0, 0.15 + 0.85 * inPin, bA);
+    c = (base * (max(dot(nb, L), 0.0) * 2.4 + 0.05) + vec3f(0.9, 0.92, 0.95) * spec * 2.6) * shadow * gap * ao;
+  } else if (mat < 2.5) {
+    // GLITTER — a dust of coloured light (references: video-f, video-i): dense points in Jev's palette,
+    // each its own brightness; out of focus they open into discs (dof.wgsl)
+    let K = f32(N) * 0.7;
+    let q = uv * K;
+    let cell = floor(q);
+    let jit = hash22(cell) * 0.5 + 0.5;
+    let o = fract(q) - 0.5 - (jit - 0.5) * 0.6;
+    let spacing = 1.0 / max(foot * K, 1e-4);
+    let px = length(o) * spacing;
+    let keep = step(0.45, jit.y);
+    let dotA = exp(-px * px / 1.4) * keep * ss(3.0, 5.0, spacing) + 0.05 * ss(5.0, 3.0, spacing);
+    let pick = fract(jit.x * 7.3);
+    let col = pal(select(select(2, 1, pick < 0.7), 0, pick < 0.4));
+    let bright = 0.2 + 4.0 * pow(jit.x, 4.0);
+    c = mix(col, vec3f(1.0), 0.15) * dotA * bright * (0.35 + 4.0 * lit);
+    c += vec3f(0.01, 0.012, 0.018) * (0.3 + lit); // the dark ground under the dust
+  } else {
+    // LINES — the terrain drawn by its own contour lines, dotted, coloured by height (reference: video-h)
+    let lv = h0 * mix(2.0, 5.0, F.s_density);
+    let fl = fract(lv);
+    let lineW = foot * f32(N) * length(B.yz) / 16.0 * mix(2.0, 5.0, F.s_density) * 1.5 + 0.02;
+    let line = ss(lineW, lineW * 0.3, abs(fl - 0.5));
+    // dashes: grains of light along each line
+    let along = fract(dot(uv, vec2f(-B.z, B.y)) * 900.0 + floor(lv) * 0.37);
+    let dash = mix(1.0, ss(0.6, 0.3, abs(along - 0.5)), 0.6);
+    let hk = fract(floor(lv) * 0.618);
+    let col = mix(mix(pal(0), pal(1), ss(0.0, 0.6, hk)), pal(2), ss(0.6, 1.0, hk));
+    c = col * line * dash * (0.5 + 3.5 * lit) + vec3f(0.006) * lit;
+  }
+
+  if (chladni) {
+    // the plate: dark brushed metal where the sand has been thrown off, a broad sheen of the sun
+    let bare = ss(0.1, 0.03, h0);
+    let nm = vec3f(0.0, 0.0, 1.0);
+    let sheen = pow(max(dot(reflect(-L, nm), V), 0.0), 8.0) * (0.8 + 0.2 * gnoise(vec2f(uv.x * 900.0, uv.y * 6.0)));
+    let metal = vec3f(0.018, 0.02, 0.022) + vec3f(0.35, 0.37, 0.4) * sheen;
+    c = mix(c, metal, bare);
+  }
+  if (beh > 3.5) {
+    // the drain: the hole is a true black
+    let D = E[14];
+    let d = uv - D.xy - round(uv - D.xy);
+    c *= ss(D.z * 0.55, D.z * 0.8, length(d));
+  }
+  // the pool of light: the bed falls away into darkness (tight enough that its repeat never shows)
+  let pd = uv - T;
+  c *= exp(-dot(pd, pd) / (0.26 * 0.26 / (F.zoom * F.zoom)));
+  // the lens: focused on the aim; the near and far bed dissolve (circle of confusion, px, in alpha)
+  let coc = clamp(abs(tHit - dist) / tHit * mix(22.0, 40.0, F.s_intensity) * F.zoom, 0.0, 16.0);
+  return vec4f(c * ss(0.0, 0.12, F.lt), coc);
+}
