@@ -13,7 +13,7 @@ const opt = (k: string, d: string) => { const i = args.indexOf(k); if (i < 0) re
 const word = opt('--word', 'fuck');
 const dur = Number(opt('--dur', '5'));
 const seed = Number(opt('--seed', '12345'));
-const clips = args.length ? args : ['chladni', 'dunes', 'crater', 'furrow', 'drain', 'relief', 'dust', 'haze', 'scan'];
+const clips = args.length ? args : ['landscape', 'city', 'lattice', 'cloud', 'tube', 'relief', 'scan', 'chladni', 'haze'];
 const dir = 'docs/captures/clips';
 mkdirSync(dir, { recursive: true });
 const fixtures = JSON.parse(readFileSync('src/jev/fixtures.json', 'utf8'));

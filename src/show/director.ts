@@ -6,16 +6,19 @@
  */
 import type { Appraisal } from '../jev/appraisal.ts';
 import { mulberry32 } from '../core/rng.ts';
-import { SAND_CLIPS, isSand } from './sand.ts';
 import type { Layer } from '../render/gpu.ts';
 
-/** The verdict vocabulary: families of their own (relief, dust, haze, scan, iris) and sand in five behaviours
- *  (sand.ts). Each family answers to different dimensions of the reading, never just "violent or calm". */
-export const CLIPS = ['relief', 'dust', 'haze', 'scan', 'iris', ...SAND_CLIPS] as const;
+/** The verdict vocabulary. The appraisal gone 3D — five data formations (field.wgsl), each the spatial
+ *  form of a 2D reading — and three matters the data acts on: the relief (data → surface), scan (a laser
+ *  reading), chladni (the word's bytes as sound shaping sand). Haze is the void. One language: monochrome,
+ *  one accent, every mark from the word's data; each family answers to different dimensions of the reading. */
+export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube'] as const;
+export const CLIPS = [...DATA_CLIPS, 'relief', 'scan', 'chladni', 'haze'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
 /** Which renderer layer draws a clip. */
-export const layerOf = (c: ClipId): Layer => (isSand(c) ? 'sand' : c === 'dust' ? 'grains' : c);
+export const layerOf = (c: ClipId): Layer =>
+  (DATA_CLIPS as readonly string[]).includes(c) ? 'data' : c === 'chladni' ? 'sand' : (c as Layer);
 
 export const CUT_MODES = ['barcode', 'numbers', 'spectrum', 'bits', 'scatter', 'line', 'word'] as const;
 export type CutMode = (typeof CUT_MODES)[number];
@@ -43,39 +46,37 @@ export type Plan = {
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
-/** How much each clip suits the judgement (0..~3). */
+/** How much each clip suits the judgement (0..~3) — each family listens to its own dimensions. */
 function affinity(A: Appraisal): Record<ClipId, number> {
   const m = A.c.material.p, tx = A.c.texture.p, sh = A.c.shape.p, mo = A.c.motion.p, rh = A.c.rhythm.p, em = A.c.emotion.p;
-  const s = A.s, n = A.n;
+  const s = A.s, n = A.n, d = A.c.domain.p, tm = A.c.time.p;
   return {
-    relief: m.stone + m.cloth + m.flesh + m.wood + tx.cracked * 0.5 + tx.soft * 0.4 + tx.fibrous * 0.6
-      + mo.still * 0.5 + mo.contracting * 0.4 + s.weight * 0.5 + em.tender * 0.4 + em.awe * 0.3,
-    dust: m.smoke + m.sand * 0.6 + m.void * 0.5 + m.light * 0.5 + m.ice * 0.4 + tx.powdery + mo.drifting * 0.6 + mo.falling * 0.4
-      + mo.circling * 0.4 + mo.rising * 0.5 + m.fire * 0.5,
-    haze: m.light + m.smoke * 0.6 + m.water * 0.9 + m.void * 0.7 + tx.liquid * 0.6 + tx.smooth * 0.3 + mo.drifting * 0.4 + mo.still * 0.3
-      + (1 - s.arousal) * 0.5 + A.lazy * 0.6,
-    // the machine reading a surface: ordered, cold, technical, strange words
-    scan: s.order * 0.6 + m.metal * 0.5 + m.glass * 0.6 + A.c.domain.p.machine * 1.2 + A.c.domain.p.mind * 0.5
-      + A.c.sense.p.sight * 0.4 + s.strangeness * 0.6 + tx.crystalline * 0.5 + em.anxiety * 0.4 + A.c.act.p.nonsense * 0.8,
-    // an eye made of ink around a light: seeing, being seen, the body, fire and wonder, round and spiralling forms
-    iris: A.c.sense.p.sight * 0.9 + A.c.domain.p.body * 0.5 + em.awe * 0.7 + m.fire * 0.5 + m.light * 0.4 + m.flesh * 0.3
-      + sh.round * 0.6 + sh.spiral * 0.7 + mo.spreading * 0.4 + mo.circling * 0.3 + A.c.who.p.you * 0.5 + (1 - s.distance) * 0.3
-      + A.c.colour.confidence * 0.4 + em.joy * 0.3 + em.fear * 0.3,
-    // sand shaken into the figure of a sound: heard, tonal, ordered, rhythmic words
-    chladni: A.c.sense.p.hearing * 1.1 + s.order * 0.4 + (1 - s.tone) * 0.2 + rh.pulsing * 0.6 + rh.steady * 0.4
-      + mo.trembling * 0.6 + mo.circling * 0.4 + sh.round * 0.3 + s.sacred * 0.4 + em.joy * 0.3,
-    // wind over a deep bed: time, distance, drifting, the long afternoon
-    dunes: m.sand * 0.9 + tx.grainy * 0.4 + mo.drifting * 0.6 + s.duration * 0.5 + A.c.time.p.past * 0.3 + A.c.time.p.timeless * 0.4
-      + n.loneliness * 0.4 + n.nostalgia * 0.4 + A.lazy * 0.5 + sh.flowing * 0.4 + sh.flat * 0.3 + em.calm * 0.4 + m.void * 0.2,
-    // strikes: violence, impact, rage, fire and thunder
-    crater: n.violence * 0.9 + rh.strike * 0.8 + rh.stuttering * 0.3 + mo.breaking * 0.6 + mo.spreading * 0.6 + em.anger * 0.8
-      + em.fear * 0.4 + s.arousal * 0.6 + m.fire * 0.6 + m.stone * 0.2 + sh.splintered * 0.4 + sh.jagged * 0.3 + s.loudness * 0.3 + A.c.act.p.swear * 0.6,
-    // a blade drawn through: a single cut, a point, metal, cold tension
-    furrow: sh.point * 1.1 + m.metal * 0.8 + m.glass * 0.4 + sh.jagged * 0.3 + s.tension * 0.5 + s.hardness * 0.3 + em.fear * 0.3
-      + A.c.act.p.command * 0.3,
-    // pouring away: loss, grief, falling, what is gone
-    drain: n.loss * 1.0 + em.sadness * 0.9 + mo.falling * 0.5 + mo.contracting * 0.5 + rh.dwindling * 0.7 + A.c.time.p.past * 0.4
-      + n.loneliness * 0.4 + (1 - s.valence) * 0.3,
+    // the long view: time, distance, nature, drifting, the idle and the lonely
+    landscape: s.duration * 0.8 + tm.past * 0.5 + tm.timeless * 0.5 + d.nature * 0.7 + mo.drifting * 0.6 + sh.flowing * 0.5
+      + sh.flat * 0.4 + s.distance * 0.5 + n.loneliness * 0.5 + em.calm * 0.4 + A.lazy * 0.5 + em.sadness * 0.3,
+    // the built world: order, the city, weight, hardness, power, rage held in structure
+    city: s.order * 0.7 + d.city * 1.1 + s.density * 0.5 + s.dominance * 0.5 + s.hardness * 0.4 + m.stone * 0.4 + m.metal * 0.4
+      + rh.steady * 0.4 + em.anger * 0.5 + n.violence * 0.4 + tx.crystalline * 0.3,
+    // the machine's own matter: bits, codes, the digital, the strange, nonsense, anxiety
+    lattice: d.machine * 1.1 + d.mind * 0.4 + s.strangeness * 0.6 + tx.crystalline * 0.4 + A.c.act.p.nonsense * 1.0
+      + em.anxiety * 0.5 + rh.stuttering * 0.5 + s.order * 0.3 + em.playful * 0.4,
+    // a cloud of relations: chaos, fear, spreading, smoke and void, the cosmos, wonder
+    cloud: (1 - s.order) * 0.6 + em.fear * 0.7 + em.awe * 0.6 + mo.spreading * 0.6 + mo.breaking * 0.5 + m.smoke * 0.5 + m.void * 0.4
+      + d.cosmos * 0.8 + s.strangeness * 0.3 + (1 - A.c.emotion.confidence) * 0.4 + em.joy * 0.3,
+    // one line closing on itself: the tone, the circle, love, the sacred, the timeless
+    tube: s.tone * 0.5 + mo.circling * 0.7 + sh.round * 0.5 + sh.spiral * 0.6 + A.c.sense.p.hearing * 0.4 + em.tender * 0.7
+      + n.closeness * 0.6 + s.sacred * 0.5 + tm.timeless * 0.3 + d.home * 0.4 + d.body * 0.3,
+    // data made surface: matter, body, weight, stone, flesh, wood, the still
+    relief: m.stone * 0.8 + m.flesh * 0.7 + m.wood * 0.6 + m.cloth * 0.5 + tx.cracked * 0.5 + tx.soft * 0.4 + tx.fibrous * 0.5
+      + mo.still * 0.5 + mo.contracting * 0.4 + s.weight * 0.5 + d.body * 0.4,
+    // the machine reading a surface: sight, the cold, the technical
+    scan: A.c.sense.p.sight * 0.7 + m.metal * 0.5 + m.glass * 0.6 + d.machine * 0.5 + s.strangeness * 0.4 + (1 - s.temperature) * 0.4
+      + em.anxiety * 0.3 + tx.smooth * 0.3,
+    // the word's bytes as a sound shaping sand: heard, tonal, rhythmic, sand itself
+    chladni: A.c.sense.p.hearing * 1.1 + m.sand * 0.8 + tx.grainy * 0.4 + rh.pulsing * 0.6 + mo.trembling * 0.6 + s.order * 0.3
+      + s.sacred * 0.3 + em.joy * 0.2,
+    // the void, the lazy afternoon
+    haze: m.void * 0.9 + m.light * 0.6 + m.smoke * 0.4 + A.lazy * 1.0 + (1 - s.arousal) * 0.4 + m.water * 0.4,
   };
 }
 
@@ -135,15 +136,21 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   const count = lazy > 0.7 ? 1 : Math.max(1, Math.min(7, Math.floor(verdictDur / 1.8 / 1.25), Math.round(lerp(1.5, 7, pace) - lazy * 2)));
   const gap = lazy > 0.7 ? 0 : lerp(0.5, 0.0, pace);
 
+  // the hand-off: the verdict opens on the 3D form of the reading the appraisal showed most — the analysis
+  // becomes space in one gesture (unless the word is idle or empty)
+  const COUNTERPART: Partial<Record<CutMode, ClipId>> = { barcode: 'city', numbers: 'landscape', spectrum: 'landscape', bits: 'lattice', scatter: 'cloud' };
+  const shown = new Map<ClipId, number>();
+  for (const c of cuts) { const k = COUNTERPART[c.mode]; if (k) shown.set(k, (shown.get(k) ?? 0) + c.dur); }
+  const handOff = [...shown.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   // clips that suit the word, drawn by affinity with some chance (never the same twice in a row, a family at most twice)
-  const eligible = ranked.filter((c, i) => aff[c] >= aff[ranked[0]] * 0.45 || i < Math.min(count, 3));
+  const eligible = ranked.filter((c, i) => aff[c] >= aff[ranked[0]] * 0.45 || i < Math.min(count, 3) || c === handOff);
   const picks: ClipId[] = [];
   for (let i = 0; i < count; i++) {
     const pool = eligible.filter((c) => c !== picks[i - 1] && picks.filter((x) => x === c).length < 2);
     const from = pool.length ? pool : eligible;
     // the first shot is the best match; after it, a weighted draw
     // (nothing is the void: the pinprick of light in haze, always)
-    let c = empty ? 'haze' : from[0];
+    let c = empty ? 'haze' : lazy < 0.6 && handOff && from.includes(handOff) ? handOff : from[0];
     if (i > 0) {
       const wts = from.map((x) => Math.pow(Math.max(aff[x], 1e-3), 2));
       let r = rand() * wts.reduce((a, b) => a + b, 0);

@@ -2,17 +2,15 @@
  * WebGPU renderer: one scene per frame (room, appraisal, a verdict clip, or
  * black) into an HDR target, then bloom and the film composite. Scenes are
  * fullscreen shaders except relief (compute height field + shading), sand
- * (compute simulation + camera) and grains (compute simulation + streaks into
- * a persistence buffer).
+ * (compute simulation + camera + lens) and data (points in 3D, instanced, with
+ * their own bokeh).
  */
 import commonWGSL from './shaders/common.wgsl?raw';
 import roomWGSL from './shaders/room.wgsl?raw';
 import appraisalWGSL from './shaders/appraisal.wgsl?raw';
 import reliefWGSL from './shaders/relief.wgsl?raw';
 import hazeWGSL from './shaders/haze.wgsl?raw';
-import irisWGSL from './shaders/iris.wgsl?raw';
-import grainsWGSL from './shaders/grains.wgsl?raw';
-import grainsDrawWGSL from './shaders/grains_draw.wgsl?raw';
+import fieldWGSL from './shaders/field.wgsl?raw';
 import scanWGSL from './shaders/scan.wgsl?raw';
 import sandWGSL from './shaders/sand.wgsl?raw';
 import sandDrawWGSL from './shaders/sand_draw.wgsl?raw';
@@ -22,15 +20,15 @@ import dofWGSL from './shaders/dof.wgsl?raw';
 import bloomWGSL from './shaders/bloom.wgsl?raw';
 import compositeWGSL from './shaders/composite.wgsl?raw';
 import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
-import { SAND_VEC4 } from '../show/sand.ts';
 
-export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'grains' | 'haze' | 'scan' | 'sand' | 'iris';
+export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'haze' | 'scan' | 'sand' | 'data';
 
 const HDR: GPUTextureFormat = 'rgba16float';
 const BLOOM_LEVELS = 6;
 const TAPE_MAX = 1024;
 const RELIEF_RES = 512;
-const GRAINS_DEFAULT = 150_000;
+/** Points drawn by the data layer (instance 0 is its light). */
+const FIELD_N = 160_000;
 const SAND_N = 512;
 const WORD_W = 2048;
 const WORD_H = 160;
@@ -50,8 +48,6 @@ export class Renderer {
   private format!: GPUTextureFormat;
   private fBuf!: GPUBuffer;
   private tapeBuf!: GPUBuffer;
-  private grainBuf!: GPUBuffer;
-  private sandEv!: GPUBuffer;
   private sandVel!: GPUBuffer;
   private sandTex!: GPUTexture;
   private wrapSampler!: GPUSampler;
@@ -68,7 +64,6 @@ export class Renderer {
   private p: Record<string, GPURenderPipeline> = {};
   private c: Record<string, GPUComputePipeline> = {};
   private bg: Record<string, GPUBindGroup> = {};
-  private grainCount: number;
   private qs: GPUQuerySet | null = null;
   private qResolve: GPUBuffer | null = null;
   private qRead: GPUBuffer | null = null;
@@ -78,9 +73,8 @@ export class Renderer {
 
   readonly canvas: HTMLCanvasElement;
 
-  constructor(canvas: HTMLCanvasElement, grains = GRAINS_DEFAULT) {
+  constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.grainCount = grains;
   }
 
   static async supported(): Promise<boolean> {
@@ -106,9 +100,7 @@ export class Renderer {
 
     this.fBuf = d.createBuffer({ size: FRAME_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.tapeBuf = d.createBuffer({ size: TAPE_MAX * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-    this.grainBuf = d.createBuffer({ size: this.grainCount * 32, usage: GPUBufferUsage.STORAGE });
     this.sand = [0, 1].map(() => d.createBuffer({ size: SAND_N * SAND_N * 4, usage: GPUBufferUsage.STORAGE }));
-    this.sandEv = d.createBuffer({ size: SAND_VEC4 * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.sandVel = d.createBuffer({ size: SAND_N * SAND_N * 8, usage: GPUBufferUsage.STORAGE });
     this.sandTex = d.createTexture({ size: [SAND_N, SAND_N], format: HDR, usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
     this.wrapSampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat' });
@@ -140,7 +132,6 @@ export class Renderer {
     this.p.room = full('room', roomWGSL);
     this.p.appraisal = full('appraisal', appraisalWGSL);
     this.p.haze = full('haze', hazeWGSL);
-    this.p.iris = full('iris', irisWGSL);
     this.p.blit = full('blit', blitWGSL);
     this.p.dof = full('dof', dofWGSL);
     this.p.composite = full('composite', compositeWGSL, this.format);
@@ -152,12 +143,10 @@ export class Renderer {
       fragment: { module: relief, entryPoint: 'fs', targets: [{ format: HDR }] },
     });
 
-    const grains = mod('grains', pre + grainsWGSL);
-    this.c.grainsSim = d.createComputePipeline({ layout: 'auto', compute: { module: grains, entryPoint: 'sim' } });
-    const grainsDraw = mod('grains_draw', pre + grainsDrawWGSL);
-    this.p.grains = d.createRenderPipeline({
-      layout: 'auto', vertex: { module: grainsDraw, entryPoint: 'vs' },
-      fragment: { module: grainsDraw, entryPoint: 'fs', targets: [{ format: HDR, blend: add }] },
+    const field = mod('field', pre + fieldWGSL);
+    this.p.data = d.createRenderPipeline({
+      layout: 'auto', vertex: { module: field, entryPoint: 'vs' },
+      fragment: { module: field, entryPoint: 'fs', targets: [{ format: HDR, blend: add }] },
       primitive: { topology: 'triangle-strip' },
     });
 
@@ -199,7 +188,7 @@ export class Renderer {
     const group = (name: string, pipe: GPURenderPipeline | GPUComputePipeline, entries: GPUBindGroupEntry[]) => {
       this.bg[name] = d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries });
     };
-    for (const k of ['room', 'haze', 'iris']) group(k, this.p[k], [{ binding: 0, resource: uni }]);
+    for (const k of ['room', 'haze']) group(k, this.p[k], [{ binding: 0, resource: uni }]);
     group('appraisal', this.p.appraisal, [
       { binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } },
       { binding: 2, resource: this.atlas.createView() },
@@ -210,19 +199,13 @@ export class Renderer {
     group('scan', this.p.scan, [{ binding: 0, resource: uni }, { binding: 2, resource: this.heightTex.createView() }, { binding: 3, resource: this.sampler }]);
     // sand ping-pong: transport A→B, repose B→A (the drawing reads A)
     const sb = (b: GPUBuffer) => ({ buffer: b });
-    group('sandV', this.c.sandVelocity, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }, { binding: 3, resource: sb(this.sandEv) }, { binding: 4, resource: sb(this.sandVel) }]);
-    group('sandT', this.c.sandTransport, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }, { binding: 2, resource: sb(this.sand[1]) }, { binding: 3, resource: sb(this.sandEv) }, { binding: 4, resource: sb(this.sandVel) }]);
+    group('sandV', this.c.sandVelocity, [{ binding: 0, resource: uni }, { binding: 4, resource: sb(this.sandVel) }]);
+    group('sandT', this.c.sandTransport, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }, { binding: 2, resource: sb(this.sand[1]) }, { binding: 4, resource: sb(this.sandVel) }]);
     group('sandR', this.c.sandRepose, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[1]) }, { binding: 2, resource: sb(this.sand[0]) }]);
     group('sandB', this.c.sandBake, [{ binding: 1, resource: sb(this.sand[0]) }, { binding: 5, resource: this.sandTex.createView() }]);
-    group('sand', this.p.sand, [{ binding: 0, resource: uni }, { binding: 1, resource: this.sandTex.createView() }, { binding: 2, resource: sb(this.sandEv) }, { binding: 3, resource: this.wrapSampler }]);
-    group('grainsSim', this.c.grainsSim, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.grainBuf } }]);
-    group('grains', this.p.grains, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.grainBuf } }]);
+    group('sand', this.p.sand, [{ binding: 0, resource: uni }, { binding: 1, resource: this.sandTex.createView() }, { binding: 3, resource: this.wrapSampler }]);
+    group('data', this.p.data, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }]);
     this.resize();
-  }
-
-  /** The events of the sand shot about to play (sand.ts packSand). */
-  setSand(data: Float32Array) {
-    this.d.queue.writeBuffer(this.sandEv, 0, data);
   }
 
   /** Draw the typed word once for the appraisal's opening cut (any script; never stored). */
@@ -311,7 +294,7 @@ export class Renderer {
 
   /**
    * Draw one frame of `layer`. `frame` is the full uniform block (time, local
-   * time, appraisal…). `persist` is the grains trail decay per frame; `hi`
+   * time, appraisal…). `persist` is the scan trail decay per frame; `hi`
    * draws the appraisal at native resolution (text and lines).
    */
   render(layer: Layer, frame: Float32Array, persist = 0.9, hi = false) {
@@ -365,19 +348,12 @@ export class Renderer {
       tp.draw(3);
       tp.end();
       fullPass(this.p.blit, this.bg.blit);
-    } else if (layer === 'grains') {
-      const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
-      cp.setPipeline(this.c.grainsSim);
-      cp.setBindGroup(0, this.bg.grainsSim);
-      cp.dispatchWorkgroups(Math.ceil(this.grainCount / 256));
-      cp.end();
-      const tp = enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'load', storeOp: 'store' }] });
-      tp.setPipeline(this.p.fade);
-      tp.setBlendConstant({ r: persist, g: persist, b: persist, a: persist });
-      tp.draw(3);
-      tp.setPipeline(this.p.grains);
-      tp.setBindGroup(0, this.bg.grains);
-      tp.draw(4, this.grainCount);
+    } else if (layer === 'data') {
+      // points into the spare target (cleared: no trails), then onto the scene
+      const tp = enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }], ...stamp() });
+      tp.setPipeline(this.p.data);
+      tp.setBindGroup(0, this.bg.data);
+      tp.draw(4, FIELD_N);
       tp.end();
       fullPass(this.p.blit, this.bg.blit);
     } else if (layer === 'appraisal' && hi) {
@@ -428,10 +404,10 @@ export class Renderer {
 
   /** Draw every layer once so no pipeline compiles mid-performance. */
   warmUp(frame: Float32Array) {
-    for (const l of ['room', 'appraisal', 'relief', 'haze', 'grains', 'scan', 'sand', 'iris', 'black'] as Layer[]) this.render(l, frame, 0.9, l === 'appraisal');
+    for (const l of ['room', 'appraisal', 'relief', 'haze', 'scan', 'sand', 'data', 'black'] as Layer[]) this.render(l, frame, 0.9, l === 'appraisal');
   }
 
-  /** Clear the long-exposure buffer (a new grains shot starts from black). */
+  /** Clear the long-exposure buffer (a new scan shot starts from black). */
   clearTrail() {
     const enc = this.d.createCommandEncoder();
     enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] }).end();

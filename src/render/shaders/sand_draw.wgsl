@@ -2,11 +2,10 @@
 // photographer crouching at its edge, a low sun raking across it. Grains with
 // glints, cast shadows, a pool of light falling off into darkness (the bed
 // never shows its edge), and the circle of confusion in alpha for the lens
-// (dof.wgsl). For the Chladni plate, dark metal where the sand has left.
+// (dof.wgsl). Dark metal where the sand has left: the Chladni plate.
 
 @group(0) @binding(0) var<uniform> F: FrameU;
 @group(0) @binding(1) var bed: texture_2d<f32>; // baked by sand.wgsl: h, slope ×16, curvature ×4
-@group(0) @binding(2) var<storage, read> E: array<vec4f>;
 @group(0) @binding(3) var wrapS: sampler; // linear, repeat: the bed is periodic
 
 const N = 512u;
@@ -18,8 +17,6 @@ fn h(uv: vec2f) -> f32 { return bedAt(uv).x; }
 @fragment
 fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let res = vec2f(F.resX, F.resY);
-  let beh = E[0].x;
-  let chladni = beh < 0.5;
   let slow = mix(1.0, 0.35, F.lazy);
   let u = F.u * slow;
   // heights: one sim unit is Hs cells tall, so the angle of repose renders at ~33°
@@ -29,11 +26,11 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   // camera: each angle (F.angle) is a new setup — grazing, three-quarter or straight down, from any
   // direction, near or far, sometimes tilted — aimed near the event, drifting slowly while it rolls
   let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01)) * 0.5 + 0.5;
-  let T = E[1].xy + vec2f(F.offX, F.offY) * 0.12 + vec2f(cos(ah.x * TAU), sin(ah.x * TAU)) * F.lt * 0.012;
+  let T = vec2f(0.5) + vec2f(F.offX, F.offY) * 0.12 + vec2f(cos(ah.x * TAU), sin(ah.x * TAU)) * F.lt * 0.012;
   let yaw = F.seed * 1.618 + F.angle * TAU + (u - 0.5) * 0.12;
   let kind = fract(F.angle * 7.31);
-  var pitch = select(select(mix(1.2, 1.5, ah.y), mix(0.5, 0.85, ah.y), kind < 0.7), mix(0.18, 0.4, ah.y), kind < 0.35);
-  if (chladni) { pitch = max(pitch, 0.9); }
+  // the plate is read from above: never lower than ~50°
+  let pitch = max(select(mix(1.2, 1.5, ah.y), mix(0.9, 1.15, ah.y), kind < 0.6), 0.9);
   let dist = mix(0.62, 0.52, u) * mix(0.35, 1.3, ah.x * ah.y + 0.2) / F.zoom;
   let roll = select(0.0, (ah.x - 0.5) * 0.7, fract(F.angle * 3.7) > 0.7);
   let fwd = vec3f(cos(yaw) * cos(pitch), sin(yaw) * cos(pitch), -sin(pitch));
@@ -59,7 +56,7 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
 
   // the sun: low and raking, from the side-back of the camera; it wanders a little over the shot
   let az = yaw + mix(1.9, 2.5, F.variant) + (u - 0.5) * 0.25;
-  let el = mix(0.1, 0.3, F.s_light) + select(0.0, 0.25, chladni);
+  let el = mix(0.35, 0.55, F.s_light);
   let L = normalize(vec3f(cos(az) * cos(el), sin(az) * cos(el), sin(el)));
   let V = -rd;
 
@@ -89,20 +86,10 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let spec = pow(max(dot(reflect(-L, n), V), 0.0), 60.0);
   c += vec3f(1.0, 0.95, 0.88) * spec * step(0.985, gh.x * 0.5 + 0.5) * shadow * gA * 4.0;
 
-  if (chladni) {
-    // the plate: dark brushed metal where the sand has been thrown off, a broad sheen of the sun
-    let bare = ss(0.1, 0.03, h0);
-    let nm = vec3f(0.0, 0.0, 1.0);
-    let sheen = pow(max(dot(reflect(-L, nm), V), 0.0), 8.0) * (0.8 + 0.2 * gnoise(vec2f(uv.x * 900.0, uv.y * 6.0)));
-    let metal = vec3f(0.018, 0.02, 0.022) + vec3f(0.35, 0.37, 0.4) * sheen;
-    c = mix(c, metal, bare);
-  }
-  if (beh > 3.5) {
-    // the drain: the hole is a true black
-    let D = E[14];
-    let d = uv - D.xy - round(uv - D.xy);
-    c *= ss(D.z * 0.55, D.z * 0.8, length(d));
-  }
+  // the plate: dark brushed metal where the sand has been thrown off, a broad sheen of the sun
+  let bare = ss(0.1, 0.03, h0);
+  let sheen = pow(max(dot(reflect(-L, vec3f(0.0, 0.0, 1.0)), V), 0.0), 8.0) * (0.8 + 0.2 * gnoise(vec2f(uv.x * 900.0, uv.y * 6.0)));
+  c = mix(c, vec3f(0.018, 0.02, 0.022) + vec3f(0.35, 0.37, 0.4) * sheen, bare);
   // the pool of light: the bed falls away into darkness (tight enough that its repeat never shows)
   let pd = uv - T;
   c *= exp(-dot(pd, pd) / (0.26 * 0.26 / (F.zoom * F.zoom)));

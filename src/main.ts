@@ -16,12 +16,12 @@ import { playPerformance } from './audio/score.ts';
 import { analyze } from './jev/client.ts';
 import { buildAppraisal, type Appraisal } from './jev/appraisal.ts';
 import type { Answers } from './jev/types.ts';
-import { CUT_MODES, direct, type Plan } from './show/director.ts';
+import { CUT_MODES, DATA_CLIPS, direct, type Plan } from './show/director.ts';
 import { momentAt, type Moment } from './show/timeline.ts';
 import { seedFromText } from './core/rng.ts';
 import { showSupport, hideSupport } from './support.ts';
 import { showError } from './errorPopup.ts';
-import { isSand, packSand, plateMode, sandEvents } from './show/sand.ts';
+import { plateMode } from './show/chladni.ts';
 
 export type State = 'idle' | 'typing' | 'analyzing' | 'performing' | 'barred' | 'support' | 'error';
 
@@ -31,11 +31,10 @@ const query = new URLSearchParams(location.search);
 const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = {
   room: { bloom: 0.06, halation: 0, flat: 0 }, black: { bloom: 0, halation: 0, flat: 0 },
   appraisal: { bloom: 0.02, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
-  grains: { bloom: 0.08, halation: 0.08, flat: 0 },
   haze: { bloom: 0.08, halation: 0.03, flat: 0 },
   scan: { bloom: 0.1, halation: 0.05, flat: 1 },
   sand: { bloom: 0.05, halation: 0.03, flat: 0 },
-  iris: { bloom: 0.16, halation: 0.07, flat: 0 },
+  data: { bloom: 0.05, halation: 0.02, flat: 0 },
 };
 
 /** White balance from the matter: cold for glass, ice, water; warm for fire, sand, lazy afternoons. */
@@ -74,7 +73,7 @@ async function boot() {
     document.body.insertAdjacentHTML('beforeend', '<div id="nogpu">WebGPU is required.</div>');
     return;
   }
-  const renderer = new Renderer(canvas, Number(query.get('g')) || undefined);
+  const renderer = new Renderer(canvas);
   await renderer.init();
   const frame = new Frame();
   frame.set('outX', renderer.width); frame.set('outY', renderer.height); frame.set('outDpr', renderer.dpr);
@@ -260,20 +259,18 @@ async function boot() {
         f('zoom', m.zoom); f('offX', m.offX); f('offY', m.offY);
         f('angle', m.angle);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
-        if (m.key !== lastKey && (layer === 'grains' || layer === 'scan' || layer === 'sand')) {
+        if (m.key !== lastKey && (layer === 'scan' || layer === 'sand')) {
           renderer.clearTrail();
-          f('mode', 1); // grains: spawn this frame; sand: lay a fresh bed
+          f('mode', 1); // sand: lay a fresh layer
         }
-        if (m.key !== lastKey && m.clip && isSand(m.clip)) renderer.setSand(packSand(sandEvents(show.A, m.clip, m.seed, m.dur)));
         if (m.clip === 'chladni') {
           const [mm, nn] = plateMode(show.A, m.seed, m.lt / m.dur);
           f('modeM', mm); f('modeN', nn);
         }
         lastKey = m.key;
-        const mat = show.A.c.material.p;
-        f('variant2', layer === 'scan' ? 1 : 0);
-        persist = layer === 'scan' ? Math.pow(0.95, dt * 60) // the scanner forgets: a form is only ever glimpsed as it is read
-          : Math.pow(0.86 + 0.1 * Math.min(1, mat.smoke + mat.void * 0.5) + 0.04 * mat.fire, dt * 60);
+        // variant2: scan reads the relief over the whole frame; data: which formation
+        f('variant2', layer === 'scan' ? 1 : layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : 0);
+        persist = Math.pow(0.95, dt * 60); // the scanner forgets: a form is only ever glimpsed as it is read
       }
     }
     if (layer === 'room') {
