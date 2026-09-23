@@ -9,11 +9,11 @@ import { mulberry32 } from '../core/rng.ts';
 import type { Layer } from '../render/gpu.ts';
 
 /** The verdict vocabulary. The appraisal gone 3D — data formations (field.wgsl), each the spatial form of
- *  a 2D reading, and drift, the void — and three matters the data acts on: the relief (data → surface), scan
- *  (a laser reading), chladni (the word's bytes as sound shaping sand). One language: monochrome, one accent,
+ *  a 2D reading, and drift, the void — and two matters the data acts on: the relief (data → surface) and
+ *  chladni (the word's bytes as sound shaping sand). One language: monochrome, one accent,
  *  every mark from the word's data; each family answers to different dimensions of the reading. */
 export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift'] as const;
-export const CLIPS = [...DATA_CLIPS, 'relief', 'scan', 'chladni'] as const;
+export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
 /** Which renderer layer draws a clip. */
@@ -69,9 +69,6 @@ function affinity(A: Appraisal): Record<ClipId, number> {
     // data made surface: matter, body, weight, stone, flesh, wood, the still
     relief: m.stone * 0.8 + m.flesh * 0.7 + m.wood * 0.6 + m.cloth * 0.5 + tx.cracked * 0.5 + tx.soft * 0.4 + tx.fibrous * 0.5
       + mo.still * 0.5 + mo.contracting * 0.4 + s.weight * 0.5 + d.body * 0.4,
-    // the machine reading a surface: sight, the cold, the technical
-    scan: A.c.sense.p.sight * 0.7 + m.metal * 0.5 + m.glass * 0.6 + d.machine * 0.5 + s.strangeness * 0.4 + (1 - s.temperature) * 0.4
-      + em.anxiety * 0.3 + tx.smooth * 0.3,
     // the word's bytes as a sound shaping sand: heard, tonal, rhythmic, sand itself
     chladni: A.c.sense.p.hearing * 1.1 + m.sand * 0.8 + tx.grainy * 0.4 + rh.pulsing * 0.6 + mo.trembling * 0.6 + s.order * 0.3
       + s.sacred * 0.3 + em.joy * 0.2,

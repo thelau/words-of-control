@@ -31,7 +31,6 @@ const query = new URLSearchParams(location.search);
 const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = {
   room: { bloom: 0.06, halation: 0, flat: 0 }, black: { bloom: 0, halation: 0, flat: 0 },
   appraisal: { bloom: 0.02, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
-  scan: { bloom: 0.1, halation: 0.05, flat: 1 },
   sand: { bloom: 0.05, halation: 0.03, flat: 0 },
   data: { bloom: 0.05, halation: 0.02, flat: 0 },
 };
@@ -239,7 +238,6 @@ async function boot() {
     drone?.lean(charge);
 
     let layer: Layer = 'room';
-    let persist = 0.9;
     f('flash', 0); f('invert', 0); f('mode', 0); f('zoom', 1); f('offX', 0); f('offY', 0);
     if (show) {
       const m = momentAt(show.plan, clock() - show.t0, show.A.s.arousal);
@@ -258,18 +256,14 @@ async function boot() {
         f('zoom', m.zoom); f('offX', m.offX); f('offY', m.offY);
         f('angle', m.angle);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
-        if (m.key !== lastKey && (layer === 'scan' || layer === 'sand')) {
-          renderer.clearTrail();
-          f('mode', 1); // sand: lay a fresh layer
-        }
+        if (m.key !== lastKey && layer === 'sand') f('mode', 1); // lay a fresh layer of sand
         if (m.clip === 'chladni') {
           const [mm, nn] = plateMode(show.A, m.seed, m.lt / m.dur);
           f('modeM', mm); f('modeN', nn);
         }
         lastKey = m.key;
-        // variant2: scan reads the relief over the whole frame; data: which formation
-        f('variant2', layer === 'scan' ? 1 : layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : 0);
-        persist = Math.pow(0.95, dt * 60); // the scanner forgets: a form is only ever glimpsed as it is read
+        // variant2: which data formation
+        f('variant2', layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : 0);
       }
     }
     if (layer === 'room') {
@@ -284,7 +278,7 @@ async function boot() {
     const hi = layer === 'appraisal' && moment?.mode !== CUT_MODES.indexOf('scatter');
     f('hiRes', hi ? 1 : 0);
     f('resX', hi ? renderer.width : renderer.lowW); f('resY', hi ? renderer.height : renderer.lowH); f('dpr', hi ? renderer.dpr : 1);
-    renderer.render(layer, frame.f32, persist, hi);
+    renderer.render(layer, frame.f32, hi);
     for (const h of app.frameHooks) h(now);
     requestAnimationFrame(loop);
   };

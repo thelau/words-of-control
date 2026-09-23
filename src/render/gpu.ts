@@ -10,17 +10,15 @@ import roomWGSL from './shaders/room.wgsl?raw';
 import appraisalWGSL from './shaders/appraisal.wgsl?raw';
 import reliefWGSL from './shaders/relief.wgsl?raw';
 import fieldWGSL from './shaders/field.wgsl?raw';
-import scanWGSL from './shaders/scan.wgsl?raw';
 import sandWGSL from './shaders/sand.wgsl?raw';
 import sandDrawWGSL from './shaders/sand_draw.wgsl?raw';
-import fadeWGSL from './shaders/fade.wgsl?raw';
 import blitWGSL from './shaders/blit.wgsl?raw';
 import dofWGSL from './shaders/dof.wgsl?raw';
 import bloomWGSL from './shaders/bloom.wgsl?raw';
 import compositeWGSL from './shaders/composite.wgsl?raw';
 import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
 
-export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'scan' | 'sand' | 'data';
+export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'sand' | 'data';
 
 const HDR: GPUTextureFormat = 'rgba16float';
 const BLOOM_LEVELS = 6;
@@ -148,12 +146,6 @@ export class Renderer {
       primitive: { topology: 'triangle-strip' },
     });
 
-    const scan = mod('scan', pre + scanWGSL);
-    this.p.scan = d.createRenderPipeline({
-      layout: 'auto', vertex: { module: scan, entryPoint: 'vs_full' },
-      fragment: { module: scan, entryPoint: 'fs', targets: [{ format: HDR, blend: add }] },
-    });
-
     const sand = mod('sand', pre + sandWGSL);
     this.c.sandVelocity = d.createComputePipeline({ layout: 'auto', compute: { module: sand, entryPoint: 'velocity' } });
     this.c.sandTransport = d.createComputePipeline({ layout: 'auto', compute: { module: sand, entryPoint: 'transport' } });
@@ -163,15 +155,6 @@ export class Renderer {
     this.p.sand = d.createRenderPipeline({
       layout: 'auto', vertex: { module: sandDraw, entryPoint: 'vs_full' },
       fragment: { module: sandDraw, entryPoint: 'fs', targets: [{ format: HDR }] },
-    });
-
-    const fade = mod('fade', fadeWGSL);
-    this.p.fade = d.createRenderPipeline({
-      layout: 'auto', vertex: { module: fade, entryPoint: 'vs' },
-      fragment: {
-        module: fade, entryPoint: 'fs',
-        targets: [{ format: HDR, blend: { color: { srcFactor: 'zero', dstFactor: 'constant' }, alpha: { srcFactor: 'zero', dstFactor: 'constant' } } }],
-      },
     });
 
     const bloom = mod('bloom', bloomWGSL);
@@ -194,7 +177,6 @@ export class Renderer {
     ]);
     group('reliefHeight', this.c.reliefHeight, [{ binding: 0, resource: uni }, { binding: 1, resource: this.heightTex.createView() }]);
     group('relief', this.p.relief, [{ binding: 0, resource: uni }, { binding: 2, resource: this.heightTex.createView() }, { binding: 3, resource: this.sampler }]);
-    group('scan', this.p.scan, [{ binding: 0, resource: uni }, { binding: 2, resource: this.heightTex.createView() }, { binding: 3, resource: this.sampler }]);
     // sand ping-pong: transport A→B, repose B→A (the drawing reads A)
     const sb = (b: GPUBuffer) => ({ buffer: b });
     group('sandV', this.c.sandVelocity, [{ binding: 0, resource: uni }, { binding: 4, resource: sb(this.sandVel) }]);
@@ -292,10 +274,10 @@ export class Renderer {
 
   /**
    * Draw one frame of `layer`. `frame` is the full uniform block (time, local
-   * time, appraisal…). `persist` is the scan trail decay per frame; `hi`
+   * time, appraisal…). `hi`
    * draws the appraisal at native resolution (text and lines).
    */
-  render(layer: Layer, frame: Float32Array, persist = 0.9, hi = false) {
+  render(layer: Layer, frame: Float32Array, hi = false) {
     const d = this.d;
     d.queue.writeBuffer(this.fBuf, 0, frame);
     this.lastLayer = layer;
@@ -334,18 +316,6 @@ export class Renderer {
       // the camera draws into the spare low-res target with its blur in alpha; the lens resolves it into the scene
       fullPass(this.p.sand, this.bg.sand, this.trail.view);
       fullPass(this.p.dof, this.bg.dof, this.scene.view, {});
-    } else if (layer === 'scan') {
-      // the hidden surface, then the laser into the long exposure
-      this.reliefHeight(enc, stamp);
-      const tp = enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'load', storeOp: 'store' }] });
-      tp.setPipeline(this.p.fade);
-      tp.setBlendConstant({ r: persist, g: persist, b: persist, a: persist });
-      tp.draw(3);
-      tp.setPipeline(this.p.scan);
-      tp.setBindGroup(0, this.bg.scan);
-      tp.draw(3);
-      tp.end();
-      fullPass(this.p.blit, this.bg.blit);
     } else if (layer === 'data') {
       // points into the spare target (cleared: no trails), then onto the scene
       const tp = enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }], ...stamp() });
@@ -402,15 +372,9 @@ export class Renderer {
 
   /** Draw every layer once so no pipeline compiles mid-performance. */
   warmUp(frame: Float32Array) {
-    for (const l of ['room', 'appraisal', 'relief', 'scan', 'sand', 'data', 'black'] as Layer[]) this.render(l, frame, 0.9, l === 'appraisal');
+    for (const l of ['room', 'appraisal', 'relief', 'sand', 'data', 'black'] as Layer[]) this.render(l, frame, l === 'appraisal');
   }
 
-  /** Clear the long-exposure buffer (a new scan shot starts from black). */
-  clearTrail() {
-    const enc = this.d.createCommandEncoder();
-    enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] }).end();
-    this.d.queue.submit([enc.finish()]);
-  }
 }
 
 /** Glyphs for the appraisal numbers: row 0 "0-9A-F", row 1 ".-x:" then blank. */

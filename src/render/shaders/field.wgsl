@@ -141,7 +141,12 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let pitch = select(mix(-0.6, 0.9, ah.y), mix(0.12, 0.45, ah.y), low);
   let far = select(mix(2.6, 5.0, ah.x), mix(3.2, 6.0, ah.x), low);
   let dist = select(far, mix(0.4, 1.2, ah.x), inside) * mix(1.0, 0.85, F.u) / F.zoom;
-  let aim = select(vec3f(F.offX, 0.0, F.offY) * 0.6, vec3f(F.offX * 2.0, 0.15, F.offY * 2.0), low);
+  // aim (and focus) on a real point of the formation, so the focal plane always lands on structure
+  var aim = vec3f(0.0);
+  for (var k = 0u; k < 4u; k++) {
+    let cand = place(u32(fract(F.angle * 7.71 + f32(k) * 0.137) * 159000.0) + 1u, t);
+    if (cand.w >= 0.0) { aim = behave(cand.xyz, 0u, t) * select(0.7, 1.0, inside); break; }
+  }
   let cam = aim + vec3f(cos(yaw) * cos(pitch), sin(pitch), sin(yaw) * cos(pitch)) * dist;
   let fwd = normalize(aim - cam);
   let rt = normalize(cross(fwd, vec3f(0.0, 1.0, 0.0)));

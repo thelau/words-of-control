@@ -2,7 +2,7 @@
  * Clip voices: the sound of each verdict clip, from the same data its image
  * uses. The data formations are heard the way the appraisal is (sine tones,
  * clicks, pulses — Ikeda's palette), streaming at the rate the points stream;
- * relief is a bowed plate, scan traces a surface, chladni is the plate ringing
+ * relief is a bowed plate, chladni is the plate ringing
  * in the mode that shapes its sand, the drift (the void) barely touches the room. Every voice
  * is hard-cut with its shot and sends only to the short room.
  * Levels: each clip is calibrated to the same loudness, then scaled by how
@@ -20,7 +20,7 @@ import { mulberry32 } from '../core/rng.ts';
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
-const CAL: Record<Shot['clip'], number> = { relief: 14, scan: 8, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10 };
+const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10 };
 
 type V = { a: AudioEngine; drone: Drone; A: Appraisal; shot: Shot; start: number; end: number; out: AudioNode; rand: () => number };
 
@@ -44,7 +44,6 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, shot: Shot,
   switch (shot.clip) {
     case 'relief': return relief(v);
     case 'drift': return drift(v);
-    case 'scan': return scan(v);
     case 'chladni': return chladni(v);
     default: return data(v);
   }
@@ -146,44 +145,6 @@ function drift(v: V): number[] {
   });
   glints.connect(v.out);
   return [D2 * 2, D2 * 3];
-}
-
-// ------------------------------------------------------------------ scan: the machine reading the surface
-function scan(v: V): number[] {
-  const { a, A } = v;
-  const c = a.ctx;
-  const sweeps = A.s.arousal > 0.55 ? 2 : 1;
-  const sweepDur = (v.shot.dur / sweeps) / lerp(1, 0.6, A.lazy);
-  // the laser tracing a surface: noise through a narrow band gliding along the profile it crosses
-  // (the tape stands for the surface), plus the band's second harmonic, faint
-  const base = D2 * 16 * Math.pow(2, lerp(-0.5, 0.5, A.s.pitch));
-  const bp = c.createBiquadFilter();
-  bp.type = 'bandpass'; bp.Q.value = 30;
-  const bp2 = c.createBiquadFilter();
-  bp2.type = 'bandpass'; bp2.Q.value = 30;
-  const steps = Math.floor(v.shot.dur / 0.03);
-  for (let i = 0; i <= steps; i++) {
-    const t = v.start + i * 0.03;
-    const k = (i / steps) * A.tape.length;
-    const h = A.tape[Math.floor(k) % A.tape.length] * (1 - (k % 1)) + A.tape[(Math.floor(k) + 1) % A.tape.length] * (k % 1);
-    const f = base * Math.pow(2, (h - 0.5) * 2);
-    bp.frequency.setTargetAtTime(f, t, 0.012);
-    bp2.frequency.setTargetAtTime(f * 2, t, 0.012);
-  }
-  const g = c.createGain(); g.gain.value = 1.4;
-  const g2 = c.createGain(); g2.gain.value = 0.18;
-  const n = noiseSrc(v);
-  n.connect(bp).connect(g).connect(v.out);
-  n.connect(bp2).connect(g2).connect(v.out);
-  // a click as each sweep begins
-  const clicks = rendered(v, (L, R, sr) => {
-    for (let k = 0; k < sweeps; k++) {
-      const s0 = Math.floor(k * sweepDur * sr);
-      for (let i = 0; i < 24 && s0 + i < L.length; i++) { const x = (i < 12 ? 0.6 : -0.6) * (1 - i / 24); L[s0 + i] += x; R[s0 + i] += x; }
-    }
-  });
-  clicks.connect(v.out);
-  return [D2 * 8];
 }
 
 // ------------------------------------------------------------------ chladni: the plate itself, in the mode that shapes the sand

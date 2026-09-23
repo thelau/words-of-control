@@ -91,7 +91,6 @@ fn height(@builtin(global_invocation_id) gid: vec3u) {
 
 /** The slab's proportions (width/height) and size: tall and portrait by default, wide for flat words. */
 fn panel(res: vec2f) -> vec4f {
-  if (F.variant2 > 0.5) { return vec4f(0.0, 0.0, res.x / res.y, 1.0); } // scan: the surface spans the frame
   let aspect = mix(mix(0.55, 0.9, F.sh_round + F.sh_point), 1.6, F.sh_flat);
   let size = mix(1.05, 1.5, F.s_scale);
   return vec4f(0.0, 0.0, aspect * size, size);

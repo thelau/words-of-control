@@ -29,8 +29,8 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let T = vec2f(0.5) + vec2f(F.offX, F.offY) * 0.12 + vec2f(cos(ah.x * TAU), sin(ah.x * TAU)) * F.lt * 0.012;
   let yaw = F.seed * 1.618 + F.angle * TAU + (u - 0.5) * 0.12;
   let kind = fract(F.angle * 7.31);
-  // the plate is read from above: never lower than ~50°
-  let pitch = max(select(mix(1.2, 1.5, ah.y), mix(0.9, 1.15, ah.y), kind < 0.6), 0.9);
+  // the plate is read from above: never lower than ~40°
+  let pitch = max(select(mix(1.15, 1.45, ah.y), mix(0.7, 1.0, ah.y), kind < 0.6), 0.7);
   let dist = mix(0.62, 0.52, u) * mix(0.35, 1.3, ah.x * ah.y + 0.2) / F.zoom;
   let roll = select(0.0, (ah.x - 0.5) * 0.7, fract(F.angle * 3.7) > 0.7);
   let fwd = vec3f(cos(yaw) * cos(pitch), sin(yaw) * cos(pitch), -sin(pitch));
@@ -56,7 +56,7 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
 
   // the sun: low and raking, from the side-back of the camera; it wanders a little over the shot
   let az = yaw + mix(1.9, 2.5, F.variant) + (u - 0.5) * 0.25;
-  let el = mix(0.35, 0.55, F.s_light);
+  let el = mix(0.12, 0.26, F.s_light); // raking: the grains and their shadows, never a creamy fill
   let L = normalize(vec3f(cos(az) * cos(el), sin(az) * cos(el), sin(el)));
   let V = -rd;
 
