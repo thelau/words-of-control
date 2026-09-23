@@ -154,7 +154,10 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   const shown = new Map<ClipId, number>();
   for (const c of cuts) { const k = COUNTERPART[c.mode]; if (k) shown.set(k, (shown.get(k) ?? 0) + c.dur); }
   const handOff = [...shown.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).find((k) => !openers.includes(k));
-  const lastVariant = rand();
+  // (a barcode hand-off ends on the vertical-bar style — appraisal.wgsl style = ⌊fract(variant·13.7)·4⌋ = 0 —
+  // the one the echo rebuilds, so the last flat frame and the first 3D frame are the same image)
+  let lastVariant = rand();
+  while (handOff === 'city' && Math.floor((lastVariant * 13.7) % 1 * 4) !== 0) lastVariant = rand();
   if (drama === 'question') {
     cuts.push({ start: t, dur: 0.6, mode: 'line', variant: 0 });
     t += 0.6;
@@ -182,7 +185,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     name: { dur: lerp(8, 11, A.s.intensity), count: 1, gap: 0, angle: 99, fade: 2.5, tail: 4 },
     greeting: { dur: lerp(8, 11, A.s.energy), count: 2, gap: 0.2, angle: 3, fade: 0, tail: 3 },
     question: { dur: lerp(6, 8, aro), count: 2, gap: 0.1, angle: lerp(2.5, 1, pace), fade: 0, tail: 1.2 },
-    barrage: { dur: lerp(9, 12, A.s.intensity), count: 6, gap: 0, angle: 0.45, fade: 0, tail: 3.5 },
+    barrage: { dur: lerp(9, 12, A.s.intensity), count: 6, gap: 0, angle: 0.85, fade: 0, tail: 3.5 },
     endless: { dur: lerp(13, 17, A.s.intensity), count: 3, gap: 0.3, angle: 4.5, fade: 5, tail: 8 },
     misreading: { dur: lerp(9, 12, A.s.intensity), count: 4, gap: 0.15, angle: lerp(3, 1, pace), fade: 0, tail: 3 },
     bloom: { dur: lerp(10, 14, A.s.intensity), count: Math.round(lerp(3, 6, A.s.energy * 0.5 + aro * 0.5)), gap: 0.1, angle: lerp(3.5, 1.2, pace), fade: 1.5, tail: 3.5 },
@@ -216,7 +219,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     if (form.angle >= 99) return [WIDE];
     const len = form.angle * lerp(0.8, 1.25, rand());
     const out: Angle[] = [];
-    for (let at = 0; at < dur - 0.4; at += drama === 'measure' ? form.angle : Math.max(0.4, len * lerp(0.6, 1.4, rand()))) {
+    for (let at = 0; at < dur - 0.6; at += drama === 'measure' ? form.angle : Math.max(0.75, len * lerp(0.7, 1.3, rand()))) {
       const r = rand();
       const zoom = r < 0.45 ? 1 : r < 0.75 ? lerp(1.4, 2.2, rand()) : lerp(2.8, 5, rand());
       const a = rand() * Math.PI * 2, off = zoom > 1 ? lerp(0.1, 0.45, rand()) : 0;
@@ -266,8 +269,8 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     if (drama === 'greeting' && i === picks.length - 1) cover = [{ ...WIDE, seed: -2 }];
     shots.push({
       clip, start: t, dur, seed, aborted: false, angles: cover, ops: chooseOps(),
-      // the barrage lands every shot with a white beat; the misreading plays its first half in the wrong mood
-      flash: drama === 'barrage' || (drama === 'misreading' && i === Math.ceil(picks.length / 2)),
+      // the barrage opens on a white beat (one, not a strobe); the misreading's correction lands with one too
+      flash: (drama === 'barrage' && i === 0) || (drama === 'misreading' && i === Math.ceil(picks.length / 2)),
       flip: drama === 'misreading' && i < Math.ceil(picks.length / 2),
     });
     t += dur + (i < picks.length - 1 ? form.gap : 0);

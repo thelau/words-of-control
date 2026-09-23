@@ -39,6 +39,8 @@ npm run perf        # GPU time + dropped frames at 1728×1117 @2×, per phase an
 npm run e2e         # keyboard flow, safety paths, storage (add -- --live for one real Jev call)
 npm run capture -- word …         # contact sheets → docs/captures/ (local)
 node scripts/listen.ts word …     # record the real audio: loudness, true peak, spectrogram (needs ffmpeg)
+node scripts/film.ts word …       # record performances as video; flags jumps inside shots (flicker)
+node scripts/clips.ts clip …      # one clip alone (--word, --ops e,w,f, --angles n) → contact sheet
 node scripts/appraise.ts word …   # full battery on real words → table (uses the API key)
 node scripts/fixtures.ts          # re-record Jev answers for the test words (mock mode + tests)
 node scripts/probe.ts             # safety calibration probe (see docs/jev-calibration.md)

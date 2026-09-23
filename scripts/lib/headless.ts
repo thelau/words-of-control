@@ -11,7 +11,8 @@ process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.resolve(import.meta.dirname, '../.
 
 export type Session = { server: ViteDevServer; browser: Browser; page: Page; url: string; close: () => Promise<void> };
 
-export async function openSession(opts: { width?: number; height?: number; dpr?: number; uncapped?: boolean } = {}): Promise<Session> {
+/** `video`: a directory — the page is recorded as a webm there (Playwright's recorder), for judging motion. */
+export async function openSession(opts: { width?: number; height?: number; dpr?: number; uncapped?: boolean; video?: string } = {}): Promise<Session> {
   const server = await createServer({ root: path.resolve(import.meta.dirname, '../..'), server: { port: 0, strictPort: false }, logLevel: 'silent' });
   await server.listen();
   const addr = server.httpServer!.address();
@@ -20,7 +21,8 @@ export async function openSession(opts: { width?: number; height?: number; dpr?:
     '--enable-webgpu-developer-features']; // unquantised timestamp queries for the perf check
   if (opts.uncapped) args.push('--disable-gpu-vsync', '--disable-frame-rate-limit');
   const browser = await chromium.launch({ headless: true, args });
-  const page = await browser.newPage({ viewport: { width: opts.width ?? 1280, height: opts.height ?? 720 }, deviceScaleFactor: opts.dpr ?? 1 });
+  const viewport = { width: opts.width ?? 1280, height: opts.height ?? 720 };
+  const page = await browser.newPage({ viewport, deviceScaleFactor: opts.dpr ?? 1, ...(opts.video ? { recordVideo: { dir: opts.video, size: viewport } } : {}) });
   page.on('pageerror', (e) => console.error('[pageerror]', e.message));
   // WebGPU validation failures arrive as warnings: surface them too
   page.on('console', (m) => { if (m.type() === 'error' || /invalid|validation/i.test(m.text())) console.error('[console]', m.text()); });

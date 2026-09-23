@@ -256,7 +256,7 @@ async function boot() {
         f('flash', m.flash); f('invert', m.invert ? 1 : 0);
         f('mode', m.mode);
         f('zoom', m.zoom); f('offX', m.offX); f('offY', m.offY);
-        f('angle', m.angle);
+        f('angle', m.angle); f('angleAt', m.angleAt);
         f('echoOp', m.ops.echo); f('warpOp', m.ops.warp); f('flowOp', m.ops.flow);
         // a misreading plays its first shots in the opposite mood, then corrects itself
         f('moodPos', m.flip ? show.A.mood.neg : show.A.mood.pos);

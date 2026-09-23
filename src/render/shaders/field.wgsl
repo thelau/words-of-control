@@ -63,8 +63,11 @@ fn reading(i: u32, t: f32) -> vec4f {
   let K = 12.0;
   let k = floor(pow(r1(i, 17u), 1.4) * K);
   let tk = max(t - k * mix(0.12, 0.04, F.s_arousal), 0.0);
-  let z = k / K;
-  let fade = mix(1.0, 0.3, k / K);
+  // the conveyor flow: the layers stream toward you, looping; they appear from the dark at the back and the
+  // front one fades as it leaves — the loop is never seen
+  let conveyor = u32(F.flowOp + 0.5) == 1u;
+  let z = select(k / K, fract(k / K - t * 0.05 * (0.5 + F.s_arousal)), conveyor);
+  let fade = mix(1.0, 0.3, z) * select(1.0, ss(0.0, 0.1, z) * ss(1.0, 0.85, z), conveyor);
   if (form == 0u) {
     // spectrum: rows 6 px apart (points exactly on each row: lines), as long as their value; each echo one row on
     let H = R.y * 0.72;
@@ -78,14 +81,20 @@ fn reading(i: u32, t: f32) -> vec4f {
   if (form == 1u) {
     // barcode: bars of the tape's bits scrolling; each echo is the barcode as it was a beat ago
     let w = 6.0 * (1.0 + floor(F.variant * 3.0));
-    let speed = (300.0 + 2200.0 * F.s_arousal) * select(1.0, -1.0, F.variant > 0.5);
-    let x = a * R.x;
-    let idx = i32(floor((x + tk * speed) / w));
-    if (((byteOf(idx / 8) >> u32(idx % 8)) & 1u) == 0u) { return vec4f(0.0, 0.0, 0.0, -1.0); }
+    // (in space the bars drift, never race: a fast scroll held for seconds strobes)
+    let speed = (25.0 + 140.0 * F.s_arousal) * select(1.0, -1.0, F.variant > 0.5);
+    // points ride slots that slide with the scroll; a slot shows the bar passing through it, and a bar's points
+    // are drawn from the bar itself — so when a slot hands over to the next bar the image is unchanged (no shimmer)
+    let slots = floor(R.x / w) + 2.0;
+    let slot = f32(i % u32(slots));
+    let sub = f32(i / u32(slots));
+    let shift = tk * speed / w;
+    let idx = i32(slot + floor(shift));
+    if (((byteOf(idx / 8) >> u32(((idx % 8) + 8) % 8)) & 1u) == 0u) { return vec4f(0.0, 0.0, 0.0, -1.0); }
     let band = select(R.y, R.y * (0.18 + 0.2 * F.variant), fract(F.variant * 7.0) > 0.45);
-    // each set bar is drawn as a crisp line of points on its centre
-    let xc = (f32(idx) + 0.5) * w - tk * speed;
-    let p = scr(vec2f(xc, R.y * 0.5 + (b - 0.5) * band), R);
+    let yb = rnd(u32(idx) * 7919u + u32(sub), 91u);
+    let xc = (slot - 1.0 + 0.5 - fract(shift)) * w;
+    let p = scr(vec2f(xc, R.y * 0.5 + (yb - 0.5) * band), R);
     return vec4f(p, z, (0.5 + 0.5 * tv(idx / 8)) * fade);
   }
   if (form == 2u) {
@@ -146,7 +155,7 @@ fn rotY(p: vec3f, a: f32) -> vec3f { return vec3f(p.x * cos(a) + p.z * sin(a), p
 fn shape(xy: vec2f, kn0: f32, i: u32, t: f32) -> vec3f {
   let D = mix(1.7, 3.6, F.s_scale); // the echo's full depth
   let flow = u32(F.flowOp + 0.5);
-  let kn = select(kn0, fract(kn0 + t * 0.05 * (0.5 + F.s_arousal)), flow == 1u && kn0 > 0.0);
+  let kn = kn0; // (the conveyor already moved the layer in reading())
   var p = vec3f(xy, 0.0);
   let e = u32(F.echoOp + 0.5);
   if (e == 0u) { p.z = -kn * D; }
@@ -208,7 +217,9 @@ fn behave(p: vec3f, i: u32, t: f32) -> vec3f {
 }
 
 /** Once per frame: the camera. The echo is a stack of screens facing +z. Each angle looks at it from its own
- *  side and height (never straight on), 1 in 4 from inside it (macro). The reveal angle (F.angle < 0, the
+ *  side and height (never straight on), 1 in 4 from inside it (macro). Where it stands is decided from the
+ *  formation as it was when the angle began (F.angleAt), so the camera never hops as the points move; from
+ *  there it only drifts and pushes, smoothly. The reveal angle (F.angle < 0, the
  *  first shot after the appraisal) starts dead frontal — the frame the appraisal left — then swings round;
  *  −2 (a greeting) the reverse. It frames what is really there: 32 points of the formation, as shaped, warped
  *  and moving now; it aims at the densest of them (the focus lands on structure) and stands back by the
@@ -216,6 +227,7 @@ fn behave(p: vec3f, i: u32, t: f32) -> vec3f {
 @compute @workgroup_size(1)
 fn camera() {
   let t = F.lt * mix(1.0, 0.35, F.lazy);
+  let t0 = F.angleAt * mix(1.0, 0.35, F.lazy);
   let form = u32(F.variant2 + 0.5);
   let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01)) * 0.5 + 0.5;
   let inside = fract(F.angle * 5.17) < 0.25 && form < 5u;
@@ -229,8 +241,8 @@ fn camera() {
   var sum = vec3f(0.0);
   for (var k = 0u; k < 64u; k++) {
     if (got == 32u) { break; }
-    let cand = place(u32(fract(abs(F.angle) * 7.71 + f32(k) * 0.07373) * 159000.0) + 1u, t);
-    if (cand.w >= 0.0) { let q = behave(cand.xyz, 0u, t); pts[got] = q; sum += q; got += 1u; }
+    let cand = place(u32(fract(abs(F.angle) * 7.71 + f32(k) * 0.07373) * 159000.0) + 1u, t0);
+    if (cand.w >= 0.0) { let q = behave(cand.xyz, 0u, t0); pts[got] = q; sum += q; got += 1u; }
   }
   let centre = select(vec3f(0.0, 0.0, -1.2), sum / f32(max(got, 1u)), got > 0u);
   var spread = 0.8;

@@ -10,8 +10,8 @@ const FRAME = [
   'lt', 'dur', 'u', 'seed', 'variant', 'variant2', 'mode', 'aborted', 'layerFade',
   // framing: every clip maps p = p / zoom + off (wide ↔ macro between repeated shots)
   'zoom', 'offX', 'offY',
-  // the camera angle within a shot (a new angle = a cut on the same continuous scene)
-  'angle',
+  // the camera angle within a shot (a new angle = a cut on the same continuous scene), and when it began (s)
+  'angle', 'angleAt',
   // data: the shot's operators (field.wgsl shape()): echo, warp, flow
   'echoOp', 'warpOp', 'flowOp',
   // chladni: the mode sounding now

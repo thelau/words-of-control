@@ -37,9 +37,11 @@ export class Renderer {
   width = 0;
   height = 0;
   dpr = 1;
-  /** Size of the soft layers' scene target (CSS pixels). */
+  /** Size of the soft layers' scene target (CSS pixels × quality). */
   lowW = 0;
   lowH = 0;
+  /** 1, 0.75 or 0.5: the soft layers' resolution and the data layer's point count (lowered on slow devices). */
+  quality = 1;
   private d!: GPUDevice;
   private ctx!: GPUCanvasContext;
   private format!: GPUTextureFormat;
@@ -213,7 +215,7 @@ export class Renderer {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.max(1, Math.round(this.canvas.clientWidth * this.dpr));
     const h = Math.max(1, Math.round(this.canvas.clientHeight * this.dpr));
-    if (w === this.width && h === this.height && this.scene) return false;
+    if (w === this.width && h === this.height && this.scene && this.lowW === Math.max(1, Math.round((w / this.dpr) * this.quality))) return false;
     this.width = w;
     this.height = h;
     this.canvas.width = w;
@@ -222,8 +224,8 @@ export class Renderer {
       const tex = this.d.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
       return { tex, view: tex.createView() };
     };
-    this.lowW = Math.max(1, Math.round(w / this.dpr));
-    this.lowH = Math.max(1, Math.round(h / this.dpr));
+    this.lowW = Math.max(1, Math.round((w / this.dpr) * this.quality));
+    this.lowH = Math.max(1, Math.round((h / this.dpr) * this.quality));
     const mkLow = (): Target => {
       const tex = this.d.createTexture({ size: [this.lowW, this.lowH], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
       return { tex, view: tex.createView() };
@@ -328,7 +330,7 @@ export class Renderer {
       const tp = enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       tp.setPipeline(this.p.data);
       tp.setBindGroup(0, this.bg.data);
-      tp.draw(4, FIELD_N);
+      tp.draw(4, Math.round(FIELD_N * this.quality));
       tp.end();
       fullPass(this.p.blit, this.bg.blit);
     } else if (layer === 'appraisal' && hi) {
