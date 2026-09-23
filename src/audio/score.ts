@@ -35,7 +35,7 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, plan
   src.buffer = buf;
   const g = a.ctx.createGain();
   // precise, not big: the appraisal follows the word's loudness but stays under the verdict
-  g.gain.value = 0.35 * dbToGain(lerp(-9, 0, loud(A)));
+  g.gain.value = 0.35 * dbToGain(lerp(-6, 0, loud(A)));
   src.connect(g).connect(a.perfDry);
   src.start(t0);
 
@@ -154,7 +154,7 @@ function renderAppraisal(ctx: BaseAudioContext, A: Appraisal, cuts: Cut[]): Audi
 function voices(a: AudioEngine, A: Appraisal, cuts: Cut[], t0: number) {
   if (!cuts.length) return;
   const count = Math.round(lerp(4, 16, A.s.density * 0.5 + A.s.arousal * 0.5));
-  render(a, t0, 0.22 * dbToGain(lerp(-9, 0, loud(A))), spec(A, count, cuts.map((c) => ({ start: c.start, dur: c.dur, mode: c.mode })), cuts[cuts.length - 1].start + cuts[cuts.length - 1].dur, 0.8));
+  render(a, t0, 0.22 * dbToGain(lerp(-6, 0, loud(A))), spec(A, count, cuts.map((c) => ({ start: c.start, dur: c.dur, mode: c.mode })), cuts[cuts.length - 1].start + cuts[cuts.length - 1].dur, 0.8));
 }
 
 function spec(A: Appraisal, count: number, cuts: VoiceSpec['cuts'], end: number, spread: number): VoiceSpec {

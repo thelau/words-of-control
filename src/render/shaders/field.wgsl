@@ -119,6 +119,13 @@ fn reading(i: u32, t: f32) -> vec4f {
     let p = vec2f(x * cos(ang), x * sin(ang) + (tv(i32(k) + 7) - 0.5) * 0.1);
     return vec4f(p, z, (0.6 + 0.4 * tv(i32(k))) * fade);
   }
+  if (form == 6u) {
+    // lone: a name — one point of light held at the centre, a few motes far away in a vast dark
+    if (i < 400u) { return vec4f((vec3f(a, b, c) - 0.5) * 0.004, 1.0); }
+    if (r1(i, 9u) > 0.01) { return vec4f(0.0, 0.0, 0.0, -1.0); }
+    let dir = normalize(vec3f(a, b, c) - 0.5 + 1e-3);
+    return vec4f(dir * mix(4.0, 9.0, r1(i, 10u)), 0.08);
+  }
   // drift: the void — a sparse dust drifting slowly through the dark, one highlight wandering
   if (r1(i, 9u) > 0.12) { return vec4f(0.0, 0.0, 0.0, -1.0); }
   let p = (vec3f(a, b, c) - 0.5) * vec3f(8.0, 4.0, 8.0) + vec3f(t * 0.04, sin(t * 0.2 + a * 9.0) * 0.1, 0.0);
@@ -176,7 +183,7 @@ fn shape(xy: vec2f, kn0: f32, i: u32, t: f32) -> vec3f {
 /** Where point i is (world, y up) and the value it carries (< 0 = not drawn). */
 fn place(i: u32, t: f32) -> vec4f {
   let r = reading(i, t);
-  if (u32(F.variant2 + 0.5) == 5u || r.w < 0.0) { return r; }
+  if (u32(F.variant2 + 0.5) >= 5u || r.w < 0.0) { return r; }
   return vec4f(shape(r.xy, r.z, i, t), r.w);
 }
 
@@ -211,7 +218,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   // height (never straight on), 4 in 10 from inside it (macro). The reveal angle (F.angle < 0, the first shot
   // after the appraisal) starts dead frontal — exactly the frame the appraisal left — then swings round.
   let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01)) * 0.5 + 0.5;
-  let inside = fract(F.angle * 5.17) < 0.4 && form != 5u;
+  let inside = fract(F.angle * 5.17) < 0.4 && form < 5u;
   let exact = F.moodNeu > 0.5;
   // neutral: the instrument's views — straight on, side on, from above — tracking at constant speed
   let axis = floor(ah.x * 3.0);
@@ -228,7 +235,8 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   aimPt = mix(aimPt, vec3f(0.0, 0.0, -1.2), 0.45);
   let track = select(vec3f(0.0), vec3f(cos(yaw), 0.0, -sin(yaw)) * (t * 0.06 - 0.3), exact);
   let orbit = aimPt + track + vec3f(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * far;
-  let reveal = select(1.0, ss(0.6, 2.8, F.lt), F.angle < 0.0);
+  // −1: the reveal (frontal → into depth); −2: a greeting (the field turns round to face you)
+  let reveal = select(select(1.0, ss(0.6, 2.8, F.lt), F.angle < 0.0), 1.0 - ss(0.4, 3.5, F.lt), F.angle < -1.5);
   let cam = mix(vec3f(0.0, 0.0, 1.8), orbit, reveal);
   let aim = mix(vec3f(0.0), aimPt + track, reveal);
   let dist = length(aim - cam);

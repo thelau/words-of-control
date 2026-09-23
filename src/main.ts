@@ -85,6 +85,7 @@ async function boot() {
   let keys: Keys | null = null;
   let state: State = 'idle';
   let show: Show | null = null;
+  let serial = 0;
   let moment: Moment | null = null;
   let keysTyped = 0;
   let charge = 0;
@@ -120,6 +121,7 @@ async function boot() {
     const t0 = clock() + 0.3;
     show = { A, plan, t0 };
     frame.setAppraisal(A);
+    frame.set('serial', ++serial); // the performance's number (this session only: nothing is kept)
     renderer.setTape(A.tape);
     if (audio && drone) playPerformance(audio, drone, A, plan, t0);
   }
@@ -256,6 +258,12 @@ async function boot() {
         f('zoom', m.zoom); f('offX', m.offX); f('offY', m.offY);
         f('angle', m.angle);
         f('echoOp', m.ops.echo); f('warpOp', m.ops.warp); f('flowOp', m.ops.flow);
+        // a misreading plays its first shots in the opposite mood, then corrects itself
+        f('moodPos', m.flip ? show.A.mood.neg : show.A.mood.pos);
+        // the endless verdict fades instead of cutting: the image dims over the last seconds of its last shot
+        const lastEnd = Math.max(...show.plan.shots.map((s) => s.start + s.dur));
+        const fade = show.plan.fade > 0 && m.clip ? Math.min(1, Math.max(0, (lastEnd - (clock() - show.t0)) / show.plan.fade)) : 1;
+        f('exposure', fade * fade);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
         if (m.key !== lastKey && layer === 'sand') f('mode', 1); // lay a fresh layer of sand
         if (m.clip === 'chladni') {

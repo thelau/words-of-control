@@ -193,35 +193,50 @@ fn scatter(px: vec2f, res: vec2f) -> vec3f {
 }
 
 fn line(px: vec2f, res: vec2f) -> vec3f {
-  // one line through the word; it closes to a point: the verdict is reached
-  let half = res.x * 0.5 * (1.0 - ss(0.25, 0.95, F.u));
+  // one line through the word; it closes to a point: the verdict is reached. A question's line (variant 0)
+  // never closes: it hangs, trembling, and the verdict begins unresolved
+  let open = F.variant < 0.5;
+  let half = res.x * 0.5 * select(1.0 - ss(0.25, 0.95, F.u), 0.42 + 0.02 * sin(F.lt * 23.0), open);
   let d = abs(px.y - res.y * 0.5);
   if (abs(px.x - res.x * 0.5) > max(half, F.dpr)) { return vec3f(0.0); }
-  return ink() * exp(-d * d / (0.5 * F.dpr * F.dpr)) * (1.0 + 2.0 * ss(0.8, 1.0, F.u));
+  return ink() * exp(-d * d / (0.5 * F.dpr * F.dpr)) * (1.0 + 2.0 * ss(0.8, 1.0, F.u) * select(1.0, 0.0, open));
 }
 
 fn word(px: vec2f, res: vec2f) -> vec3f {
-  // the typed word, as drawn once per performance, then its UTF-8 bytes in hex beneath
+  // the typed word, as drawn once per performance, then its UTF-8 bytes in hex beneath. Opening (variant 0):
+  // large, at the centre, held long enough to be read. The signature (variant 2): small, lower left, the bytes
+  // complete and the performance's number after them — every recording carries its own caption
+  let sig = F.variant > 1.5;
   let dim = vec2f(textureDimensions(wordTex));
-  let h = res.y * 0.07;
+  let h = res.y * select(0.11, 0.03, sig);
   let w = h * dim.x / dim.y;
-  let o = vec2f((res.x - w) * 0.5, res.y * 0.5 - h * 0.62);
+  let o = select(vec2f((res.x - w) * 0.5, res.y * 0.5 - h * 0.62), vec2f(res.x * 0.06, res.y * 0.86), sig);
   let uv = (px - o) / vec2f(w, h);
   var c = vec3f(0.0);
   if (all(uv >= vec2f(0.0)) && all(uv < vec2f(1.0))) { c += ink() * textureLoad(wordTex, vec2i(uv * dim), 0).a; }
-  // bytes: "E6 B5 B7 …", appearing one by one
+  // bytes: "E6 B5 B7 …", appearing one by one (all at once in the signature)
   let cw = 8.0 * F.dpr;
   let chh = 14.0 * F.dpr;
   let nb = F.byteLen;
   let rowW = nb * 3.0 * cw;
-  let bo = vec2f((res.x - rowW) * 0.5, res.y * 0.5 + h * 0.62);
+  let bo = select(vec2f((res.x - rowW) * 0.5, res.y * 0.5 + h * 0.62), vec2f(res.x * 0.06, res.y * 0.86 + h * 1.25), sig);
   let bq = (px - bo) / vec2f(cw, chh);
   if (bq.y >= 0.0 && bq.y < 1.0 && bq.x >= 0.0 && bq.x < nb * 3.0) {
     let bi = i32(floor(bq.x / 3.0));
     let j = i32(floor(bq.x)) % 3;
-    if (j < 2 && f32(bi) < F.u * 1.3 * nb) {
+    if (j < 2 && (sig || f32(bi) < F.u * 1.3 * nb)) {
       let b = byteOf(bi);
       c += acc() * glyph(hexDigit(b, j == 0), fract(bq));
+    }
+  }
+  if (sig) {
+    // the number: four digits after the bytes
+    let so = bo + vec2f((nb * 3.0 + 1.0) * cw, 0.0);
+    let sq = (px - so) / vec2f(cw, chh);
+    if (sq.y >= 0.0 && sq.y < 1.0 && sq.x >= 0.0 && sq.x < 4.0) {
+      let k = 3 - i32(floor(sq.x));
+      let dgt = (u32(F.serial) / u32(pow(10.0, f32(k)))) % 10u;
+      c += ink() * 0.7 * glyph(f32(dgt), fract(sq));
     }
   }
   return c;

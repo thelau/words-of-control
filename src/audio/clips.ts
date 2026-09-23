@@ -20,7 +20,7 @@ import { mulberry32 } from '../core/rng.ts';
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
-const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10 };
+const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, lone: 8 };
 
 type V = { a: AudioEngine; drone: Drone; A: Appraisal; shot: Shot; start: number; end: number; out: AudioNode; rand: () => number };
 
@@ -30,7 +30,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, shot: Shot,
   const start = t0 + shot.start;
   const end = start + shot.dur;
   // how loud the word is, as Jev heard it: −20 dB for an indifferent word, 0 for a scream
-  const level = dbToGain(lerp(-11, 0, loud(A) ** 1.3) + CAL[shot.clip]);
+  const level = dbToGain(lerp(-7, 0, loud(A)) + CAL[shot.clip]); // a narrow range: intensity is density and sub, not volume
   const gate = c.createGain();
   gate.gain.setValueAtTime(0, start - 0.001);
   gate.gain.linearRampToValueAtTime(level, start + 0.004);
@@ -44,6 +44,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, shot: Shot,
   switch (shot.clip) {
     case 'relief': return relief(v);
     case 'drift': return drift(v);
+    case 'lone': return lone(v);
     case 'chladni': return chladni(v);
     default: return data(v);
   }
@@ -310,4 +311,23 @@ function data(v: V): number[] {
     for (const f of [fs, fs + 0.9]) { const o = c.createOscillator(); o.frequency.value = f; o.connect(g); o.start(v.start); o.stop(v.end + 0.05); }
   }
   return [f0];
+}
+
+// ------------------------------------------------------------------ lone: a name — one pure tone, held, alone
+function lone(v: V): number[] {
+  const { a, A } = v;
+  const c = a.ctx;
+  // its pitch is the name's own bytes (their sum, folded into two octaves above D3): each name has its note
+  const sum = [...A.bytes].reduce((x, y) => x + y, 0);
+  const f = D2 * 2 * Math.pow(2, (sum % 24) / 12);
+  const o = c.createOscillator();
+  o.frequency.value = f;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, v.start);
+  g.gain.linearRampToValueAtTime(0.14, v.start + 1.5);
+  g.gain.setValueAtTime(0.14, v.end - 2);
+  g.gain.linearRampToValueAtTime(0, v.end);
+  o.connect(g).connect(v.out);
+  o.start(v.start); o.stop(v.end + 0.05);
+  return [f];
 }

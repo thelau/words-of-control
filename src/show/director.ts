@@ -12,7 +12,7 @@ import type { Layer } from '../render/gpu.ts';
  *  a 2D reading, and drift, the void — and two matters the data acts on: the relief (data → surface) and
  *  chladni (the word's bytes as sound shaping sand). One language: monochrome, one accent,
  *  every mark from the word's data; each family answers to different dimensions of the reading. */
-export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift'] as const;
+export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'lone'] as const;
 export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
@@ -36,12 +36,19 @@ export const WIDE: Angle = { at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 };
 export type Ops = { echo: number; warp: number; flow: number };
 export const STILL: Ops = { echo: 0, warp: 0, flow: 0 };
 
-/** One verdict clip, its operators and its coverage (angles, in order). */
-export type Shot = { clip: ClipId; start: number; dur: number; seed: number; aborted: boolean; angles: Angle[]; ops: Ops };
+/** One verdict clip, its operators and its coverage (angles, in order). `flash`: it lands with a white beat;
+ *  `flip`: it is played in the opposite mood (a misreading, corrected later). */
+export type Shot = { clip: ClipId; start: number; dur: number; seed: number; aborted: boolean; angles: Angle[]; ops: Ops; flash?: boolean; flip?: boolean };
+
+/** The performance's form, chosen from the reading (see direct()). */
+export type Drama = 'storm' | 'barrage' | 'endless' | 'misreading' | 'bloom' | 'measure' | 'shrug' | 'name' | 'greeting' | 'question' | 'void';
 
 export type Plan = {
+  drama: Drama;
   cuts: Cut[];
   shots: Shot[];
+  /** Seconds over which the image fades before the black (0 = a hard cut). */
+  fade: number;
   /** When the image cuts to black (the verdict ends). */
   blackAt: number;
   /** When the reverb tail has died and the room returns. */
@@ -77,6 +84,8 @@ function affinity(A: Appraisal): Record<ClipId, number> {
     // the word's bytes as a sound shaping sand: heard, tonal, rhythmic, sand itself
     chladni: A.c.sense.p.hearing * 1.1 + m.sand * 0.8 + tx.grainy * 0.4 + rh.pulsing * 0.6 + mo.trembling * 0.6 + s.order * 0.3
       + s.sacred * 0.3 + em.joy * 0.2,
+    // a name: one point held alone (only ever chosen by the name dramaturgy)
+    lone: 0,
     // the void, the lazy afternoon: a sparse dust drifting
     drift: m.void * 0.9 + m.light * 0.4 + m.smoke * 0.5 + A.lazy * 0.8 + (1 - s.arousal) * 0.3 + m.water * 0.3 + mo.drifting * 0.4,
   };
@@ -93,25 +102,41 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   const rand = mulberry32(A.seed ^ 0x5bd1e995 ^ salt);
   const aro = A.s.arousal, lazy = A.lazy, conf = A.c.emotion.confidence;
   const rh = A.c.rhythm.top;
+  const md = A.mood, em = A.c.emotion.p, act = A.c.act.p;
 
-  // ---- appraisal: rapid cuts, faster when the word is charged; always ends on a single line (the verdict reached)
+  // ---- the dramaturgy: the performance's form follows the reading, not only its fill
+  const asked = act.question > 0.4 || A.bytes[A.bytes.length - 1] === 0x3f;
+  const empty = A.c.material.top === 'void' && lazy > 0.6;
+  const drama: Drama =
+    act.name > 0.45 ? 'name'
+    : act.greeting > 0.45 ? 'greeting'
+    : asked ? 'question'
+    : empty ? 'void'
+    : md.neg > 0.6 && aro > 0.62 ? 'barrage'
+    : (A.n.loss > 0.5 || em.sadness > 0.5) && md.neg > 0.45 ? 'endless'
+    : conf < 0.35 && lazy < 0.6 ? 'misreading'
+    : md.pos >= md.neg && md.pos >= md.neu ? 'bloom'
+    : md.neu > 0.6 && lazy > 0.5 && (A.c.kind.p['abstract idea'] ?? 0) > 0.4 ? 'shrug'
+    : md.neu >= md.neg ? 'measure'
+    : 'storm';
+
+  // ---- appraisal: rapid cuts, faster when the word is charged
   const appraisalDur = lerp(1.7, 2.6, clamp01(A.tape.length / 180)) * lerp(1.1, 0.85, aro);
   const cutLen = lerp(0.26, 0.075, aro) * (lazy > 0.6 ? 1.8 : 1);
-  // it opens on the word itself and its bytes: proof the machine is reading *this*
-  const cuts: Cut[] = [{ start: 0, dur: lerp(0.32, 0.16, aro), mode: 'word', variant: 0 }];
+  // it opens on the word itself and its bytes, held long enough to be read: proof the machine is reading *this*
+  const cuts: Cut[] = [{ start: 0, dur: lerp(0.7, 0.45, aro), mode: 'word', variant: 0 }];
   let t = cuts[0].dur;
   let prev: CutMode | null = 'word';
   // which readings the machine favours depends on what it found: ordered words read as barcodes and bits,
   // crowded ones as figures, heard ones as spectra, strange ones as return maps (barcodes come in four styles)
   const readings: CutMode[] = ['barcode', 'numbers', 'spectrum', 'bits', 'scatter'];
-  const emo = A.c.emotion;
   const rw = [
     A.s.order + A.c.domain.p.machine * 0.5, A.s.density + A.bytes.length / 24, A.c.sense.p.hearing + (1 - A.s.tone) * 0.5,
-    A.s.order * 0.5 + A.c.material.p.metal * 0.5 + 0.2, A.s.strangeness + (1 - emo.confidence) * 0.6,
+    A.s.order * 0.5 + A.c.material.p.metal * 0.5 + 0.2, A.s.strangeness + (1 - conf) * 0.6,
   ].map((x) => 0.15 + x * x);
   rw[0] += 0.6; // the barcode is the house style
   const drawReading = () => { let q = rand() * rw.reduce((x, y) => x + y, 0); for (let k = 0; k < rw.length; k++) { q -= rw[k]; if (q <= 0) return readings[k]; } return readings[0]; };
-  while (t < appraisalDur - 0.35) {
+  while (t < appraisalDur - 0.4) {
     let mode: CutMode;
     do mode = drawReading(); while (mode === prev);
     const irregular = rh === 'stuttering' ? 0.9 : rh === 'steady' ? 0.1 : 0.45;
@@ -121,43 +146,60 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     t += dur;
     if (rand() < 0.12 * (1 - aro)) t += cutLen * 0.6; // a breath of black between readings
   }
-  cuts.push({ start: t, dur: 0.35, mode: 'line', variant: 1 });
-  t += 0.35;
 
-  // ---- verdict: 1–6 clips by affinity (a charged word is an overload of shots); an indifferent word gets one long, slow shot
-  const aff = affinity(A);
-  // "nothing" is almost nothing: a short void and a long tail; an idle word lingers
-  const empty = A.c.material.top === 'void' && lazy > 0.6;
-  // the room remembers its last performances and avoids them — except for the idle words, whose clip is their meaning
-  if (lazy < 0.6) for (const c of CLIPS) aff[c] *= Math.pow(0.7, recent.filter((r) => r === c).length);
-  const ranked = [...CLIPS].sort((a, b) => aff[b] - aff[a]);
-  const charge = clamp01(aro * 0.75 + A.s.density * 0.25);
-  // the edit's pace: dark, violent words cut sharp and fast; calm, tender, idle ones hold long takes
-  const em = A.c.emotion.p;
-  const dark = clamp01(A.n.violence + em.anger * 0.7 + em.fear * 0.6 + em.anxiety * 0.3 + A.s.tension * 0.3);
-  const pace = clamp01(charge * 0.5 + dark * 0.6 - lazy * 0.5 - (em.calm + em.tender) * 0.3);
-  // lengths (s): verdict 9–14 (the void 5), each shot ≥ 1.8, each camera angle ≥ 0.4 — never a flicker
-  const verdictDur = empty ? 5 : lazy > 0.7 ? lerp(9, 13, lazy) : lerp(9, 14, clamp01(A.s.intensity * 0.5 + A.s.duration * 0.3 + (1 - pace) * 0.2));
-  const count = empty ? 1 : lazy > 0.7 ? 2 : Math.max(2, Math.min(7, Math.floor(verdictDur / 1.8 / 1.25), Math.round(lerp(1.5, 7, pace) - lazy * 2)));
-  const gap = lazy > 0.7 ? 0 : lerp(0.5, 0.0, pace);
-
-  // the hand-off: the verdict opens on the 3D form of the reading the appraisal showed most — the analysis
-  // becomes space in one gesture (unless the word is idle or empty)
+  // ---- the hand-off: the appraisal ends on its main reading, and the verdict opens on that same reading, frontal,
+  // then turns it into space — one continuous gesture (a question instead ends on a line that never closes)
   const COUNTERPART: Partial<Record<CutMode, ClipId>> = { barcode: 'city', numbers: 'cloud', spectrum: 'landscape', bits: 'lattice', scatter: 'cloud' };
+  const READING_OF: Partial<Record<ClipId, CutMode>> = { city: 'barcode', cloud: 'scatter', landscape: 'spectrum', lattice: 'bits' };
   const shown = new Map<ClipId, number>();
   for (const c of cuts) { const k = COUNTERPART[c.mode]; if (k) shown.set(k, (shown.get(k) ?? 0) + c.dur); }
-  // …never the formation the last performance opened on
   const handOff = [...shown.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).find((k) => !openers.includes(k));
-  // clips that suit the word, drawn by affinity with some chance (never the same twice in a row, a family at most twice)
-  const eligible = ranked.filter((c, i) => aff[c] >= aff[ranked[0]] * 0.45 || i < count || c === handOff);
+  const lastVariant = rand();
+  if (drama === 'question') {
+    cuts.push({ start: t, dur: 0.6, mode: 'line', variant: 0 });
+    t += 0.6;
+  } else if (handOff) {
+    cuts.push({ start: t, dur: 0.45, mode: READING_OF[handOff]!, variant: lastVariant });
+    t += 0.45;
+  }
+
+  // ---- verdict
+  const aff = affinity(A);
+  // the room remembers its last performances and avoids them — except for the idle words, whose clip is their meaning
+  if (lazy < 0.6) for (const c of CLIPS) aff[c] *= Math.pow(0.7, recent.filter((r) => r === c).length);
+  // rare clips are rationed across the session: the relief and the sand are treats, not staples
+  for (const c of ['relief', 'chladni'] as ClipId[]) if (recent.includes(c)) aff[c] *= 0.25;
+  const ranked: ClipId[] = CLIPS.filter((c) => c !== 'lone').sort((a, b) => aff[b] - aff[a]);
+  const charge = clamp01(aro * 0.75 + A.s.density * 0.25);
+  const dark = clamp01(A.n.violence + em.anger * 0.7 + em.fear * 0.6 + em.anxiety * 0.3 + A.s.tension * 0.3);
+  // the pace of the edit: fast and sharp in the dark, energetic and flowing in the light, long in the idle
+  const pace = clamp01(charge * 0.5 + dark * 0.6 + md.pos * A.s.energy * 0.5 - lazy * 0.5 - em.calm * 0.3);
+
+  // per dramaturgy: duration (s), shot count, gap between shots, angle length, fade, tail
+  type Form = { dur: number; count: number; gap: number; angle: number; fade: number; tail: number };
+  const F: Record<Drama, Form> = {
+    void: { dur: 5, count: 1, gap: 0, angle: 99, fade: 0, tail: 6 },
+    name: { dur: lerp(8, 11, A.s.intensity), count: 1, gap: 0, angle: 99, fade: 2.5, tail: 4 },
+    greeting: { dur: lerp(8, 11, A.s.energy), count: 2, gap: 0.2, angle: 3, fade: 0, tail: 3 },
+    question: { dur: lerp(6, 8, aro), count: 2, gap: 0.1, angle: lerp(2.5, 1, pace), fade: 0, tail: 1.2 },
+    barrage: { dur: lerp(9, 12, A.s.intensity), count: 6, gap: 0, angle: 0.45, fade: 0, tail: 3.5 },
+    endless: { dur: lerp(13, 17, A.s.intensity), count: 3, gap: 0.3, angle: 4.5, fade: 5, tail: 8 },
+    misreading: { dur: lerp(9, 12, A.s.intensity), count: 4, gap: 0.15, angle: lerp(3, 1, pace), fade: 0, tail: 3 },
+    bloom: { dur: lerp(10, 14, A.s.intensity), count: Math.round(lerp(3, 6, A.s.energy * 0.5 + aro * 0.5)), gap: 0.1, angle: lerp(3.5, 1.2, pace), fade: 1.5, tail: 3.5 },
+    measure: { dur: lerp(9, 12, A.s.duration), count: 5, gap: 0, angle: 2, fade: 0, tail: 2.5 },
+    shrug: { dur: lerp(11, 14, lazy), count: 1, gap: 0, angle: 99, fade: 0, tail: 3 },
+    storm: { dur: lerp(9, 14, clamp01(A.s.intensity * 0.5 + A.s.duration * 0.3 + (1 - pace) * 0.2)),
+      count: Math.max(2, Math.min(6, Math.round(lerp(2, 6, pace)))), gap: lerp(0.4, 0, pace), angle: lerp(4, 0.55, pace), fade: 0, tail: lerp(2.4, 4, clamp01(A.s.scale * 0.5 + A.s.duration * 0.5)) },
+  };
+  const form = F[drama];
+
+  // clips that suit the word, drawn by affinity with some chance; each clip once per verdict
+  const eligible = ranked.filter((c, i) => aff[c] >= aff[ranked[0]] * 0.45 || i < form.count || c === handOff);
   const picks: ClipId[] = [];
-  for (let i = 0; i < count; i++) {
-    // each clip once per verdict: a performance is a sequence of different images
+  for (let i = 0; i < form.count; i++) {
     const from = eligible.filter((c) => !picks.includes(c));
     if (!from.length) break;
-    // the first shot is the best match; after it, a weighted draw
-    // (nothing is the void: a sparse drift of dust, always)
-    let c = empty ? 'drift' : lazy < 0.6 && handOff && from.includes(handOff) ? handOff : from[0];
+    let c: ClipId = drama === 'void' ? 'drift' : drama === 'name' ? 'lone' : i === 0 && handOff && from.includes(handOff) ? handOff : from[0];
     if (i > 0) {
       const wts = from.map((x) => Math.pow(Math.max(aff[x], 1e-3), 2));
       let r = rand() * wts.reduce((a, b) => a + b, 0);
@@ -165,17 +207,16 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     }
     picks.push(c);
   }
-  // weights for durations: the first (best-matching) clip holds longest
-  const w = picks.map((_, i) => 1 / (1 + i * 0.2));
+  // durations: the bloom builds to its longest shot at ~60%; the others give the first (best) shot the most
+  const w = picks.map((_, i) => drama === 'bloom' ? 1 + 0.8 * Math.exp(-(((i + 0.5) / picks.length - 0.6) ** 2) / 0.04) : drama === 'measure' ? 1 : 1 / (1 + i * 0.2));
   const wsum = w.reduce((a, b) => a + b, 0);
 
-  // coverage: a shot is cut between camera angles on the same continuous scene — faster for a charged word
+  // coverage: a shot is cut between camera angles on the same continuous scene; the measure cuts on a strict tempo
   const angles = (dur: number): Angle[] => {
-    if (lazy > 0.7 || empty) return [WIDE];
-    // angle length: ~4 s for a calm word down to ~0.25 s for a violent one (irregular, never a metronome)
-    const len = lerp(4, 0.55, pace) * lerp(0.8, 1.25, rand());
+    if (form.angle >= 99) return [WIDE];
+    const len = form.angle * lerp(0.8, 1.25, rand());
     const out: Angle[] = [];
-    for (let at = 0; at < dur - 0.4; at += Math.max(0.4, len * lerp(0.6, 1.4, rand()))) {
+    for (let at = 0; at < dur - 0.4; at += drama === 'measure' ? form.angle : Math.max(0.4, len * lerp(0.6, 1.4, rand()))) {
       const r = rand();
       const zoom = r < 0.45 ? 1 : r < 0.75 ? lerp(1.4, 2.2, rand()) : lerp(2.8, 5, rand());
       const a = rand() * Math.PI * 2, off = zoom > 1 ? lerp(0.1, 0.45, rand()) : 0;
@@ -186,15 +227,15 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
 
   // the operators of each data shot: weighted by the mood and by the word's own dimensions, drawn with
   // chance, never a combination this performance or the last ones already used
-  const mo = A.c.motion.p, md = A.mood;
-  const draw = (w: number[]) => { let q = rand() * w.reduce((x, y) => x + y, 0); for (let k = 0; k < w.length; k++) { q -= w[k]; if (q <= 0) return k; } return 0; };
+  const mo = A.c.motion.p;
+  const draw = (wt: number[]) => { let q = rand() * wt.reduce((x, y) => x + y, 0); for (let k = 0; k < wt.length; k++) { q -= wt[k]; if (q <= 0) return k; } return 0; };
   const chooseOps = (): Ops => {
     for (let tries = 0; tries < 12; tries++) {
       const ops: Ops = {
         echo: draw([md.neu * 1.5 + 0.3, md.neu + md.pos * 0.8 + 0.2, md.pos * 1.2 + A.c.shape.p.spiral + 0.2, md.pos * 1.5 + A.c.shape.p.round * 0.5 + 0.1,
           md.neg * 0.8 + mo.falling * 0.5 + 0.1, md.neg * 1.3 + mo.spreading + mo.breaking + 0.1]),
         warp: draw([md.neu * 1.5 + 0.3, md.pos + A.c.shape.p.flowing * 0.8 + 0.1, A.s.tension * 0.6 + mo.circling * 0.5 + 0.1, md.neg * 0.7 + 0.1,
-          md.neg * 0.6 + mo.falling + 0.05, md.pos * 1.2 + 0.1, md.neg * 0.8 + A.c.emotion.p.sadness + 0.05]),
+          md.neg * 0.6 + mo.falling + 0.05, md.pos * 1.2 + 0.1, md.neg * 0.8 + em.sadness + 0.05]),
         flow: draw([md.neu + mo.still + 0.2, md.neu * 0.8 + md.neg * 0.6 + 0.2, md.pos + mo.circling + 0.2, md.neg * 0.5 + A.c.rhythm.p.pulsing + 0.1]),
       };
       const key = `${ops.echo}${ops.warp}${ops.flow}`;
@@ -205,28 +246,41 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
 
   const shots: Shot[] = [];
   t += 0.15;
-  // low confidence: a false start — a shot begins, is cut off, and the machine starts again
-  if (conf < 0.5 && lazy < 0.7) {
+  // low confidence (outside the misreading itself): a false start — a shot begins, is cut off, and the machine starts again
+  if (conf < 0.5 && lazy < 0.7 && drama === 'storm') {
     const alt = ranked[1 + Math.floor(rand() * 2)];
     const d = lerp(0.35, 0.8, rand());
     shots.push({ clip: alt, start: t, dur: d, seed: (rand() * 2 ** 31) | 0, aborted: true, angles: [WIDE], ops: STILL });
     t += d + lerp(0.25, 0.6, 1 - conf);
   }
   picks.forEach((clip, i) => {
-    const dur = ((verdictDur - gap * (picks.length - 1)) * w[i]) / wsum;
+    const dur = ((form.dur - form.gap * (picks.length - 1)) * w[i]) / wsum;
     let cover = angles(dur);
-    // the reveal: the first shot, when it is the echo of the appraisal's main reading, opens on the reading
-    // itself, frontal (angle seed −1), and holds ≥ 3 s while the camera swings round into its depth
-    if (i === 0 && clip === handOff) cover = [{ ...WIDE, seed: -1 }, ...cover.filter((x) => x.at >= 3)];
-    shots.push({ clip, start: t, dur, seed: (rand() * 2 ** 31) | 0, aborted: false, angles: cover, ops: chooseOps() });
-    t += dur + (i < picks.length - 1 ? gap : 0);
+    let seed = (rand() * 2 ** 31) | 0;
+    if (i === 0 && clip === handOff && drama !== 'question') {
+      // the reveal: the reading itself, frontal (angle seed −1), with the appraisal's last variant, then into its depth
+      cover = [{ ...WIDE, seed: -1 }, ...cover.filter((x) => x.at >= 3)];
+      seed = seed - (seed % 1000) + Math.round(lastVariant * 999);
+    }
+    // a greeting: the field turns to face you (the reveal, reversed)
+    if (drama === 'greeting' && i === picks.length - 1) cover = [{ ...WIDE, seed: -2 }];
+    shots.push({
+      clip, start: t, dur, seed, aborted: false, angles: cover, ops: chooseOps(),
+      // the barrage lands every shot with a white beat; the misreading plays its first half in the wrong mood
+      flash: drama === 'barrage' || (drama === 'misreading' && i === Math.ceil(picks.length / 2)),
+      flip: drama === 'misreading' && i < Math.ceil(picks.length / 2),
+    });
+    t += dur + (i < picks.length - 1 ? form.gap : 0);
   });
 
   openers.push(picks[0]);
   openers.splice(0, Math.max(0, openers.length - 3));
   recent.push(...new Set(picks));
   recent.splice(0, Math.max(0, recent.length - 6));
+  // the signature: the word, its bytes and the performance's number, small, before the black (every recording
+  // carries its own caption)
+  cuts.push({ start: t, dur: 1.1, mode: 'word', variant: 2 });
+  t += 1.1;
   const blackAt = t;
-  const tail = empty ? 6 : lerp(2.4, 4, clamp01(A.s.scale * 0.5 + A.s.duration * 0.5));
-  return { cuts, shots, blackAt, end: blackAt + tail };
+  return { drama, cuts, shots, fade: form.fade, blackAt, end: blackAt + form.tail };
 }

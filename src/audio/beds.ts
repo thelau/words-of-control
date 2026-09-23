@@ -349,7 +349,7 @@ export function playBeds(a: AudioEngine, A: Appraisal, plan: Plan, t0: number) {
   const c = a.ctx;
   chosen.forEach((id, k) => {
     const out = c.createGain();
-    const level = dbToGain(lerp(-24, -14, x) - k * 3);
+    const level = dbToGain(lerp(-19, -14, x) - k * 3);
     out.gain.setValueAtTime(0, start);
     out.gain.linearRampToValueAtTime(level, start + (A.lazy > 0.6 ? 1.5 : 0.05));
     out.connect(a.perfDry);
