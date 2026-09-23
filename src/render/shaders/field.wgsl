@@ -274,27 +274,72 @@ fn camera() {
   CAMW[4] = vec4f(aimPt, 0.0);
 }
 
-/** Once per frame, every particle: pulled toward where the formation puts it now by a stiff, damped spring
- *  (critically damped, ~40 ms): the same picture, but the matter has inertia — it travels, never jumps.
- *  On a new shot (F.mode) it is placed at once: the cut stays hard. */
+/** How long a detached particle lives (s) before it returns to its place (fire, sand, smoke). */
+fn lifeOf(i: u32) -> f32 { return mix(1.2, 3.2, r1(i, 42u)); }
+
+/** The share of particles that detach, and which way: 0 embers rising (fire) · 1 grains falling (sand) ·
+ *  2 smoke drifting (smoke, void). Weighted by Jev's material distribution. */
+fn detach(i: u32) -> i32 {
+  let rise = F.m_fire;
+  let fall = F.m_sand * 0.9;
+  let drift = F.m_smoke * 0.8 + F.m_void * 0.3;
+  let share = clamp((rise + fall + drift) * 0.4, 0.0, 0.35);
+  if (r1(i, 40u) >= share || u32(F.variant2 + 0.5) >= 5u) { return -1; }
+  let r = r1(i, 41u) * (rise + fall + drift + 1e-4);
+  return select(select(2, 1, r < rise + fall), 0, r < rise);
+}
+
+/** Once per frame, every particle. Its place in the formation is where the reading puts it; the matter the
+ *  word is made of decides how it lives there (abstract, never an illustration):
+ *  water — the formation undulates, a slow travelling wave · flesh — it breathes · cloth — it waves ·
+ *  stone, metal — stiff and heavy (settles slowly, holds still) · fire, sand, smoke — a share of the points
+ *  detach for a short life (rising embers, falling grains, drifting smoke) and return to their place.
+ *  Attached points follow their place through a critically damped spring: the matter has inertia, it
+ *  travels, never jumps. On a new shot, or when a point's place jumps (a new identity), it is placed. */
 @compute @workgroup_size(256)
 fn simulate(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
   if (i >= arrayLength(&PW) / 2u) { return; }
   let t = F.lt * mix(1.0, 0.35, F.lazy);
   let T0 = place(i, t);
-  let goal = select(behave(T0.xyz, i, t), PW[i * 2u].xyz, T0.w < 0.0);
-  if (F.mode > 0.5) { PW[i * 2u] = vec4f(goal, T0.w); PW[i * 2u + 1u] = vec4f(0.0); return; }
+  var goal = select(behave(T0.xyz, i, t), PW[i * 2u].xyz, T0.w < 0.0);
+  // water: a slow travelling wave through the whole formation; flesh: breathing; cloth: a wave across it
+  goal.y += sin(goal.x * 2.6 + goal.z * 1.3 - t * 1.4) * 0.07 * F.m_water;
+  goal *= 1.0 + 0.035 * sin(t * 1.5) * F.m_flesh;
+  goal.z += sin(goal.x * 3.0 + t * 1.1) * 0.05 * F.m_cloth;
+  let kind = detach(i);
+  let L = lifeOf(i);
+  if (F.mode > 0.5) {
+    // a new shot: in place; the detaching points start their lives staggered, so they leave one by one
+    PW[i * 2u] = vec4f(goal, T0.w);
+    PW[i * 2u + 1u] = vec4f(0.0, 0.0, 0.0, -r1(i, 43u) * L);
+    return;
+  }
   var p = PW[i * 2u].xyz;
   var v = PW[i * 2u + 1u].xyz;
-  // a far jump is not motion but a new identity (a point handed from one bar to the next): placed, not flown
-  if (length(goal - p) > 0.2) { PW[i * 2u] = vec4f(goal, T0.w); PW[i * 2u + 1u] = vec4f(0.0); return; }
+  var life = PW[i * 2u + 1u].w;
   let dt = min(F.dt, 1.0 / 30.0);
-  let w0 = 25.0; // rad/s
+  if (kind >= 0) { life += dt; }
+  if (kind >= 0 && life > L) { life -= L + r1(i ^ u32(t * 7.0), 44u) * 0.5; p = goal; v = vec3f(0.0); }
+  if (kind >= 0 && life >= 0.0) {
+    // detached: its own short life
+    if (kind == 0) { v += (vec3f(0.0, 0.9, 0.0) + vec3f(curl(p.xz * 3.0, t * 0.7), 0.0).xzy * 0.8) * dt; v *= exp(-0.6 * dt); }
+    else if (kind == 1) { v += vec3f(0.0, -2.2, 0.0) * dt; }
+    else { v += vec3f(curl(p.xy * 1.6 + 5.0, t * 0.25), 0.0) * 0.45 * dt; v *= exp(-0.9 * dt); }
+    p += v * dt;
+    PW[i * 2u] = vec4f(p, T0.w);
+    PW[i * 2u + 1u] = vec4f(v, life);
+    return;
+  }
+  // a far jump is not motion but a new identity (a point handed from one bar to the next): placed, not flown
+  if (length(goal - p) > 0.2) { PW[i * 2u] = vec4f(goal, T0.w); PW[i * 2u + 1u] = vec4f(0.0, 0.0, 0.0, life); return; }
+  // stone and metal are stiff and heavy; everything else follows lightly
+  let heavy = clamp(F.m_stone + F.m_metal * 0.6, 0.0, 1.0);
+  let w0 = mix(25.0, 9.0, heavy); // rad/s: the heavy settle slowly and hold
   v += ((goal - p) * w0 * w0 - v * 2.0 * w0) * dt;
   p += v * dt;
   PW[i * 2u] = vec4f(p, T0.w);
-  PW[i * 2u + 1u] = vec4f(v, 0.0);
+  PW[i * 2u + 1u] = vec4f(v, life);
 }
 
 @vertex
@@ -321,6 +366,11 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   var P = P0.xyz;
   if (F.engineOld > 0.5) { P0 = place(i, t); P = behave(P0.xyz, i, t); }
   if (P0.w < 0.0) { return o; }
+  // the void thins the matter out
+  if (r1(i, 45u) < F.m_void * 0.5) { return o; }
+  // a detached particle (fire, sand, smoke): how far through its short life
+  let kind = select(detach(i), -1, F.engineOld > 0.5);
+  let lifeU = select(0.0, clamp(PS[i * 2u + 1u].w / lifeOf(i), 0.0, 1.0), kind >= 0 && PS[i * 2u + 1u].w >= 0.0);
   let rel = P - cam;
   let z = dot(rel, fwd);
   if (z < 0.05) { return o; }
@@ -332,7 +382,8 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let side = min(res.x, res.y);
   let coc = min(abs(z - dist) / z * aperture * side * 0.5, 22.0);
   // dust (85%): fine and sharp, and gone when out of focus; carriers (15%): the lens's discs
-  let carrier = r1(i, 16u) < mix(0.15, 0.22, F.moodPos); // the positive glitters (never a haze of discs)
+  // (drifting smoke is always soft)
+  let carrier = r1(i, 16u) < mix(0.15, 0.22, F.moodPos) || (kind == 2 && lifeU > 0.0); // the positive glitters (never a haze of discs)
   // never smaller than a pixel (a sub-pixel point sparkles as the camera moves): a finer point is drawn
   // at 1 px and dimmer instead
   let fine = select(mix(0.55, 0.85, r1(i, 9u)), mix(0.8, 1.4, r1(i, 9u)), carrier);
@@ -368,8 +419,20 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   // a slow twinkle (a smooth phase per point: never a flicker)
   let tw = 0.75 + 0.25 * sin(F.time * (0.6 + r1(i, 13u)) + r1(i, 14u) * TAU);
   // the drift's one wandering highlight
-  let lamp = select(1.0, 6.0, form == 5u && i % 997u == 0u);
-  o.col = base * bright * energy * fog * tw * lamp * glow * mix(0.8, 1.3, F.s_light) * ss(0.0, 0.3, F.lt);
+  var lamp = select(1.0, 6.0, form == 5u && i % 997u == 0u);
+  // the matter's light: glass, ice and metal catch sharp glints (a smooth phase per point: never a flicker);
+  // water's light shimmers across it; light itself glows
+  let hard = F.m_glass + F.m_ice * 0.8 + F.m_metal * 0.7;
+  lamp *= 1.0 + 7.0 * hard * pow(max(sin(F.time * (1.5 + 2.0 * r1(i, 46u)) + r1(i, 47u) * TAU), 0.0), 60.0);
+  lamp *= 1.0 + 0.6 * F.m_water * sin(P.x * 7.0 + P.z * 3.0 - F.time * 2.2);
+  lamp *= 1.0 + 0.6 * F.m_light;
+  // detached: embers cool from hot to dark as they rise; grains fade as they fall; smoke thins
+  var ember = vec3f(1.0);
+  if (lifeU > 0.0) {
+    if (kind == 0) { ember = mix(vec3f(2.4, 1.1, 0.4), vec3f(0.5, 0.12, 0.03), lifeU) * (0.8 + 0.2 * sin(F.time * 4.0 + r1(i, 48u) * TAU)); } // a slow glow, never a strobe
+    lamp *= 1.0 - lifeU * select(0.8, 0.6, kind == 1);
+  }
+  o.col = base * ember * bright * energy * fog * tw * lamp * glow * mix(0.8, 1.3, F.s_light) * ss(0.0, 0.3, F.lt);
   let sz = (rad + 1.0) / res * 2.0;
   o.pos = vec4f(ndc.x * side / res.x + corner.x * sz.x, ndc.y * side / res.y + corner.y * sz.y, 0.0, 1.0);
   o.q = corner * (rad + 1.0) / rad;
