@@ -12,8 +12,8 @@ const FRAME = [
   'zoom', 'offX', 'offY',
   // the camera angle within a shot (a new angle = a cut on the same continuous scene), and when it began (s)
   'angle', 'angleAt',
-  // data: the shot's operators (field.wgsl shape()): echo, warp, flow
-  'echoOp', 'warpOp', 'flowOp',
+  // data: the shot's operators (field.wgsl shape()): echo, warp, flow; engineOld = ?engine=old (comparison)
+  'echoOp', 'warpOp', 'flowOp', 'engineOld',
   // chladni: the mode sounding now
   'modeM', 'modeN',
   'charge', 'kick', 'flash', 'invert', 'exposure', 'bloom', 'grain',

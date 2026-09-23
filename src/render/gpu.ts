@@ -49,6 +49,7 @@ export class Renderer {
   private tapeBuf!: GPUBuffer;
   private sandVel!: GPUBuffer;
   private camBuf!: GPUBuffer;
+  private partBuf!: GPUBuffer;
   private sandTex!: GPUTexture;
   private wrapSampler!: GPUSampler;
   private sand: GPUBuffer[] = [];
@@ -103,6 +104,7 @@ export class Renderer {
     this.sand = [0, 1].map(() => d.createBuffer({ size: SAND_N * SAND_N * 4, usage: GPUBufferUsage.STORAGE }));
     this.sandVel = d.createBuffer({ size: SAND_N * SAND_N * 8, usage: GPUBufferUsage.STORAGE });
     this.camBuf = d.createBuffer({ size: 5 * 16, usage: GPUBufferUsage.STORAGE });
+    this.partBuf = d.createBuffer({ size: FIELD_N * 32, usage: GPUBufferUsage.STORAGE });
     this.sandTex = d.createTexture({ size: [SAND_N, SAND_N], format: HDR, usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
     this.wrapSampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat' });
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
@@ -145,6 +147,7 @@ export class Renderer {
 
     const field = mod('field', pre + fieldWGSL);
     this.c.dataCamera = d.createComputePipeline({ layout: 'auto', compute: { module: field, entryPoint: 'camera' } });
+    this.c.dataSim = d.createComputePipeline({ layout: 'auto', compute: { module: field, entryPoint: 'simulate' } });
     this.p.data = d.createRenderPipeline({
       layout: 'auto', vertex: { module: field, entryPoint: 'vs' },
       fragment: { module: field, entryPoint: 'fs', targets: [{ format: HDR, blend: add }] },
@@ -190,7 +193,8 @@ export class Renderer {
     group('sandB', this.c.sandBake, [{ binding: 1, resource: sb(this.sand[0]) }, { binding: 5, resource: this.sandTex.createView() }]);
     group('sand', this.p.sand, [{ binding: 0, resource: uni }, { binding: 1, resource: this.sandTex.createView() }, { binding: 3, resource: this.wrapSampler }]);
     group('dataCam', this.c.dataCamera, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 3, resource: { buffer: this.camBuf } }]);
-    group('data', this.p.data, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: { buffer: this.camBuf } }]);
+    group('dataSim', this.c.dataSim, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 5, resource: { buffer: this.partBuf } }]);
+    group('data', this.p.data, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: { buffer: this.camBuf } }, { binding: 4, resource: { buffer: this.partBuf } }]);
     this.resize();
   }
 
@@ -329,6 +333,7 @@ export class Renderer {
       // the camera once, then the points into the spare target (cleared: no trails), then onto the scene
       const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
       cp.setPipeline(this.c.dataCamera); cp.setBindGroup(0, this.bg.dataCam); cp.dispatchWorkgroups(1);
+      cp.setPipeline(this.c.dataSim); cp.setBindGroup(0, this.bg.dataSim); cp.dispatchWorkgroups(Math.ceil(FIELD_N / 256));
       cp.end();
       const tp = enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       tp.setPipeline(this.p.data);

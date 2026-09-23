@@ -26,6 +26,9 @@
 @group(0) @binding(1) var<storage, read> tape: array<f32>;
 @group(0) @binding(2) var<storage, read> CAM: array<vec4f>;          // the frame's camera (vs reads)
 @group(0) @binding(3) var<storage, read_write> CAMW: array<vec4f>;   // the same buffer (camera() writes)
+// the particles: 2 vec4 each — position (xyz) + value (w, < 0 = hidden) | velocity (xyz)
+@group(0) @binding(4) var<storage, read> PS: array<vec4f>;           // (vs reads)
+@group(0) @binding(5) var<storage, read_write> PW: array<vec4f>;     // the same buffer (simulate() writes)
 
 struct VOut {
   @builtin(position) pos: vec4f,
@@ -271,6 +274,29 @@ fn camera() {
   CAMW[4] = vec4f(aimPt, 0.0);
 }
 
+/** Once per frame, every particle: pulled toward where the formation puts it now by a stiff, damped spring
+ *  (critically damped, ~40 ms): the same picture, but the matter has inertia — it travels, never jumps.
+ *  On a new shot (F.mode) it is placed at once: the cut stays hard. */
+@compute @workgroup_size(256)
+fn simulate(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= arrayLength(&PW) / 2u) { return; }
+  let t = F.lt * mix(1.0, 0.35, F.lazy);
+  let T0 = place(i, t);
+  let goal = select(behave(T0.xyz, i, t), PW[i * 2u].xyz, T0.w < 0.0);
+  if (F.mode > 0.5) { PW[i * 2u] = vec4f(goal, T0.w); PW[i * 2u + 1u] = vec4f(0.0); return; }
+  var p = PW[i * 2u].xyz;
+  var v = PW[i * 2u + 1u].xyz;
+  // a far jump is not motion but a new identity (a point handed from one bar to the next): placed, not flown
+  if (length(goal - p) > 0.2) { PW[i * 2u] = vec4f(goal, T0.w); PW[i * 2u + 1u] = vec4f(0.0); return; }
+  let dt = min(F.dt, 1.0 / 30.0);
+  let w0 = 25.0; // rad/s
+  v += ((goal - p) * w0 * w0 - v * 2.0 * w0) * dt;
+  p += v * dt;
+  PW[i * 2u] = vec4f(p, T0.w);
+  PW[i * 2u + 1u] = vec4f(v, 0.0);
+}
+
 @vertex
 fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   var o: VOut;
@@ -290,9 +316,11 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let inside = CAM[1].w > 0.5;
   let exact = F.moodNeu > 0.5;
 
-  let P0 = place(i, t);
+  // the simulated particle — or, with ?engine=old (F.engineOld), the formula directly (for comparison)
+  var P0 = PS[i * 2u];
+  var P = P0.xyz;
+  if (F.engineOld > 0.5) { P0 = place(i, t); P = behave(P0.xyz, i, t); }
   if (P0.w < 0.0) { return o; }
-  let P = behave(P0.xyz, i, t);
   let rel = P - cam;
   let z = dot(rel, fwd);
   if (z < 0.05) { return o; }

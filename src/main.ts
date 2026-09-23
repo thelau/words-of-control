@@ -26,6 +26,8 @@ import { plateMode } from './show/chladni.ts';
 export type State = 'idle' | 'typing' | 'analyzing' | 'performing' | 'barred' | 'support' | 'error';
 
 const query = new URLSearchParams(location.search);
+// ?engine=old: the data layer drawn straight from its formula, without the particle simulation (comparison)
+const engineOld = query.get('engine') === 'old' ? 1 : 0;
 
 // grading per layer: neutral bloom, film halation (only the brightest light), flat = data (true black)
 const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = {
@@ -265,6 +267,7 @@ async function boot() {
         f('mode', m.mode);
         f('zoom', m.zoom); f('offX', m.offX); f('offY', m.offY);
         f('angle', m.angle); f('angleAt', m.angleAt);
+        f('engineOld', engineOld);
         f('echoOp', m.ops.echo); f('warpOp', m.ops.warp); f('flowOp', m.ops.flow);
         // a misreading plays its first shots in the opposite mood, then corrects itself
         f('moodPos', m.flip ? show.A.mood.neg : show.A.mood.pos);
@@ -273,7 +276,7 @@ async function boot() {
         const fade = show.plan.fade > 0 && m.clip ? Math.min(1, Math.max(0, (lastEnd - (clock() - show.t0)) / show.plan.fade)) : 1;
         f('exposure', fade * fade);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
-        if (m.key !== lastKey && layer === 'sand') f('mode', 1); // lay a fresh layer of sand
+        if (m.key !== lastKey && (layer === 'sand' || layer === 'data')) f('mode', 1); // a fresh layer of sand; particles placed at once
         if (m.clip === 'chladni') {
           const [mm, nn] = plateMode(show.A, m.seed, m.lt / m.dur);
           f('modeM', mm); f('modeN', nn);
