@@ -216,9 +216,10 @@ fn word(px: vec2f, res: vec2f) -> vec3f {
   var c = vec3f(0.0);
   if (all(uv >= vec2f(0.0)) && all(uv < vec2f(1.0))) { c += ink() * textureLoad(wordTex, vec2i(uv * dim), 0).a; }
   // bytes: "E6 B5 B7 …", appearing one by one (all at once in the signature)
-  let cw = 8.0 * F.dpr;
-  let chh = 14.0 * F.dpr;
   let nb = F.byteLen;
+  // the bytes' row shrinks to fit the screen for a sentence (never below a legible 4 px per glyph)
+  let cw = max(min(8.0 * F.dpr, res.x * 0.86 / ((nb * 3.0 + 5.0))), 4.0 * F.dpr);
+  let chh = cw * 1.75;
   // (the signature's row also carries the number: 4 digits after a space)
   let rowW = (nb * 3.0 + select(0.0, 5.0, sig)) * cw;
   let bo = vec2f((res.x - rowW) * 0.5, res.y * 0.5 + h * select(0.62, 0.9, sig));

@@ -14,7 +14,7 @@ export type JevErrorKind =
 export type JevError = { kind: JevErrorKind; status?: number; message: string; requestId?: string };
 export type ProxyResult = { ok: true; answers: unknown; model: string } | { ok: false; error: JevError };
 
-const MAX_CHARS = 64; // input is ≤ 24 graphemes; this just refuses abuse
+const MAX_CHARS = 256; // input is ≤ 60 graphemes (an emoji can be several code units); this just refuses abuse
 
 function classify(status: number, detail: unknown): JevErrorKind {
   const text = JSON.stringify(detail ?? '').toLowerCase();

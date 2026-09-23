@@ -200,10 +200,13 @@ export class Renderer {
     const g = c.getContext('2d')!;
     g.clearRect(0, 0, WORD_W, WORD_H);
     g.fillStyle = '#fff';
+    // a word is drawn large; a sentence at the size that fits the texture's width, never squeezed
     g.font = '400 120px "IBM Plex Mono", ui-monospace, monospace';
+    const size = Math.min(120, (120 * (WORD_W - 40)) / Math.max(1, g.measureText(text).width));
+    g.font = `400 ${size.toFixed(1)}px "IBM Plex Mono", ui-monospace, monospace`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillText(text, WORD_W / 2, WORD_H / 2, WORD_W - 40);
+    g.fillText(text, WORD_W / 2, WORD_H / 2);
     this.d.queue.copyExternalImageToTexture({ source: c }, { texture: this.wordTex }, [WORD_W, WORD_H]);
   }
 

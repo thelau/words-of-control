@@ -2,6 +2,11 @@
 
 Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
+## 2026-09-24
+
+- **Input limit 60 characters** (was 24, SPEC §3): a short sentence, still one line. The typed line shrinks only
+  when it would outgrow the screen; the appraisal's word and byte rows scale to fit.
+
 ## 2026-09-23 (night)
 
 - **The verdict is the appraisal gone 3D, same style** (Laurent: "from that 2D mode … to 3D versions of his style").

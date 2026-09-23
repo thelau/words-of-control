@@ -6,7 +6,8 @@
 
 import type { TypingTrace } from '../jev/appraisal.ts';
 
-export const LIMIT = 24;
+/** A short sentence, still one line (graphemes, not code units). */
+export const LIMIT = 60;
 
 const seg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 const graphemes = (s: string) => [...seg.segment(s)].map((x) => x.segment);

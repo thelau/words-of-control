@@ -48,9 +48,9 @@ check('it passes through appraisal, verdict and black', layers.has('appraisal') 
 check('then returns to the room with the cursor', (await W()) === 'idle' && (await cursorShown()) && (await text()) === '');
 
 // ---- limit
-await typeWord('abcdefghijklmnopqrstuvwxyz0123');
-check('24-character limit', ((await text()) ?? '').length === 24);
-for (let i = 0; i < 24; i++) await page.keyboard.press('Backspace');
+await typeWord('abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz');
+check('60-character limit', ((await text()) ?? '').length === 60);
+for (let i = 0; i < 60; i++) await page.keyboard.press('Backspace');
 check('backspace to empty returns to idle', (await W()) === 'idle');
 
 // ---- blocklist: instant cut, no Jev request
