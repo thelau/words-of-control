@@ -25,7 +25,7 @@ const BLOOM_LEVELS = 6;
 const TAPE_MAX = 1024;
 const RELIEF_RES = 512;
 /** Points drawn by the data layer. */
-const FIELD_N = 240_000;
+const FIELD_N = 200_000;
 const SAND_N = 512;
 const WORD_W = 2048;
 const WORD_H = 160;

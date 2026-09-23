@@ -201,21 +201,56 @@ fn place(i: u32, t: f32) -> vec4f {
   return vec4f(shape(r.xy, r.z, i, t), r.w);
 }
 
-/** The emotion as behaviour: sadness sinks, anger jitters, joy expands and rises, circling turns, calm is still.
- *  The neutral mood holds everything exactly where the data puts it. */
+/** The shot's clock: an idle word's time is slow, and a dwindling word slows down as the shot goes on. */
+fn clock() -> f32 {
+  let lt = F.lt * mix(1.0, 0.35, F.lazy);
+  return lt * (1.0 - 0.45 * F.rh_dwindling * ss(0.0, 1.0, F.u));
+}
+
+/** The rhythm Jev hears in the word, as one pulse shared by image and sound (clips.ts pulse() plays the same
+ *  beats): steady — a beat; pulsing — a slow wave; stuttering — beats that skip; strike — one blow at the
+ *  shot's start. Tempo from arousal. 0..~1.5. */
+fn beat() -> f32 {
+  let P = 60.0 / mix(56.0, 128.0, F.s_arousal);
+  let x = F.lt / P;
+  let ph = fract(x);
+  let k = floor(x);
+  let steady = exp(-ph * 7.0);
+  let pulsing = 0.5 - 0.5 * cos(x * PI);
+  let stutter = exp(-ph * 9.0) * step(fract(k * 0.618 + F.variant * 7.3), 0.55);
+  let strike = exp(-F.lt * 3.0);
+  return F.rh_steady * steady + F.rh_pulsing * pulsing * 0.8 + F.rh_stuttering * stutter + F.rh_strike * strike * 1.5;
+}
+
+/** The motion Jev reads in the word, played literally on the whole formation (the neutral mood holds it
+ *  exactly where the data puts it; a still word barely moves): rising, falling, spreading, contracting,
+ *  circling, trembling, breaking (the matter splits into pieces that part), drifting. And the rhythm's pulse
+ *  throbs through it; a strike is a shockwave. */
 fn behave(p: vec3f, i: u32, t: f32) -> vec3f {
   var q = p;
   let exact = ss(0.45, 0.65, F.moodNeu);
-  q.y -= (F.mo_falling * 0.25 * t * r1(i, 20u) + (1.0 - F.s_valence) * F.lazy * 0.05 * t) * (1.0 - exact);
-  q.y += F.moodPos * 0.25 * t * r1(i, 24u) * r1(i, 25u); // the positive rises, unhurried
-  // the positive opens outward; the negative contracts, drawn in on itself
-  let neg = 1.0 - F.moodPos - F.moodNeu;
-  q *= 1.0 + (F.mo_spreading * 0.3 + F.moodPos * 0.25 - neg * 0.12) * ss(0.0, 1.0, F.u) * (1.0 - exact) + F.s_energy * 0.1 * ss(0.0, 1.0, F.u);
-  let jit = (F.mo_trembling * 0.02 + F.s_tension * 0.015 * F.s_arousal) * (1.0 - exact);
-  // a tremble, smooth (8–14 Hz, each point its own phase) — never a per-frame random jump
+  let mv = (1.0 - exact) * (1.0 - 0.7 * F.mo_still);
+  let u = ss(0.0, 1.0, F.u);
+  // rising and falling: the whole formation, and each point a little more on its own
+  q.y += (F.mo_rising * (0.12 + 0.14 * r1(i, 24u)) - F.mo_falling * (0.08 + 0.1 * r1(i, 20u))) * t * mv; // (sinks low in the frame, never out of it)
+  // spreading opens it out; contracting draws it in on itself
+  q *= 1.0 + (F.mo_spreading * 0.45 - F.mo_contracting * 0.45) * u * mv;
+  // breaking: it splits into a dozen pieces that part
+  if (F.mo_breaking > 0.03) {
+    let piece = floor(r1(i, 50u) * 12.0);
+    let pd = normalize(vec3f(r1(u32(piece), 51u), r1(u32(piece), 52u), r1(u32(piece), 53u)) - 0.5 + 1e-3);
+    q += pd * F.mo_breaking * 0.55 * ss(0.1, 1.0, F.u) * mv;
+  }
+  // drifting: carried slowly on a current
+  if (F.mo_drifting > 0.03) { q += vec3f(curl(q.xz * 0.6 + 3.0, t * 0.12), 0.0).xzy * 0.35 * F.mo_drifting * mv; }
+  // the pulse: a throb through the matter; a strike, one shockwave at the start
+  q *= 1.0 + 0.05 * beat() + 0.22 * F.rh_strike * exp(-F.lt * 3.5) * (1.0 - exact);
+  // trembling: smooth (8–14 Hz, each point its own phase) — never a per-frame random jump
+  let jit = (F.mo_trembling * 0.045 + F.s_tension * 0.015 * F.s_arousal) * (1.0 - exact);
   let fq = 50.0 + 38.0 * r1(i, 21u);
   q += vec3f(sin(t * fq + r1(i, 22u) * TAU), sin(t * fq * 1.31 + r1(i, 23u) * TAU), sin(t * fq * 0.77 + r1(i, 26u) * TAU)) * jit * 0.5;
-  let ang = t * (0.03 + 0.25 * F.mo_circling + 0.1 * F.s_arousal) * (1.0 - exact);
+  // circling: the whole formation turns
+  let ang = t * (0.03 + 0.6 * F.mo_circling + 0.08 * F.s_arousal) * (1.0 - exact);
   return vec3f(q.x * cos(ang) - q.z * sin(ang), q.y, q.x * sin(ang) + q.z * cos(ang));
 }
 
@@ -229,7 +264,7 @@ fn behave(p: vec3f, i: u32, t: f32) -> vec3f {
  *  spread — a burst, a fall or a melt never leaves the camera looking at nothing. */
 @compute @workgroup_size(1)
 fn camera() {
-  let t = F.lt * mix(1.0, 0.35, F.lazy);
+  let t = clock();
   let t0 = F.angleAt * mix(1.0, 0.35, F.lazy);
   let form = u32(F.variant2 + 0.5);
   let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01)) * 0.5 + 0.5;
@@ -269,7 +304,7 @@ fn camera() {
   let rt = normalize(cross(fwd, select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, -1.0), abs(fwd.y) > 0.98)));
   CAMW[0] = vec4f(cam, length(aim - cam));
   CAMW[1] = vec4f(fwd, select(0.0, 1.0, inside));
-  CAMW[2] = vec4f(rt, 0.0);
+  CAMW[2] = vec4f(rt, beat()); // (the pulse, once per frame, for the points)
   CAMW[3] = vec4f(cross(rt, fwd), 0.0);
   CAMW[4] = vec4f(aimPt, 0.0);
 }
@@ -283,7 +318,7 @@ fn detach(i: u32) -> i32 {
   let rise = F.m_fire;
   let fall = F.m_sand * 0.9;
   let drift = F.m_smoke * 0.8 + F.m_void * 0.3;
-  let share = clamp((rise + fall + drift) * 0.4, 0.0, 0.35);
+  let share = clamp((rise + fall + drift) * 0.7, 0.0, 0.6);
   if (r1(i, 40u) >= share || u32(F.variant2 + 0.5) >= 5u) { return -1; }
   let r = r1(i, 41u) * (rise + fall + drift + 1e-4);
   return select(select(2, 1, r < rise + fall), 0, r < rise);
@@ -300,13 +335,13 @@ fn detach(i: u32) -> i32 {
 fn simulate(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
   if (i >= arrayLength(&PW) / 2u) { return; }
-  let t = F.lt * mix(1.0, 0.35, F.lazy);
+  let t = clock();
   let T0 = place(i, t);
   var goal = select(behave(T0.xyz, i, t), PW[i * 2u].xyz, T0.w < 0.0);
   // water: a slow travelling wave through the whole formation; flesh: breathing; cloth: a wave across it
-  goal.y += sin(goal.x * 2.6 + goal.z * 1.3 - t * 1.4) * 0.07 * F.m_water;
-  goal *= 1.0 + 0.035 * sin(t * 1.5) * F.m_flesh;
-  goal.z += sin(goal.x * 3.0 + t * 1.1) * 0.05 * F.m_cloth;
+  goal.y += sin(goal.x * 2.6 + goal.z * 1.3 - t * 1.4) * 0.18 * F.m_water;
+  goal *= 1.0 + 0.08 * sin(t * 1.5) * F.m_flesh;
+  goal.z += sin(goal.x * 3.0 + t * 1.1) * 0.12 * F.m_cloth;
   let kind = detach(i);
   let L = lifeOf(i);
   if (F.mode > 0.5) {
@@ -348,7 +383,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   o.pos = vec4f(2.0, 2.0, 2.0, 1.0); // culled unless placed below
   let res = vec2f(F.resX, F.resY);
   let corner = vec2f(select(-1.0, 1.0, (vi & 1u) == 1u), select(-1.0, 1.0, (vi & 2u) == 2u));
-  let t = F.lt * mix(1.0, 0.35, F.lazy);
+  let t = clock();
   let form = u32(F.variant2 + 0.5);
 
   // the camera, computed once per frame (camera() above)
@@ -367,7 +402,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   if (F.engineOld > 0.5) { P0 = place(i, t); P = behave(P0.xyz, i, t); }
   if (P0.w < 0.0) { return o; }
   // the void thins the matter out
-  if (r1(i, 45u) < F.m_void * 0.5) { return o; }
+  if (r1(i, 45u) < F.m_void * 0.7) { return o; }
   // a detached particle (fire, sand, smoke): how far through its short life
   let kind = select(detach(i), -1, F.engineOld > 0.5);
   let lifeU = select(0.0, clamp(PS[i * 2u + 1u].w / lifeOf(i), 0.0, 1.0), kind >= 0 && PS[i * 2u + 1u].w >= 0.0);
@@ -423,9 +458,11 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   // the matter's light: glass, ice and metal catch sharp glints (a smooth phase per point: never a flicker);
   // water's light shimmers across it; light itself glows
   let hard = F.m_glass + F.m_ice * 0.8 + F.m_metal * 0.7;
-  lamp *= 1.0 + 7.0 * hard * pow(max(sin(F.time * (1.5 + 2.0 * r1(i, 46u)) + r1(i, 47u) * TAU), 0.0), 60.0);
-  lamp *= 1.0 + 0.6 * F.m_water * sin(P.x * 7.0 + P.z * 3.0 - F.time * 2.2);
-  lamp *= 1.0 + 0.6 * F.m_light;
+  lamp *= 1.0 + 10.0 * hard * pow(max(sin(F.time * (1.5 + 2.0 * r1(i, 46u)) + r1(i, 47u) * TAU), 0.0), 60.0);
+  lamp *= 1.0 + 1.0 * F.m_water * sin(P.x * 7.0 + P.z * 3.0 - F.time * 2.2);
+  lamp *= 1.0 + 1.2 * F.m_light;
+  // the pulse lights the matter; a swelling word brightens as the shot goes on, a dwindling one fades
+  lamp *= (1.0 + 0.6 * CAM[2].w) * (1.0 + 0.8 * F.rh_swelling * F.u - 0.6 * F.rh_dwindling * F.u);
   // detached: embers cool from hot to dark as they rise; grains fade as they fall; smoke thins
   var ember = vec3f(1.0);
   if (lifeU > 0.0) {

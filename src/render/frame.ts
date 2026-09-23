@@ -32,9 +32,10 @@ const MATERIALS = ['metal', 'glass', 'stone', 'sand', 'water', 'ice', 'smoke', '
 const MOTIONS = ['rising', 'falling', 'spreading', 'contracting', 'circling', 'trembling', 'still', 'breaking', 'drifting'] as const;
 const SHAPES = ['round', 'jagged', 'flowing', 'splintered', 'knotted', 'flat', 'spiral', 'branching', 'point'] as const;
 const TEXTURES = ['smooth', 'grainy', 'crystalline', 'liquid', 'powdery', 'fibrous', 'cracked', 'soft'] as const;
+const RHYTHMS = ['steady', 'pulsing', 'stuttering', 'strike', 'dwindling', 'swelling'] as const;
 const APPRAISAL = [
   ...SCORES.map((k) => `s_${k}`), 'lazy', 'conf', 'tapeLen', 'byteLen', 'moodPos', 'moodNeu',
-  ...MATERIALS.map((k) => `m_${k}`), ...MOTIONS.map((k) => `mo_${k}`), ...SHAPES.map((k) => `sh_${k}`), ...TEXTURES.map((k) => `tx_${k}`),
+  ...MATERIALS.map((k) => `m_${k}`), ...MOTIONS.map((k) => `mo_${k}`), ...SHAPES.map((k) => `sh_${k}`), ...TEXTURES.map((k) => `tx_${k}`), ...RHYTHMS.map((k) => `rh_${k}`),
   'baseR', 'baseG', 'baseB', 'accR', 'accG', 'accB',
   // the colour clips' palette (from Jev's colour distribution): primary, second, contrast
   'p1R', 'p1G', 'p1B', 'p2R', 'p2G', 'p2B', 'p3R', 'p3G', 'p3B',
@@ -75,7 +76,11 @@ export class Frame {
     this.set('conf', A.c.emotion.confidence);
     this.set('tapeLen', A.tape.length);
     this.set('byteLen', A.bytes.length);
-    for (const k of MATERIALS) this.set(`m_${k}`, A.c.material.p[k] ?? 0);
+    // the material, sharpened (p², renormalised): the word's main matter leads, a trace of a second is only a trace
+    const m2 = MATERIALS.map((k) => (A.c.material.p[k] ?? 0) ** 2);
+    const msum = m2.reduce((a, b) => a + b, 0) || 1;
+    MATERIALS.forEach((k, i) => this.set(`m_${k}`, m2[i] / msum));
+    for (const k of RHYTHMS) this.set(`rh_${k}`, A.c.rhythm.p[k] ?? 0);
     for (const k of MOTIONS) this.set(`mo_${k}`, A.c.motion.p[k] ?? 0);
     for (const k of SHAPES) this.set(`sh_${k}`, A.c.shape.p[k] ?? 0);
     for (const k of TEXTURES) this.set(`tx_${k}`, A.c.texture.p[k] ?? 0);

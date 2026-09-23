@@ -285,7 +285,13 @@ function data(v: V): number[] {
       }
     }
   });
-  src.connect(v.out);
+  // a swelling word grows across the shot, a dwindling one fades
+  const env = v.a.ctx.createGain();
+  const rp = A.c.rhythm.p;
+  env.gain.setValueAtTime(1 - 0.4 * rp.swelling, v.start);
+  env.gain.linearRampToValueAtTime(1 + 0.4 * rp.swelling - 0.6 * rp.dwindling, v.end);
+  src.connect(env).connect(v.out);
+  pulse(v).connect(v.out);
   // the points heard as points: a fine grain of 6–15 kHz blips and single-sample clicks, panned wide
   const dust = rendered(v, (L, R, sr) => {
     const rate = lerp(300, 3000, A.s.density * 0.5 + A.s.arousal * 0.5);
@@ -330,4 +336,55 @@ function lone(v: V): number[] {
   o.connect(g).connect(v.out);
   o.start(v.start); o.stop(v.end + 0.05);
   return [f];
+}
+
+/** The rhythm Jev hears in the word — the same beats the image throbs to (field.wgsl beat()): a low tick on
+ *  each beat (steady), a slow swell (pulsing), clicks on the beats that are not skipped (stuttering), one
+ *  deep blow at the start (strike). Tempo from arousal; weighted by the rhythm distribution. */
+function pulse(v: V): AudioBufferSourceNode {
+  const { A } = v;
+  const rp = A.c.rhythm.p;
+  const P = 60 / lerp(56, 128, A.s.arousal);
+  const variant = (v.shot.seed % 1000) / 1000;
+  return rendered(v, (L, R, sr) => {
+    const n = L.length;
+    // steady and stuttering: a tick on each beat (a stutter skips some, by the same rule as the image)
+    for (let k = 0; k * P < v.shot.dur; k++) {
+      const skipped = ((k * 0.618 + variant * 7.3) % 1) > 0.55;
+      const amp = rp.steady * 0.5 + (skipped ? 0 : rp.stuttering * 0.6);
+      if (amp < 0.02) continue;
+      const s0 = Math.floor(k * P * sr);
+      for (let i = 0; i < sr * 0.12 && s0 + i < n; i++) {
+        const u = i / sr;
+        // a low tick with its 5th partial, so small speakers hear it too
+        const x = (Math.sin(2 * Math.PI * 58 * u) + 0.4 * Math.sin(2 * Math.PI * 290 * u)) * Math.exp(-u / 0.03) * amp * 0.5;
+        L[s0 + i] += x; R[s0 + i] += x;
+      }
+      if (rp.stuttering > 0.2 && !skipped) {
+        const x = 0.3 * rp.stuttering;
+        if (s0 < n) { L[s0] += x; R[s0] -= x; }
+      }
+    }
+    // pulsing: a slow swell of a low tone, in phase with the image's wave
+    if (rp.pulsing > 0.05) {
+      let ph = 0;
+      const f = D2 * 1.5;
+      for (let i = 0; i < n; i++) {
+        const u = i / sr;
+        ph += (2 * Math.PI * f) / sr;
+        const x = Math.sin(ph) * (0.5 - 0.5 * Math.cos((u / P) * Math.PI)) * 0.12 * rp.pulsing;
+        L[i] += x; R[i] += x;
+      }
+    }
+    // strike: one blow, a falling sine with its partials, ringing out
+    if (rp.strike > 0.15) {
+      let ph = 0;
+      for (let i = 0; i < sr * 1.6 && i < n; i++) {
+        const u = i / sr;
+        ph += (2 * Math.PI * (46 + 50 * Math.exp(-u / 0.03))) / sr;
+        const x = (Math.sin(ph) + 0.35 * Math.sin(ph * 4)) * Math.exp(-u / 0.45) * (1 - Math.exp(-u / 0.002)) * 0.7 * rp.strike;
+        L[i] += x; R[i] += x;
+      }
+    }
+  });
 }
