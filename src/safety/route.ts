@@ -4,7 +4,7 @@
  * no ambiguous "fail-safe" band — it barred innocent words like "banana";
  * weak non-English slurs are covered by the blocklist instead.
  */
-import type { Answers, NoulAnswer, ScoreAnswer } from '../jev/types';
+import type { Answers, NoulAnswer, ScoreAnswer } from '../jev/types.ts';
 
 export const THRESHOLDS = {
   hateFirst: 0.8, // an unmistakable slur is barred even if distress also fires

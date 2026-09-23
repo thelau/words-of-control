@@ -45,3 +45,35 @@ fn curl(p: vec2f, t: f32) -> vec2f {
   let n4 = gnoise(p + o - vec2f(e, 0.0)) + 0.5 * gnoise(2.1 * p - o - vec2f(e, 0.0));
   return vec2f(n1 - n2, -(n3 - n4)) / (2.0 * e);
 }
+
+// ---- fullscreen scenes
+struct FsOut { @builtin(position) pos: vec4f };
+
+@vertex
+fn vs_full(@builtin(vertex_index) vi: u32) -> FsOut {
+  let p = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u));
+  return FsOut(vec4f(p * 2.0 - 1.0, 0.0, 1.0));
+}
+
+fn hash41(p: vec2f, salt: f32) -> vec4f {
+  let q = vec2u(bitcast<u32>(p.x + salt * 0.137), bitcast<u32>(p.y - salt));
+  let a = pcg(q.x ^ pcg(q.y));
+  let b = pcg(a ^ 0x68bc21ebu);
+  let c = pcg(b ^ 0x02e5be93u);
+  let d = pcg(c ^ 0x967a889bu);
+  return vec4f(f32(a), f32(b), f32(c), f32(d)) / 4294967295.0;
+}
+
+fn fbm(p: vec2f, oct: i32) -> f32 {
+  var s = 0.0;
+  var a = 0.5;
+  var q = p;
+  for (var i = 0; i < oct; i++) {
+    s += a * gnoise(q);
+    q = mat2x2f(1.6, 1.2, -1.2, 1.6) * q + vec2f(3.1, 1.7);
+    a *= 0.5;
+  }
+  return s;
+}
+
+fn ss(a: f32, b: f32, x: f32) -> f32 { return smoothstep(a, b, x); }

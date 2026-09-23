@@ -3,12 +3,12 @@
  * No caching: every submission asks Jev afresh, and nothing typed is kept.
  * `?mock` in the URL uses the offline mock instead.
  */
-import { isBlocked } from '../safety/blocklist';
-import { route } from '../safety/route';
-import { mockAnswers, MOCK_ERROR } from './mock';
-import { normalizeInput } from '../core/rng';
-import type { Answers, Route } from './types';
-import type { JevError } from '../../proxy/jev';
+import { isBlocked } from '../safety/blocklist.ts';
+import { route } from '../safety/route.ts';
+import { mockAnswers, MOCK_ERROR } from './mock.ts';
+import { normalizeInput } from '../core/rng.ts';
+import type { Answers, Route } from './types.ts';
+import type { JevError } from '../../proxy/jev.ts';
 
 const ENDPOINT = (import.meta.env.VITE_JEV_PROXY as string | undefined) || '/api/jev';
 const CLIENT_TIMEOUT_MS = 1500;
@@ -20,7 +20,7 @@ async function fetchAnswers(text: string): Promise<Fetched> {
   if (usingMock()) {
     await new Promise((r) => setTimeout(r, 120 + Math.random() * 300));
     if (normalizeInput(text) === MOCK_ERROR) return { ok: false, error: { kind: 'server', status: 500, message: 'Mock error.' } };
-    return { ok: true, answers: mockAnswers(text) };
+    return { ok: true, answers: await mockAnswers(text) };
   }
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), CLIENT_TIMEOUT_MS);

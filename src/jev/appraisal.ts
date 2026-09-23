@@ -1,0 +1,76 @@
+/**
+ * The appraisal: everything the machine knows about one submission, in one
+ * typed object. Built from Jev's answers + what the page measured locally
+ * (the word's bytes, how it was typed). Lives only for one performance and is
+ * never stored. Downstream (director, image, sound) reads only this.
+ */
+import { APPRAISAL, QUESTIONS } from './questions.ts';
+import type { Answers, ChoiceAnswer, NoulAnswer, ScoreAnswer } from './types.ts';
+
+const ALL = { ...QUESTIONS, ...APPRAISAL } as Record<string, { type: string; criteria?: unknown }>;
+const MODERATION = new Set(['hate', 'insult', 'sexual', 'real_person', 'distress', 'shareable']);
+
+/** Question ids by type, in battery order (moderation excluded: it is not material for the art). */
+const idsOf = (type: string) => Object.keys(ALL).filter((k) => ALL[k].type === type && !MODERATION.has(k));
+export const SCORE_IDS = idsOf('score');
+export const CHOICE_IDS = idsOf('choice');
+export const NOUL_IDS = idsOf('noul');
+const OPTIONS: Record<string, string[]> = Object.fromEntries(
+  CHOICE_IDS.map((k) => [k, Object.keys(ALL[k].criteria as Record<string, string>)]),
+);
+
+export type Choice = { top: string; p: Record<string, number>; confidence: number };
+
+/** How the word was typed (this submission only, in memory only). */
+export type TypingTrace = { intervals: number[]; backspaces: number };
+
+export type Appraisal = {
+  seed: number;
+  /** UTF-8 bytes of the word: the most literal data there is. */
+  bytes: Uint8Array;
+  typing: TypingTrace;
+  /** Scores normalised to 0..1, by question id. */
+  s: Record<string, number>;
+  c: Record<string, Choice>;
+  n: Record<string, number>;
+  /** Every number above in a fixed order: the data the machine shows and sounds. */
+  tape: Float32Array;
+  /** 0..1 — how indifferent the machine is to this word. */
+  lazy: number;
+};
+
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+
+export function buildAppraisal(a: Answers, text: string, typing: TypingTrace, seed: number): Appraisal {
+  const s: Record<string, number> = {};
+  for (const id of SCORE_IDS) {
+    const q = a[id] as ScoreAnswer | undefined;
+    const levels = Array.isArray(ALL[id].criteria) ? (ALL[id].criteria as unknown[]).length : 5;
+    s[id] = q ? clamp01(q.score / (levels - 1)) : 0.5;
+  }
+  const c: Record<string, Choice> = {};
+  for (const id of CHOICE_IDS) {
+    const q = a[id] as ChoiceAnswer | undefined;
+    const p: Record<string, number> = {};
+    for (const o of OPTIONS[id]) p[o] = q?.probabilities[o] ?? 0;
+    const top = q?.choice ?? OPTIONS[id][0];
+    c[id] = { top, p, confidence: q?.confidence ?? 0 };
+  }
+  const n: Record<string, number> = {};
+  for (const id of NOUL_IDS) n[id] = (a[id] as NoulAnswer | undefined)?.noul ?? 0;
+
+  const bytes = new TextEncoder().encode(text);
+  const tape: number[] = [];
+  for (const b of bytes) tape.push(b / 255);
+  for (const id of CHOICE_IDS) { for (const o of OPTIONS[id]) tape.push(c[id].p[o]); tape.push(c[id].confidence); }
+  for (const id of SCORE_IDS) tape.push(s[id]);
+  for (const id of NOUL_IDS) tape.push(n[id]);
+  for (const dt of typing.intervals) tape.push(clamp01(dt / 1000));
+
+  // Indifference: faint, calm, ordinary, uncharged — "a lazy afternoon".
+  const lazy = clamp01(
+    (1 - s.intensity) * 0.45 + (1 - s.arousal) * 0.2 + (1 - s.strangeness) * 0.15 + (1 - Math.abs(s.valence - 0.5) * 2) * 0.2 - 0.35,
+  ) / 0.65;
+
+  return { seed, bytes, typing, s, c, n, tape: new Float32Array(tape), lazy: clamp01(lazy) };
+}

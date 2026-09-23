@@ -16,7 +16,8 @@ export async function openSession(opts: { width?: number; height?: number; dpr?:
   await server.listen();
   const addr = server.httpServer!.address();
   const url = `http://localhost:${typeof addr === 'object' && addr ? addr.port : 5199}/`;
-  const args = ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist'];
+  const args = ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required',
+    '--enable-webgpu-developer-features']; // unquantised timestamp queries for the perf check
   if (opts.uncapped) args.push('--disable-gpu-vsync', '--disable-frame-rate-limit');
   const browser = await chromium.launch({ headless: true, args });
   const page = await browser.newPage({ viewport: { width: opts.width ?? 1280, height: opts.height ?? 720 }, deviceScaleFactor: opts.dpr ?? 1 });

@@ -1,442 +1,363 @@
 /**
- * WebGPU renderer: compute simulation + velocity-aligned streaks into an HDR
- * persistence buffer, then a composite pass (halation, tonemap, grain).
+ * WebGPU renderer: one scene per frame (room, appraisal, a verdict clip, or
+ * black) into an HDR target, then bloom and the film composite. Scenes are
+ * fullscreen shaders except relief (compute height field + shading) and
+ * grains (compute simulation + streaks into a persistence buffer).
  */
 import commonWGSL from './shaders/common.wgsl?raw';
-import simHead from './shaders/sim_head.wgsl?raw';
-import simMain from './shaders/sim_main.wgsl?raw';
-import particlesWGSL from './shaders/particles.wgsl?raw';
+import roomWGSL from './shaders/room.wgsl?raw';
+import appraisalWGSL from './shaders/appraisal.wgsl?raw';
+import reliefWGSL from './shaders/relief.wgsl?raw';
+import fractureWGSL from './shaders/fracture.wgsl?raw';
+import hazeWGSL from './shaders/haze.wgsl?raw';
+import grainsWGSL from './shaders/grains.wgsl?raw';
+import grainsDrawWGSL from './shaders/grains_draw.wgsl?raw';
 import fadeWGSL from './shaders/fade.wgsl?raw';
-import compositeWGSL from './shaders/composite.wgsl?raw';
+import blitWGSL from './shaders/blit.wgsl?raw';
 import bloomWGSL from './shaders/bloom.wgsl?raw';
-import splatWGSL from './shaders/splat.wgsl?raw';
-import mipWGSL from './shaders/mipdown.wgsl?raw';
-import { uniformStructWGSL, UNIFORM_SLOT_BYTES } from '../engine/uniforms';
+import compositeWGSL from './shaders/composite.wgsl?raw';
+import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
+import { MAX_RAYS, RAY_VEC4 } from './fractureRays.ts';
+import type { ClipId } from '../show/director.ts';
 
-const behaviourFiles = import.meta.glob('./shaders/behaviours/*.wgsl', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+export type Layer = 'room' | 'black' | 'appraisal' | ClipId;
 
-const MAX_STEPS = 4;
-const PARTICLE_BYTES = 64;
-const ACCUM_FORMAT: GPUTextureFormat = 'rgba16float';
+const HDR: GPUTextureFormat = 'rgba16float';
 const BLOOM_LEVELS = 6;
-const MATTER_MIPS = 5;
+const TAPE_MAX = 1024;
+const RELIEF_RES = 640;
+const GRAINS_DEFAULT = 150_000;
+
+type Target = { tex: GPUTexture; view: GPUTextureView };
 
 export class Renderer {
-  readonly canvas: HTMLCanvasElement;
-  readonly count: number;
-  private device!: GPUDevice;
-  private ctx!: GPUCanvasContext;
-  private format!: GPUTextureFormat;
-  private uniformBuf!: GPUBuffer;
-  private particleBuf!: GPUBuffer;
-  private simPipe!: GPUComputePipeline;
-  private simBG!: GPUBindGroup;
-  private fadePipe!: GPURenderPipeline;
-  private partPipe!: GPURenderPipeline;
-  private partBG!: GPUBindGroup;
-  private compPipe!: GPURenderPipeline;
-  private compBG!: GPUBindGroup;
-  private compLayout!: GPUBindGroupLayout;
-  private sampler!: GPUSampler;
-  private accum!: GPUTexture;
-  private bloomDown!: GPURenderPipeline;
-  private bloomUp!: GPURenderPipeline;
-  private bloomLayout!: GPUBindGroupLayout;
-  private bloomMips: GPUTexture[] = [];
-  private bloomPasses: { target: GPUTextureView; bg: GPUBindGroup; up: boolean; ub: GPUBuffer }[] = [];
-  bloomRadius = 1;
-  private splatPipe!: GPUComputePipeline;
-  private resolvePipe!: GPUComputePipeline;
-  private splatLayout!: GPUBindGroupLayout;
-  private splatBG!: GPUBindGroup;
-  private mipPipe!: GPURenderPipeline;
-  private mipLayout!: GPUBindGroupLayout;
-  private matterTex!: GPUTexture;
-  private densBuf!: GPUBuffer;
-  private mipPasses: { target: GPUTextureView; bg: GPUBindGroup }[] = [];
-  matterW = 1;
-  matterScale = 0.6;
-  matterH = 1;
+  /** Canvas (output) size in device pixels. */
   width = 0;
   height = 0;
   dpr = 1;
+  /** Size of the soft layers' scene target (CSS pixels). */
+  lowW = 0;
+  lowH = 0;
+  private d!: GPUDevice;
+  private ctx!: GPUCanvasContext;
+  private format!: GPUTextureFormat;
+  private fBuf!: GPUBuffer;
+  private tapeBuf!: GPUBuffer;
+  private grainBuf!: GPUBuffer;
+  private raysBuf!: GPUBuffer;
+  private sampler!: GPUSampler;
+  private atlas!: GPUTexture;
+  private heightTex!: GPUTexture;
+  private scene!: Target;   // soft layers, CSS resolution
+  private sceneHi!: Target; // the appraisal's data, native resolution
+  private trail!: Target;
+  private bloomMips: GPUTexture[] = [];
+  private bloomPasses: { view: GPUTextureView; bg: GPUBindGroup; up: boolean; ub: GPUBuffer }[] = [];
+  private p: Record<string, GPURenderPipeline> = {};
+  private c: Record<string, GPUComputePipeline> = {};
+  private bg: Record<string, GPUBindGroup> = {};
+  private grainCount: number;
+  private qs: GPUQuerySet | null = null;
+  private qResolve: GPUBuffer | null = null;
+  private qRead: GPUBuffer | null = null;
+  private qBusy = false;
+  /** Last measured GPU time of a frame, in ms (dev only; -1 when unavailable). */
+  gpuMs = -1;
 
-  constructor(canvas: HTMLCanvasElement, count: number) {
-    this.canvas = canvas;
-    this.count = count;
+  constructor(readonly canvas: HTMLCanvasElement, grains = GRAINS_DEFAULT) {
+    this.grainCount = grains;
   }
 
   static async supported(): Promise<boolean> {
     return !!navigator.gpu && !!(await navigator.gpu.requestAdapter());
   }
 
-  async init(initial: Float32Array) {
+  async init() {
     const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
     if (!adapter) throw new Error('WebGPU adapter unavailable');
-    this.device = await adapter.requestDevice();
-    this.device.lost.then((info) => console.error('GPU device lost', info.message));
+    // dev: true GPU time per frame (timestamp queries), read by the perf check
+    const timing = import.meta.env.DEV && adapter.features.has('timestamp-query');
+    this.d = await adapter.requestDevice({ requiredFeatures: timing ? ['timestamp-query'] : [] });
+    if (timing) {
+      this.qs = this.d.createQuerySet({ type: 'timestamp', count: 2 });
+      this.qResolve = this.d.createBuffer({ size: 16, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+      this.qRead = this.d.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    }
+    this.d.lost.then((i) => console.error('GPU device lost', i.message));
     this.ctx = this.canvas.getContext('webgpu')!;
     this.format = navigator.gpu.getPreferredCanvasFormat();
-    this.ctx.configure({ device: this.device, format: this.format, alphaMode: 'opaque' });
+    this.ctx.configure({ device: this.d, format: this.format, alphaMode: 'opaque' });
+    const d = this.d;
 
-    const d = this.device;
-    const prelude = commonWGSL + '\n' + uniformStructWGSL();
-    const behaviours = Object.values(behaviourFiles).join('\n');
-
-    this.uniformBuf = d.createBuffer({ size: UNIFORM_SLOT_BYTES * MAX_STEPS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.particleBuf = d.createBuffer({ size: this.count * PARTICLE_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-    d.queue.writeBuffer(this.particleBuf, 0, initial);
-
-    const uniformEntry = (binding: number, visibility: number): GPUBindGroupLayoutEntry => ({
-      binding, visibility, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: UNIFORM_SLOT_BYTES },
+    this.fBuf = d.createBuffer({ size: FRAME_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.tapeBuf = d.createBuffer({ size: TAPE_MAX * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.grainBuf = d.createBuffer({ size: this.grainCount * 32, usage: GPUBufferUsage.STORAGE });
+    this.raysBuf = d.createBuffer({ size: MAX_RAYS * RAY_VEC4 * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
+    this.atlas = await makeGlyphAtlas(d);
+    this.heightTex = d.createTexture({
+      size: [RELIEF_RES, RELIEF_RES], format: HDR,
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
     });
 
-    // simulation
-    const simLayout = d.createBindGroupLayout({
-      entries: [uniformEntry(0, GPUShaderStage.COMPUTE), { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }],
-    });
-    const simModule = this.module('sim', [prelude, simHead, behaviours, simMain].join('\n'));
-    this.simPipe = d.createComputePipeline({
-      layout: d.createPipelineLayout({ bindGroupLayouts: [simLayout] }),
-      compute: { module: simModule, entryPoint: 'main' },
-    });
-    this.simBG = d.createBindGroup({
-      layout: simLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuf, size: UNIFORM_SLOT_BYTES } },
-        { binding: 1, resource: { buffer: this.particleBuf } },
-      ],
+    const pre = commonWGSL + '\n' + frameStructWGSL();
+    const mod = (label: string, code: string) => {
+      const m = d.createShaderModule({ label, code });
+      m.getCompilationInfo().then((info) => info.messages.filter((x) => x.type === 'error')
+        .forEach((x) => console.error(`[${label}.wgsl] ${x.lineNum}:${x.linePos} ${x.message}`)));
+      return m;
+    };
+    const full = (label: string, code: string, format: GPUTextureFormat = HDR) => {
+      const m = mod(label, pre + code);
+      return d.createRenderPipeline({
+        label, layout: 'auto',
+        vertex: { module: m, entryPoint: 'vs_full' },
+        fragment: { module: m, entryPoint: 'fs', targets: [{ format }] },
+      });
+    };
+    const add: GPUBlendState = { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one' } };
+
+    this.p.room = full('room', roomWGSL);
+    this.p.appraisal = full('appraisal', appraisalWGSL);
+    this.p.fracture = full('fracture', fractureWGSL);
+    this.p.haze = full('haze', hazeWGSL);
+    this.p.blit = full('blit', blitWGSL);
+    this.p.composite = full('composite', compositeWGSL, this.format);
+
+    const relief = mod('relief', pre + reliefWGSL);
+    this.c.reliefHeight = d.createComputePipeline({ layout: 'auto', compute: { module: relief, entryPoint: 'height' } });
+    this.p.relief = d.createRenderPipeline({
+      layout: 'auto', vertex: { module: relief, entryPoint: 'vs_full' },
+      fragment: { module: relief, entryPoint: 'fs', targets: [{ format: HDR }] },
     });
 
-    // persistence decay: dst *= constant
-    const fadeModule = this.module('fade', fadeWGSL);
-    this.fadePipe = d.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module: fadeModule, entryPoint: 'vs' },
-      fragment: {
-        module: fadeModule, entryPoint: 'fs',
-        targets: [{
-          format: ACCUM_FORMAT,
-          blend: {
-            color: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' },
-            alpha: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' },
-          },
-        }],
-      },
-      primitive: { topology: 'triangle-list' },
-    });
-
-    // streaks, additive
-    const partLayout = d.createBindGroupLayout({
-      entries: [
-        uniformEntry(0, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT),
-        { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
-      ],
-    });
-    const partModule = this.module('particles', prelude + particlesWGSL);
-    this.partPipe = d.createRenderPipeline({
-      layout: d.createPipelineLayout({ bindGroupLayouts: [partLayout] }),
-      vertex: { module: partModule, entryPoint: 'vs' },
-      fragment: {
-        module: partModule, entryPoint: 'fs',
-        targets: [{
-          format: ACCUM_FORMAT,
-          blend: {
-            color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-          },
-        }],
-      },
+    const grains = mod('grains', pre + grainsWGSL);
+    this.c.grainsSim = d.createComputePipeline({ layout: 'auto', compute: { module: grains, entryPoint: 'sim' } });
+    const grainsDraw = mod('grains_draw', pre + grainsDrawWGSL);
+    this.p.grains = d.createRenderPipeline({
+      layout: 'auto', vertex: { module: grainsDraw, entryPoint: 'vs' },
+      fragment: { module: grainsDraw, entryPoint: 'fs', targets: [{ format: HDR, blend: add }] },
       primitive: { topology: 'triangle-strip' },
     });
-    this.partBG = d.createBindGroup({
-      layout: partLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuf, size: UNIFORM_SLOT_BYTES } },
-        { binding: 1, resource: { buffer: this.particleBuf } },
-      ],
-    });
 
-    // composite
-    this.compLayout = d.createBindGroupLayout({
-      entries: [
-        uniformEntry(0, GPUShaderStage.FRAGMENT),
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-        { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-        { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-      ],
-    });
-    const compModule = this.module('composite', prelude + compositeWGSL);
-    this.compPipe = d.createRenderPipeline({
-      layout: d.createPipelineLayout({ bindGroupLayouts: [this.compLayout] }),
-      vertex: { module: compModule, entryPoint: 'vs' },
-      fragment: { module: compModule, entryPoint: 'fs', targets: [{ format: this.format }] },
-      primitive: { topology: 'triangle-list' },
-    });
-    this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
-
-    // matter: splat → resolve → mip chain
-    this.splatLayout = d.createBindGroupLayout({
-      entries: [
-        uniformEntry(0, GPUShaderStage.COMPUTE),
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-        { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float' } },
-      ],
-    });
-    const splatModule = this.module('splat', prelude + splatWGSL);
-    const splatPL = d.createPipelineLayout({ bindGroupLayouts: [this.splatLayout] });
-    this.splatPipe = d.createComputePipeline({ layout: splatPL, compute: { module: splatModule, entryPoint: 'splat' } });
-    this.resolvePipe = d.createComputePipeline({ layout: splatPL, compute: { module: splatModule, entryPoint: 'resolve' } });
-    this.mipLayout = d.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-      ],
-    });
-    const mipModule = this.module('mipdown', mipWGSL);
-    this.mipPipe = d.createRenderPipeline({
-      layout: d.createPipelineLayout({ bindGroupLayouts: [this.mipLayout] }),
-      vertex: { module: mipModule, entryPoint: 'vs' },
-      fragment: { module: mipModule, entryPoint: 'fs', targets: [{ format: 'rgba16float' }] },
-    });
-
-    // bloom chain
-    this.bloomLayout = d.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-      ],
-    });
-    const bloomModule = this.module('bloom', bloomWGSL);
-    const bloomPL = d.createPipelineLayout({ bindGroupLayouts: [this.bloomLayout] });
-    this.bloomDown = d.createRenderPipeline({
-      layout: bloomPL,
-      vertex: { module: bloomModule, entryPoint: 'vs' },
-      fragment: { module: bloomModule, entryPoint: 'fs_down', targets: [{ format: ACCUM_FORMAT }] },
-    });
-    this.bloomUp = d.createRenderPipeline({
-      layout: bloomPL,
-      vertex: { module: bloomModule, entryPoint: 'vs' },
+    const fade = mod('fade', fadeWGSL);
+    this.p.fade = d.createRenderPipeline({
+      layout: 'auto', vertex: { module: fade, entryPoint: 'vs' },
       fragment: {
-        module: bloomModule, entryPoint: 'fs_up',
-        targets: [{
-          format: ACCUM_FORMAT,
-          blend: {
-            color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-          },
-        }],
+        module: fade, entryPoint: 'fs',
+        targets: [{ format: HDR, blend: { color: { srcFactor: 'zero', dstFactor: 'constant' }, alpha: { srcFactor: 'zero', dstFactor: 'constant' } } }],
       },
     });
 
+    const bloom = mod('bloom', bloomWGSL);
+    const bl = (entry: string, blend?: GPUBlendState) => d.createRenderPipeline({
+      layout: 'auto', vertex: { module: bloom, entryPoint: 'vs' },
+      fragment: { module: bloom, entryPoint: entry, targets: [{ format: HDR, blend }] },
+    });
+    this.p.bloomDown = bl('fs_down');
+    this.p.bloomUp = bl('fs_up', add);
+
+    const uni = { buffer: this.fBuf };
+    const group = (name: string, pipe: GPURenderPipeline | GPUComputePipeline, entries: GPUBindGroupEntry[]) => {
+      this.bg[name] = d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries });
+    };
+    for (const k of ['room', 'haze']) group(k, this.p[k], [{ binding: 0, resource: uni }]);
+    group('fracture', this.p.fracture, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.raysBuf } }]);
+    group('appraisal', this.p.appraisal, [
+      { binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } },
+      { binding: 2, resource: this.atlas.createView() }, { binding: 3, resource: this.sampler },
+    ]);
+    group('reliefHeight', this.c.reliefHeight, [{ binding: 0, resource: uni }, { binding: 1, resource: this.heightTex.createView() }]);
+    group('relief', this.p.relief, [{ binding: 0, resource: uni }, { binding: 2, resource: this.heightTex.createView() }, { binding: 3, resource: this.sampler }]);
+    group('grainsSim', this.c.grainsSim, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.grainBuf } }]);
+    group('grains', this.p.grains, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.grainBuf } }]);
     this.resize();
   }
 
-  private module(label: string, code: string): GPUShaderModule {
-    const m = this.device.createShaderModule({ label, code });
-    m.getCompilationInfo().then((info) => {
-      for (const msg of info.messages) {
-        if (msg.type === 'error') console.error(`[${label}.wgsl] ${msg.lineNum}:${msg.linePos} ${msg.message}`);
-      }
-    });
-    return m;
+  /** The crack pattern of the fracture shot about to play (fractureRays.ts). */
+  setFracture(data: Float32Array) {
+    this.d.queue.writeBuffer(this.raysBuf, 0, data);
   }
 
-  /** Returns true when the drawing buffer changed size. */
+  setTape(tape: Float32Array) {
+    this.d.queue.writeBuffer(this.tapeBuf, 0, tape.length > TAPE_MAX ? tape.subarray(0, TAPE_MAX) : tape);
+  }
+
   resize(): boolean {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.max(1, Math.round(this.canvas.clientWidth * this.dpr));
     const h = Math.max(1, Math.round(this.canvas.clientHeight * this.dpr));
-    if (w === this.width && h === this.height && this.accum) return false;
+    if (w === this.width && h === this.height && this.scene) return false;
     this.width = w;
     this.height = h;
     this.canvas.width = w;
     this.canvas.height = h;
-    this.accum?.destroy();
-    this.accum = this.device.createTexture({
-      size: [w, h],
-      format: ACCUM_FORMAT,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-    });
+    const mk = (): Target => {
+      const tex = this.d.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+      return { tex, view: tex.createView() };
+    };
+    this.lowW = Math.max(1, Math.round(w / this.dpr));
+    this.lowH = Math.max(1, Math.round(h / this.dpr));
+    const mkLow = (): Target => {
+      const tex = this.d.createTexture({ size: [this.lowW, this.lowH], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+      return { tex, view: tex.createView() };
+    };
+    this.scene?.tex.destroy();
+    this.sceneHi?.tex.destroy();
+    this.trail?.tex.destroy();
+    this.scene = mkLow();
+    this.sceneHi = mk();
+    this.trail = mkLow();
     this.buildBloom();
-    this.buildMatter();
-    this.buildCompBG();
+    this.bg.blit = this.d.createBindGroup({ layout: this.p.blit.getBindGroupLayout(0), entries: [{ binding: 0, resource: this.trail.view }] });
+    this.bg.composite = this.d.createBindGroup({
+      layout: this.p.composite.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.fBuf } }, { binding: 1, resource: this.scene.view },
+        { binding: 2, resource: this.sampler }, { binding: 3, resource: this.bloomMips[0].createView() },
+        { binding: 4, resource: this.sceneHi.view },
+      ],
+    });
     return true;
   }
 
   private buildBloom() {
-    const d = this.device;
+    const d = this.d;
     for (const t of this.bloomMips) t.destroy();
+    for (const p of this.bloomPasses) p.ub.destroy();
     this.bloomMips = [];
-    let w = this.width, h = this.height;
+    this.bloomPasses = [];
+    let w = this.lowW, h = this.lowH;
     for (let i = 0; i < BLOOM_LEVELS; i++) {
       w = Math.max(1, w >> 1);
       h = Math.max(1, h >> 1);
-      this.bloomMips.push(d.createTexture({
-        size: [w, h], format: ACCUM_FORMAT,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-      }));
+      this.bloomMips.push(d.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING }));
     }
-    const pass = (src: GPUTexture, target: GPUTexture, up: boolean, karis: boolean) => {
+    const pass = (src: GPUTexture, dst: GPUTexture, up: boolean, karis: boolean) => {
       const ub = d.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-      d.queue.writeBuffer(ub, 0, new Float32Array([1 / src.width, 1 / src.height, this.bloomRadius, karis ? 1 : 0]));
+      d.queue.writeBuffer(ub, 0, new Float32Array([1 / src.width, 1 / src.height, 1, karis ? 1 : 0]));
+      const pl = up ? this.p.bloomUp : this.p.bloomDown;
       return {
-        target: target.createView(),
-        up,
-        ub,
+        view: dst.createView(), up, ub,
         bg: d.createBindGroup({
-          layout: this.bloomLayout,
-          entries: [
-            { binding: 0, resource: src.createView() },
-            { binding: 1, resource: this.sampler },
-            { binding: 2, resource: { buffer: ub } },
-          ],
+          layout: pl.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: src.createView() }, { binding: 1, resource: this.sampler }, { binding: 2, resource: { buffer: ub } }],
         }),
       };
     };
-    for (const p of this.bloomPasses) p.ub.destroy();
-    this.bloomPasses = [];
-    this.bloomMips.forEach((m, i) => this.bloomPasses.push(pass(i === 0 ? this.accum : this.bloomMips[i - 1], m, false, i === 0)));
+    this.bloomMips.forEach((m, i) => this.bloomPasses.push(pass(i === 0 ? this.scene.tex : this.bloomMips[i - 1], m, false, i === 0)));
     for (let i = BLOOM_LEVELS - 2; i >= 0; i--) this.bloomPasses.push(pass(this.bloomMips[i + 1], this.bloomMips[i], true, false));
   }
 
-  setMatterScale(k: number) {
-    if (k === this.matterScale || !this.accum) return;
-    this.matterScale = k;
-    this.buildMatter();
-    this.buildCompBG();
-  }
-
-  setBloomRadius(r: number) {
-    if (r === this.bloomRadius) return;
-    this.bloomRadius = r;
-    this.buildBloom();
-    this.buildCompBG();
-  }
-
-  private buildCompBG() {
-    this.compBG = this.device.createBindGroup({
-      layout: this.compLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuf, size: UNIFORM_SLOT_BYTES } },
-        { binding: 1, resource: this.accum.createView() },
-        { binding: 2, resource: this.sampler },
-        { binding: 3, resource: this.bloomMips[0].createView() },
-        { binding: 4, resource: this.matterTex.createView() },
-      ],
-    });
-  }
-
-  /** Matter field at CSS-pixel resolution (grain texture shouldn't scale with DPR). */
-  private buildMatter() {
-    const d = this.device;
-    this.matterTex?.destroy();
-    this.densBuf?.destroy();
-    this.matterW = Math.max(8, Math.round((this.width / this.dpr) * this.matterScale));
-    this.matterH = Math.max(8, Math.round((this.height / this.dpr) * this.matterScale));
-    this.matterTex = d.createTexture({
-      size: [this.matterW, this.matterH], format: 'rgba16float', mipLevelCount: MATTER_MIPS,
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-    this.densBuf = d.createBuffer({ size: this.matterW * this.matterH * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-    this.splatBG = d.createBindGroup({
-      layout: this.splatLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuf, size: UNIFORM_SLOT_BYTES } },
-        { binding: 1, resource: { buffer: this.particleBuf } },
-        { binding: 2, resource: { buffer: this.densBuf } },
-        { binding: 3, resource: this.matterTex.createView({ baseMipLevel: 0, mipLevelCount: 1 }) },
-      ],
-    });
-    this.mipPasses = [];
-    for (let i = 1; i < MATTER_MIPS; i++) {
-      this.mipPasses.push({
-        target: this.matterTex.createView({ baseMipLevel: i, mipLevelCount: 1 }),
-        bg: d.createBindGroup({
-          layout: this.mipLayout,
-          entries: [
-            { binding: 0, resource: this.matterTex.createView({ baseMipLevel: i - 1, mipLevelCount: 1 }) },
-            { binding: 1, resource: this.sampler },
-          ],
-        }),
-      });
-    }
-  }
-
   /**
-   * One displayed frame: run each fixed simulation step with its own uniform
-   * slot, then draw with the last one. `decay` is the persistence multiplier.
+   * Draw one frame of `layer`. `frame` is the full uniform block (time, local
+   * time, appraisal…). `persist` is the grains trail decay per frame; `hi`
+   * draws the appraisal at native resolution (text and lines).
    */
-  frame(steps: Float32Array[], last: Float32Array, decay: number, draw = true) {
-    const d = this.device;
-    const n = Math.min(steps.length, MAX_STEPS);
-    for (let s = 0; s < n; s++) d.queue.writeBuffer(this.uniformBuf, s * UNIFORM_SLOT_BYTES, steps[s]);
-    const drawSlot = n > 0 ? n - 1 : 0;
-    if (n === 0) d.queue.writeBuffer(this.uniformBuf, 0, last);
-    const drawOffset = drawSlot * UNIFORM_SLOT_BYTES;
-
+  render(layer: Layer, frame: Float32Array, persist = 0.9, hi = false) {
+    const d = this.d;
+    d.queue.writeBuffer(this.fBuf, 0, frame);
     const enc = d.createCommandEncoder();
-    if (n > 0) {
-      const cp = enc.beginComputePass();
-      cp.setPipeline(this.simPipe);
-      const groups = Math.ceil(this.count / 256);
-      for (let s = 0; s < n; s++) {
-        cp.setBindGroup(0, this.simBG, [s * UNIFORM_SLOT_BYTES]);
-        cp.dispatchWorkgroups(groups);
-      }
+    const timed = !!this.qs && !this.qBusy;
+    // the frame's first pass stamps its start; the composite stamps its end
+    let first = timed;
+    const stamp = (): { timestampWrites?: GPURenderPassTimestampWrites } => {
+      if (!first) return {};
+      first = false;
+      return { timestampWrites: { querySet: this.qs!, beginningOfPassWriteIndex: 0 } };
+    };
+    const fullPass = (pipe: GPURenderPipeline, bg: GPUBindGroup, view = this.scene.view, extra: object = stamp()) => {
+      const p = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }], ...extra });
+      p.setPipeline(pipe);
+      p.setBindGroup(0, bg);
+      p.draw(3);
+      p.end();
+    };
+
+    if (layer === 'black') {
+      enc.beginRenderPass({ colorAttachments: [{ view: this.scene.view, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }], ...stamp() }).end();
+    } else if (layer === 'relief') {
+      const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
+      cp.setPipeline(this.c.reliefHeight);
+      cp.setBindGroup(0, this.bg.reliefHeight);
+      cp.dispatchWorkgroups(RELIEF_RES / 16, RELIEF_RES / 16);
       cp.end();
-    }
-
-    if (n > 0) {
-      enc.clearBuffer(this.densBuf);
-      const sp = enc.beginComputePass();
-      sp.setPipeline(this.splatPipe);
-      sp.setBindGroup(0, this.splatBG, [drawOffset]);
-      sp.dispatchWorkgroups(Math.ceil(this.count / 256));
-      sp.setPipeline(this.resolvePipe);
-      sp.dispatchWorkgroups(Math.ceil(this.matterW / 16), Math.ceil(this.matterH / 16));
-      sp.end();
-      for (const m of this.mipPasses) {
-        const mp = enc.beginRenderPass({ colorAttachments: [{ view: m.target, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-        mp.setPipeline(this.mipPipe);
-        mp.setBindGroup(0, m.bg);
-        mp.draw(3);
-        mp.end();
-      }
-    }
-
-    if (draw) {
-      const acc = enc.beginRenderPass({
-        colorAttachments: [{ view: this.accum.createView(), loadOp: 'load', storeOp: 'store' }],
-      });
-      acc.setPipeline(this.fadePipe);
-      acc.setBlendConstant({ r: decay, g: decay, b: decay, a: decay });
-      acc.draw(3);
-      acc.setPipeline(this.partPipe);
-      acc.setBindGroup(0, this.partBG, [drawOffset]);
-      acc.draw(4, this.count);
-      acc.end();
+      fullPass(this.p.relief, this.bg.relief);
+    } else if (layer === 'grains') {
+      const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
+      cp.setPipeline(this.c.grainsSim);
+      cp.setBindGroup(0, this.bg.grainsSim);
+      cp.dispatchWorkgroups(Math.ceil(this.grainCount / 256));
+      cp.end();
+      const tp = enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'load', storeOp: 'store' }] });
+      tp.setPipeline(this.p.fade);
+      tp.setBlendConstant({ r: persist, g: persist, b: persist, a: persist });
+      tp.draw(3);
+      tp.setPipeline(this.p.grains);
+      tp.setBindGroup(0, this.bg.grains);
+      tp.draw(4, this.grainCount);
+      tp.end();
+      fullPass(this.p.blit, this.bg.blit);
+    } else if (layer === 'appraisal' && hi) {
+      fullPass(this.p.appraisal, this.bg.appraisal, this.sceneHi.view);
+      enc.beginRenderPass({ colorAttachments: [{ view: this.scene.view, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] }).end();
+    } else {
+      fullPass(this.p[layer], this.bg[layer]);
     }
 
     for (const b of this.bloomPasses) {
-      const bp = enc.beginRenderPass({ colorAttachments: [{ view: b.target, loadOp: b.up ? 'load' : 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-      bp.setPipeline(b.up ? this.bloomUp : this.bloomDown);
+      const bp = enc.beginRenderPass({ colorAttachments: [{ view: b.view, loadOp: b.up ? 'load' : 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
+      bp.setPipeline(b.up ? this.p.bloomUp : this.p.bloomDown);
       bp.setBindGroup(0, b.bg);
       bp.draw(3);
       bp.end();
     }
-
-    const out = enc.beginRenderPass({
-      colorAttachments: [{ view: this.ctx.getCurrentTexture().createView(), loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }],
-    });
-    out.setPipeline(this.compPipe);
-    out.setBindGroup(0, this.compBG, [drawOffset]);
-    out.draw(3);
-    out.end();
+    fullPass(this.p.composite, this.bg.composite, this.ctx.getCurrentTexture().createView(),
+      timed ? { timestampWrites: { querySet: this.qs!, endOfPassWriteIndex: 1 } } : {});
+    if (timed) {
+      enc.resolveQuerySet(this.qs!, 0, 2, this.qResolve!, 0);
+      enc.copyBufferToBuffer(this.qResolve!, 0, this.qRead!, 0, 16);
+    }
     d.queue.submit([enc.finish()]);
+    if (timed) {
+      this.qBusy = true;
+      this.qRead!.mapAsync(GPUMapMode.READ).then(() => {
+        const t = new BigUint64Array(this.qRead!.getMappedRange());
+        this.gpuMs = Number(t[1] - t[0]) / 1e6;
+        this.qRead!.unmap();
+        this.qBusy = false;
+      });
+    }
   }
 
+  /** Draw every layer once so no pipeline compiles mid-performance. */
+  warmUp(frame: Float32Array) {
+    for (const l of ['room', 'appraisal', 'relief', 'fracture', 'haze', 'grains', 'black'] as Layer[]) this.render(l, frame, 0.9, l === 'appraisal');
+  }
+
+  /** Clear the long-exposure buffer (a new grains shot starts from black). */
+  clearTrail() {
+    const enc = this.d.createCommandEncoder();
+    enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] }).end();
+    this.d.queue.submit([enc.finish()]);
+  }
+}
+
+/** Glyphs for the appraisal numbers: row 0 "0-9A-F", row 1 ".-x:" then blank. */
+async function makeGlyphAtlas(d: GPUDevice): Promise<GPUTexture> {
+  await document.fonts.load('400 40px "IBM Plex Mono"');
+  const cw = 40, ch = 60;
+  const c = new OffscreenCanvas(cw * 16, ch * 2);
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#fff';
+  g.font = '400 44px "IBM Plex Mono", monospace';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  ['0123456789ABCDEF', '.-x:'].forEach((r, y) => [...r].forEach((ch2, x) => g.fillText(ch2, x * cw + cw / 2, y * ch + ch / 2 + 2)));
+  const tex = d.createTexture({
+    size: [c.width, c.height], format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  d.queue.copyExternalImageToTexture({ source: c }, { texture: tex }, [c.width, c.height]);
+  return tex;
 }

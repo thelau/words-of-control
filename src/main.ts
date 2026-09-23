@@ -1,41 +1,53 @@
 /**
- * Boot + state machine (§2).
+ * Boot + state machine. Rest/typing show the room; Enter asks Jev once; the
+ * answer becomes an appraisal, the director turns it into a plan, and the
+ * plan is performed — image and sound from one clock — until the cut to black
+ * and its reverb have passed. Then the room returns.
  */
 import './style.css';
-import { Renderer } from './render/gpu';
-import { Field, FIXED_DT, makeParticles } from './engine/field';
-import { defaultTuning } from './engine/tuning';
-import type { Params } from './engine/params';
-import { Typing } from './input/typing';
-import { Display } from './input/display';
-import { AudioEngine } from './audio/audio';
-import { Drone } from './audio/drone';
-import { Keys } from './audio/keys';
-import { analyze } from './jev/client';
-import { toParams } from './jev/mapping';
-import { seedFromText } from './core/rng';
-import { showSupport, hideSupport } from './support';
-import { showError } from './errorPopup';
+import { Renderer, type Layer } from './render/gpu.ts';
+import { Frame } from './render/frame.ts';
+import { Typing } from './input/typing.ts';
+import { Display } from './input/display.ts';
+import { AudioEngine } from './audio/audio.ts';
+import { Drone } from './audio/drone.ts';
+import { Keys } from './audio/keys.ts';
+import { playPerformance } from './audio/score.ts';
+import { analyze } from './jev/client.ts';
+import { buildAppraisal, type Appraisal } from './jev/appraisal.ts';
+import type { Answers } from './jev/types.ts';
+import { CUT_MODES, direct, type Plan } from './show/director.ts';
+import { momentAt, type Moment } from './show/timeline.ts';
+import { seedFromText } from './core/rng.ts';
+import { showSupport, hideSupport } from './support.ts';
+import { showError } from './errorPopup.ts';
+import { fractureRays } from './render/fractureRays.ts';
 
-export type State = 'idle' | 'typing' | 'analyzing' | 'reacting' | 'returning' | 'barred' | 'support' | 'fallback';
+export type State = 'idle' | 'typing' | 'analyzing' | 'performing' | 'barred' | 'support' | 'error';
 
 const query = new URLSearchParams(location.search);
-const COUNT = Number(query.get('n')) || 1000000;
+
+const BLOOM: Record<Layer, number> = { room: 0.12, black: 0, appraisal: 0.04, relief: 0.03, fracture: 0.2, grains: 0.18, haze: 0.14 };
+
+/** A performance in flight: its plan, its start on the shared clock. */
+export type Show = { A: Appraisal; plan: Plan; t0: number };
 
 export type App = {
-  field: Field;
-  renderer: Renderer;
   state: () => State;
-  /** Start a reaction directly from Params (harness, mock). */
-  fire: (p: Params) => void;
-  /** Force params for the next typed submission (harness). */
-  override: { params: Params | null };
+  /** Perform from Jev answers (harness, tests). */
+  perform: (answers: Answers, text: string) => void;
+  /** Perform a hand-made plan with an appraisal (harness). */
+  performPlan: (A: Appraisal, plan: Plan) => void;
+  show: () => Show | null;
+  moment: () => Moment | null;
   harnessOpen: boolean;
-  frozen: boolean;
-  stepOnce: boolean;
-  /** Called after each drawn frame, in the same task (canvas readable). */
   frameHooks: Set<(now: number) => void>;
+  canvas: HTMLCanvasElement;
   audio: () => AudioEngine | null;
+  /** The shared performance clock (tests and capture). */
+  audioClock: () => number;
+  /** Last GPU frame time in ms (dev, when timestamp queries exist). */
+  gpuMs: () => number;
 };
 
 async function boot() {
@@ -44,32 +56,26 @@ async function boot() {
     document.body.insertAdjacentHTML('beforeend', '<div id="nogpu">WebGPU is required.</div>');
     return;
   }
-  const sessionSeed = (Math.random() * 2 ** 31) >>> 0;
-  const tuning = defaultTuning();
-  const field = new Field(tuning, COUNT, sessionSeed);
-  const renderer = new Renderer(canvas, COUNT);
-  await renderer.init(makeParticles(COUNT, sessionSeed));
-
+  const renderer = new Renderer(canvas, Number(query.get('g')) || undefined);
+  await renderer.init();
+  const frame = new Frame();
+  frame.set('outX', renderer.width); frame.set('outY', renderer.height); frame.set('outDpr', renderer.dpr);
+  frame.set('resX', renderer.lowW); frame.set('resY', renderer.lowH); frame.set('dpr', 1);
+  renderer.warmUp(frame.f32);
   const display = new Display();
+
   let audio: AudioEngine | null = null;
   let drone: Drone | null = null;
   let keys: Keys | null = null;
   let state: State = 'idle';
-  const set = (s: State) => { state = s; };
+  let show: Show | null = null;
+  let moment: Moment | null = null;
+  let keysTyped = 0;
+  let charge = 0;
+  let kick = 0;
+  let roomFade = 1;
 
-  const app: App = {
-    field, renderer,
-    state: () => state,
-    fire: (p) => react(p),
-    override: { params: null },
-    harnessOpen: false,
-    frozen: false,
-    stepOnce: false,
-    frameHooks: new Set(),
-    audio: () => audio,
-  };
-
-  const accepting = () => state === 'idle' || state === 'typing';
+  const clock = () => (audio ? audio.clock() : performance.now() / 1000);
 
   function ensureAudio() {
     if (audio) return audio.resume();
@@ -80,87 +86,72 @@ async function boot() {
     drone.fadeIn(5);
   }
 
-  function react(p: Params) {
-    ensureAudio();
-    set('reacting');
-    display.hideCursor();
-    void display.fadeText();
-    typing.clear();
-    field.start(p);
-    const w = p.weights;
-    drone?.remember({
-      rough: Math.min(1, 0.5 + (w.anger ?? 0) * 0.5 + (w.anxiety ?? 0) * 0.35 + (w.fear ?? 0) * 0.25),
-      width: Math.min(1, 0.5 + (w.awe ?? 0) * 0.5 + (p.scale - 0.5) * 0.4),
-      bright: p.light,
-    });
-  }
-
   function toIdle() {
-    set('idle');
-    field.clearCharge();
-    field.holdCharge = false;
+    state = 'idle';
+    keysTyped = 0;
     display.showCursor();
     typing.focus();
   }
 
+  function performPlan(A: Appraisal, plan: Plan) {
+    ensureAudio();
+    state = 'performing';
+    display.hideCursor();
+    void display.fadeText();
+    typing.clear();
+    keysTyped = 0;
+    // the appraisal begins as the word finishes fading
+    const t0 = clock() + 0.3;
+    show = { A, plan, t0 };
+    frame.setAppraisal(A);
+    renderer.setTape(A.tape);
+    if (audio && drone) playPerformance(audio, drone, A, plan, t0);
+  }
+
+  function perform(answers: Answers, text: string) {
+    const A = buildAppraisal(answers, text, typing.trace(), seedFromText(text));
+    performPlan(A, direct(A));
+  }
+
   async function submit(text: string) {
-    set('analyzing');
+    state = 'analyzing';
     display.hold();
-    field.holdCharge = true;
-    const forced = app.override.params;
-    const r = forced ? { kind: 'react' as const, answers: null } : await analyze(text);
+    const r = await analyze(text);
     if (state !== 'analyzing') return;
     switch (r.kind) {
       case 'react':
-        react(forced ? { ...forced, seed: seedFromText(text) } : toParams(r.answers!, seedFromText(text)));
+        perform(r.answers, text);
         break;
       case 'barred':
-        set('barred');
+        // a refusal reads as a refusal: an instant cut, nothing follows
+        state = 'barred';
         display.cutText();
-        typing.clear();
-        field.clearCharge();
-        field.holdCharge = false;
         display.hideCursor();
+        typing.clear();
         setTimeout(toIdle, 600);
         break;
-      case 'fallback':
-        set('fallback');
-        display.hideCursor();
-        await display.fadeText();
-        typing.clear();
-        setTimeout(toIdle, 300);
-        break;
       case 'support':
-        enterSupport();
+        state = 'support';
+        typing.clear();
+        display.hideAll(true);
+        drone?.fadeOut(2);
+        showSupport();
         break;
       case 'error':
-        // test stage: surface every Jev failure (becomes silent FALLBACK later)
-        set('fallback');
+      case 'fallback':
+        state = 'error';
         display.hideCursor();
         void display.fadeText();
         typing.clear();
-        field.clearCharge();
-        field.holdCharge = false;
-        showError(r.error, toIdle);
+        if (r.kind === 'error') showError(r.error, toIdle);
+        else setTimeout(toIdle, 300);
         break;
     }
-  }
-
-  function enterSupport() {
-    set('support');
-    typing.clear();
-    display.hideAll(true);
-    field.clearCharge();
-    field.holdCharge = false;
-    field.fadeAllTarget = 1;
-    drone?.fadeOut(2);
-    showSupport();
   }
 
   function exitSupport() {
     hideSupport();
     display.hideAll(false);
-    field.fadeAllTarget = 0;
     drone?.fadeIn(4);
     toIdle();
   }
@@ -174,27 +165,21 @@ async function boot() {
         }).catch(() => {});
       }
     },
-    onKey: (kind) => {
-      keys?.click(kind === 'backspace');
-      field.keystroke(kind === 'backspace');
+    onKey: (kind, code) => {
+      keys?.click(code, kind === 'backspace');
       display.wake();
-      if (state === 'idle') {
-        set('typing');
-        field.holdCharge = true;
-      }
+      keysTyped++;
+      kick = 1;
+      if (state === 'idle') state = 'typing';
     },
     onLimit: () => keys?.limit(),
     onChange: (text) => {
       display.set(text);
-      if (!text && state === 'typing') {
-        set('idle');
-        field.clearCharge();
-        field.holdCharge = false;
-      }
+      if (!text && state === 'typing') { state = 'idle'; keysTyped = 0; }
     },
     onSubmit: (text) => void submit(text),
     onEscape: () => { if (state === 'support') exitSupport(); },
-    accepting,
+    accepting: () => state === 'idle' || state === 'typing',
     suspended: () => app.harnessOpen,
   });
 
@@ -202,44 +187,90 @@ async function boot() {
     if (!document.fullscreenElement && state === 'support') exitSupport();
   });
 
-  // ---- frame loop: fixed-step simulation, one draw per display frame
+  const app: App = {
+    state: () => state,
+    perform,
+    performPlan,
+    show: () => show,
+    moment: () => moment,
+    harnessOpen: false,
+    frameHooks: new Set(),
+    canvas,
+    audio: () => audio,
+    audioClock: () => clock(),
+    gpuMs: () => renderer.gpuMs,
+  };
+
+  // ---- frame loop
   let last = performance.now();
-  let acc = 0;
-  let lastSnap = field.step(0, { w: renderer.width, h: renderer.height, dpr: renderer.dpr, mw: renderer.matterW, mh: renderer.matterH });
+  let lastKey = '';
   const loop = (now: number) => {
-    const frameDt = Math.min(0.1, (now - last) / 1000);
+    const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     renderer.resize();
-    renderer.setBloomRadius(tuning.bloomRadius as number);
-    renderer.setMatterScale(tuning.matterScale as number);
-    const vp = { w: renderer.width, h: renderer.height, dpr: renderer.dpr, mw: renderer.matterW, mh: renderer.matterH };
-    const steps: Float32Array[] = [];
-    if (!app.frozen) {
-      acc += frameDt;
-      field.frameDt = frameDt;
-    } else if (app.stepOnce) {
-      acc = FIXED_DT * 2;
-      field.frameDt = FIXED_DT * 2;
-      app.stepOnce = false;
-    }
-    while (acc >= FIXED_DT && steps.length < 4) {
-      steps.push(field.step(FIXED_DT, vp, steps.length === 0));
-      acc -= FIXED_DT;
-    }
-    if (acc > FIXED_DT * 4) acc = 0;
-    if (steps.length) lastSnap = steps[steps.length - 1];
-    renderer.frame(steps, lastSnap, field.decayFor(field.frameDt), steps.length > 0);
+    const f = (k: string, v: number) => frame.set(k, v);
+    f('outX', renderer.width); f('outY', renderer.height); f('outDpr', renderer.dpr);
+    f('time', (now / 1000) % 4096); f('dt', dt);
+    f('exposure', 1); f('grain', 0.045);
 
-    if (state === 'reacting' && field.phase === 'returning') set('returning');
-    if ((state === 'reacting' || state === 'returning') && field.phase === 'idle') toIdle();
+    // typing charges the room, gently
+    charge += (Math.min(1, keysTyped / 12) - charge) * (1 - Math.exp(-dt * 3));
+    kick *= Math.exp(-dt * 5);
+    f('charge', state === 'typing' || state === 'analyzing' ? charge : charge * 0.2);
+    f('kick', kick);
+    drone?.lean(charge);
+
+    let layer: Layer = 'room';
+    let persist = 0.9;
+    f('flash', 0); f('invert', 0); f('mode', 0);
+    if (show) {
+      const m = momentAt(show.plan, clock() - show.t0, show.A.s.arousal);
+      moment = m;
+      if (m.done) {
+        show = null;
+        moment = null;
+        roomFade = 0;
+        toIdle();
+      } else {
+        layer = m.layer;
+        f('lt', m.lt); f('dur', m.dur); f('u', Math.min(1, m.lt / m.dur));
+        f('variant', m.variant); f('aborted', m.aborted ? 1 : 0);
+        f('flash', m.flash); f('invert', m.invert ? 1 : 0);
+        f('mode', m.mode);
+        f('seed', (show.A.seed % 100000) + m.variant * 1000);
+        if (m.key !== lastKey && layer === 'grains') {
+          renderer.clearTrail();
+          f('mode', 1); // grains: spawn this frame
+        }
+        if (m.key !== lastKey && layer === 'fracture') {
+          const r = fractureRays(show.A, m.seed);
+          renderer.setFracture(r.data);
+          f('variant2', r.count);
+        }
+        lastKey = m.key;
+        const mat = show.A.c.material.p;
+        persist = Math.pow(0.86 + 0.1 * Math.min(1, mat.smoke + mat.void * 0.5) + 0.04 * mat.fire, dt * 60);
+      }
+    }
+    if (layer === 'room') {
+      roomFade = Math.min(1, roomFade + dt / 1.8);
+      f('layerFade', roomFade * roomFade);
+    }
+    // bloom per layer: data and relief stay crisp; sparks and light glow
+    f('bloom', BLOOM[layer]);
+    // text and lines are drawn at native resolution; everything soft (and scatter's dots) at CSS resolution
+    const hi = layer === 'appraisal' && moment?.mode !== CUT_MODES.indexOf('scatter');
+    f('hiRes', hi ? 1 : 0);
+    f('resX', hi ? renderer.width : renderer.lowW); f('resY', hi ? renderer.height : renderer.lowH); f('dpr', hi ? renderer.dpr : 1);
+    renderer.render(layer, frame.f32, persist, hi);
     for (const h of app.frameHooks) h(now);
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
 
   if (import.meta.env.DEV) {
-    const { mountHarness } = await import('./dev/harness');
-    mountHarness(app, tuning);
+    const { mountHarness } = await import('./dev/harness.ts');
+    mountHarness(app);
     (window as unknown as { __woc: App }).__woc = app;
   }
 }

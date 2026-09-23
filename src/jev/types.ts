@@ -1,4 +1,4 @@
-import type { JevError } from '../../proxy/jev';
+import type { JevError } from '../../proxy/jev.ts';
 
 /** Jev System One response shapes (docs/jev-api.md §12.4). */
 export type NoulAnswer = { type: 'noul'; noul: number };
