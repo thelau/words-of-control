@@ -204,13 +204,14 @@ fn line(px: vec2f, res: vec2f) -> vec3f {
 
 fn word(px: vec2f, res: vec2f) -> vec3f {
   // the typed word, as drawn once per performance, then its UTF-8 bytes in hex beneath. Opening (variant 0):
-  // large, at the centre, held long enough to be read. The signature (variant 2): small, lower left, the bytes
-  // complete and the performance's number after them — every recording carries its own caption
+  // large, at the centre, held long enough to be read. The signature (variant 2): small, at the same centre
+  // (the performance closes where it began, where the cursor returns), the bytes complete and the
+  // performance's number after them — every recording carries its own caption
   let sig = F.variant > 1.5;
   let dim = vec2f(textureDimensions(wordTex));
   let h = res.y * select(0.11, 0.03, sig);
   let w = h * dim.x / dim.y;
-  let o = select(vec2f((res.x - w) * 0.5, res.y * 0.5 - h * 0.62), vec2f(res.x * 0.06, res.y * 0.86), sig);
+  let o = vec2f((res.x - w) * 0.5, res.y * 0.5 - h * 0.62);
   let uv = (px - o) / vec2f(w, h);
   var c = vec3f(0.0);
   if (all(uv >= vec2f(0.0)) && all(uv < vec2f(1.0))) { c += ink() * textureLoad(wordTex, vec2i(uv * dim), 0).a; }
@@ -218,8 +219,9 @@ fn word(px: vec2f, res: vec2f) -> vec3f {
   let cw = 8.0 * F.dpr;
   let chh = 14.0 * F.dpr;
   let nb = F.byteLen;
-  let rowW = nb * 3.0 * cw;
-  let bo = select(vec2f((res.x - rowW) * 0.5, res.y * 0.5 + h * 0.62), vec2f(res.x * 0.06, res.y * 0.86 + h * 1.25), sig);
+  // (the signature's row also carries the number: 4 digits after a space)
+  let rowW = (nb * 3.0 + select(0.0, 5.0, sig)) * cw;
+  let bo = vec2f((res.x - rowW) * 0.5, res.y * 0.5 + h * select(0.62, 0.9, sig));
   let bq = (px - bo) / vec2f(cw, chh);
   if (bq.y >= 0.0 && bq.y < 1.0 && bq.x >= 0.0 && bq.x < nb * 3.0) {
     let bi = i32(floor(bq.x / 3.0));
