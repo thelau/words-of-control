@@ -33,7 +33,7 @@ export function fractureRays(A: Appraisal, seed: number): { data: Float32Array; 
     for (let j = 0; j < 6; j++) {
       const b = o + 12 + j * 4;
       data[b] = 0.85 + 0.3 * rand();
-      data[b + 1] = rand() < 0.45 ? 0 : 1;
+      data[b + 1] = rand() < 0.72 ? 0 : 1; // sparse: glass, not a spider web
       data[b + 2] = 0.85 + 0.3 * rand();
     }
   }

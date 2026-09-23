@@ -85,7 +85,8 @@ fn sim(@builtin(global_invocation_id) gid: vec3u) {
   let still = F.mo_still * (0.5 + 0.5 * pow(0.5 + 0.5 * sin(t * 2.0 + B.x * 90.0), 8.0));
   // grains born together at the word stay dark until they have left it (no white sun)
   // an outward burst concentrates light at the centre (density ~ 1/r): compensate so the burst reads as sparks, not a sun
-  let born = mix(1.0, ss(0.02, 0.2, r) * min(1.0, r * 1.6), clamp(F.mo_spreading + F.mo_breaking + F.mo_trembling * 0.6, 0.0, 1.0));
+  let g0 = ss(0.1, 0.6, r);
+  let born = mix(1.0, g0 * g0, clamp(F.mo_spreading + F.mo_breaking + F.mo_trembling * 0.6, 0.0, 1.0));
   B.w = mix(heat, still + 0.3, F.mo_still) * ss(0.0, 0.08, t) * born;
   G[i * 2u] = vec4f(p, v);
   G[i * 2u + 1u] = B;

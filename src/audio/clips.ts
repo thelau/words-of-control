@@ -18,10 +18,12 @@ export function playShot(a: AudioEngine, A: Appraisal, shot: Shot, t0: number): 
   const c = a.ctx;
   const start = t0 + shot.start;
   const end = start + shot.dur;
+  // how loud the word is, as Jev heard it: an indifferent word is quiet
+  const level = lerp(0.22, 1, A.s.loudness * 0.5 + A.s.intensity * 0.5);
   const gate = c.createGain();
   gate.gain.setValueAtTime(0, start - 0.001);
-  gate.gain.linearRampToValueAtTime(1, start + 0.004);
-  gate.gain.setValueAtTime(1, end - 0.005);
+  gate.gain.linearRampToValueAtTime(level, start + 0.004);
+  gate.gain.setValueAtTime(level, end - 0.005);
   gate.gain.linearRampToValueAtTime(0, end);
   gate.connect(a.perfDry);
   const send = c.createGain();
@@ -195,14 +197,15 @@ function grains(v: V): number[] {
     g.disconnect();
     g.connect(p).connect(v.out);
   }
-  // fire and smoke carry a body under the grains
+  // fire and smoke carry a body under the grains — a band, not a rumble
   if (m.fire + m.smoke > 0.3) {
-    const lp = c.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = m.fire > m.smoke ? 420 : 180;
+    const bp2 = c.createBiquadFilter();
+    bp2.type = 'bandpass';
+    bp2.frequency.value = m.fire > m.smoke ? 700 : 320;
+    bp2.Q.value = 0.9;
     const bg = c.createGain();
-    bg.gain.value = 0.5 * (m.fire + m.smoke);
-    noiseSrc(v).connect(lp).connect(bg).connect(v.out);
+    bg.gain.value = 0.22 * (m.fire + m.smoke);
+    noiseSrc(v).connect(bp2).connect(bg).connect(v.out);
   }
   return [];
 }
@@ -218,7 +221,7 @@ function haze(v: V): number[] {
   const slow = lerp(1, 2.8, A.lazy);
   const body = c.createGain();
   body.gain.setValueAtTime(0, v.start);
-  body.gain.linearRampToValueAtTime(0.9, v.start + Math.min(v.shot.dur * 0.5, 1.2 * slow));
+  body.gain.linearRampToValueAtTime(0.5 * (1 - 0.5 * A.lazy), v.start + Math.min(v.shot.dur * 0.5, 1.2 * slow));
   body.connect(v.out);
   const wow = c.createOscillator();
   wow.frequency.value = 0.22 / slow;
@@ -244,7 +247,7 @@ function haze(v: V): number[] {
   air.frequency.value = A.c.material.p.water > 0.4 ? 900 : 2400;
   air.Q.value = 0.8;
   const ag = c.createGain();
-  ag.gain.value = 0.08 + 0.12 * (A.c.material.p.water + A.c.material.p.smoke);
+  ag.gain.value = (0.035 + 0.05 * (A.c.material.p.water + A.c.material.p.smoke)) * (1 - 0.5 * A.lazy);
   noiseSrc(v).connect(air).connect(ag).connect(v.out);
   // motes catching the light: rare soft pings
   const pings = Math.floor(v.shot.dur / (0.8 * slow));

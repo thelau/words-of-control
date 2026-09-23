@@ -18,30 +18,26 @@ npm run perf       # headless frame-time check; must pass on every visual/audio 
 Without `VITE_JEV_PROXY` the piece runs on **mock Jev** (deterministic fake answers; test words
 `slurtest` → barred, `want to die` → support, `errortest` → fallback).
 
-## Tuning harness (dev only)
+## Dev harness (dev only)
 
-Press `` ` `` to open. While open: `R` replay · `N` next test word · `F` freeze · `.` step ·
-`S` storyboard PNG (3×2, reaction time) · `C` record WebM · `⏎` fire current params.
-
-A **preset** is a saved snapshot of the tuning constants (hues, radii, forces, persistence…):
-the *voicing* of the instrument. Reactions stay generative — every one is computed live from
-Jev's judgments × the word's seed × the tuning. Presets save to `presets/*.json`.
+Press `` ` `` to open. Click a word to perform its recorded Jev answers; `1–4` plays one clip alone
+(relief, grains, fracture, haze) with the current appraisal; `N` next word · `R` replay · `C` record a WebM.
 
 ## Layout
 
 ```
 src/
-  main.ts               boot, state machine
-  input/                keyboard (IME-safe), centred line + cursor
-  jev/                  client (cache, timeout), mapping → Params, mock, types
+  main.ts               boot, state machine, frame loop (one clock for image and sound)
+  input/                keyboard (IME-safe, typing rhythm), centred line + cursor
+  jev/                  questions (the battery), appraisal (answers → typed data + tape), client, mock, fixtures
   safety/               blocklist, routing thresholds
-  engine/               tuning schema, Params, uniform layout, field (CPU side)
-  render/gpu.ts         WebGPU: compute sim → HDR persistence → composite
-  render/shaders/       WGSL; behaviours/*.wgsl = one per emotion
-  audio/                master chain, drone (with memory), key clicks
-  dev/                  harness, storyboard capture, recorder
-references/             artist's references (local only, not in git)
+  show/                 director (appraisal → plan), timeline (what is on screen at t)
+  render/               WebGPU renderer, frame uniforms, fracture crack table
+  render/shaders/       room, appraisal, relief, fracture, grains, haze, bloom, composite
+  audio/                engine (master, reverb, performance bus), drone, keys, score (appraisal + chorus), clips
+  dev/                  harness, recorder
+proxy/                  Jev proxy core (dev: Vite middleware)
+scripts/                perf, e2e, capture, listen, appraise, fixtures, probe (see AGENTS.md)
 docs/                   spec, direction, decisions, engineering, Jev docs, reviews
-scripts/                perf, appraisal table, safety probe
-presets/                saved tunings
+references/             artist's references (local only, not in git)
 ```

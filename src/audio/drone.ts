@@ -8,7 +8,7 @@
 import { D2, type AudioEngine } from './audio.ts';
 
 const RATIOS = [1, 2, 3, 4, 5, 6, 8, 2.76, 5.4, 8.93];
-const GAINS = [0.28, 0.2, 0.13, 0.1, 0.05, 0.05, 0.025, 0.05, 0.03, 0.015];
+const GAINS = [0.14, 0.2, 0.15, 0.11, 0.06, 0.05, 0.025, 0.05, 0.03, 0.015]; // the fundamental is implied by its harmonics
 
 export type DroneMemory = { rough: number; bright: number; residue: number[] };
 

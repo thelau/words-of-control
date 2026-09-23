@@ -1,5 +1,5 @@
 /**
- * Web Audio engine. Master: bus → gentle compressor → limiter → out.
+ * Web Audio engine. Master: bus → 35 Hz high-pass → gentle compressor → limiter → trim → out.
  * A long dark convolution reverb is shared by everything. Performances play
  * through `perfDry` / `perfSend`: at the cut to black the dry path is cut in
  * 5 ms and the send closes, so only the reverb's tail rings on over the black.
@@ -29,7 +29,14 @@ export class AudioEngine {
     const comp = c.createDynamicsCompressor();
     comp.threshold.value = -20; comp.ratio.value = 2.5; comp.attack.value = 0.012; comp.release.value = 0.3; comp.knee.value = 10;
     const limit = c.createDynamicsCompressor();
-    limit.threshold.value = -3; limit.ratio.value = 20; limit.attack.value = 0.001; limit.release.value = 0.08; limit.knee.value = 0;
+    limit.threshold.value = -8; limit.ratio.value = 20; limit.attack.value = 0.0005; limit.release.value = 0.08; limit.knee.value = 0;
+    // below ~35 Hz nothing is intended: it only excites the room and eats headroom
+    const hp = c.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 35;
+    hp.Q.value = 0.7;
+    const trim = c.createGain();
+    trim.gain.value = 0.82; // true-peak margin after the limiter
 
     const reverb = c.createConvolver();
     reverb.buffer = this.impulse(6.5);
@@ -40,9 +47,9 @@ export class AudioEngine {
     this.perfSend.connect(this.send);
     this.bus.connect(out);
     this.send.connect(reverb).connect(wet).connect(out);
-    out.connect(comp).connect(limit).connect(c.destination);
+    out.connect(hp).connect(comp).connect(limit).connect(trim).connect(c.destination);
     this.record = c.createMediaStreamDestination();
-    limit.connect(this.record);
+    trim.connect(this.record);
 
     this.noise = c.createBuffer(1, c.sampleRate * 3, c.sampleRate);
     const d = this.noise.getChannelData(0);

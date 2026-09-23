@@ -5,17 +5,17 @@
 
 @group(0) @binding(0) var<uniform> F: FrameU;
 
+/** Pool-floor caustics: thin bright filaments where ridged noise folds, two drifting scales. */
 fn caustic(p: vec2f, t: f32) -> f32 {
-  var q = p * 5.0;
   var c = 0.0;
-  var a = 1.0;
-  for (var i = 0; i < 4; i++) {
-    let w = vec2f(sin(q.y * 1.3 + t + f32(i)), cos(q.x * 1.1 - t * 0.8 + f32(i) * 1.7));
-    q += w * 0.55;
-    c += a / (0.06 + abs(sin(q.x) * sin(q.y)));
-    a *= 0.6;
+  var q = p * 2.4;
+  for (var i = 0; i < 2; i++) {
+    let w = vec2f(gnoise(q * 0.7 + vec2f(t * 0.11, f32(i) * 3.7)), gnoise(q * 0.7 + vec2f(5.3, t * 0.09 + f32(i))));
+    let n = gnoise(q + w * 1.4 + vec2f(t * 0.05, -t * 0.04));
+    c += pow(1.0 - abs(n) * 2.0, 14.0) * (1.0 - f32(i) * 0.4);
+    q = q * 2.1 + vec2f(1.7, 9.2);
   }
-  return pow(c * 0.035, 2.2);
+  return c;
 }
 
 fn motes(p: vec2f, m: f32, t: f32, beam: f32) -> f32 {
@@ -71,7 +71,7 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   // water: caustics on a dark floor, vignetted around the word
   if (wWater > 0.05) {
     let cz = caustic(p * mix(1.3, 0.7, F.s_scale), t * 0.6) * exp(-dot(p, p) * 0.6);
-    c += mix(vec3f(0.45, 0.7, 1.0), sun, 0.3) * cz * 0.35 * (wWater / tot);
+    c += mix(vec3f(0.45, 0.7, 1.0), sun, 0.3) * cz * 0.22 * (wWater / tot);
   }
   // smoke: a slow volume lit from the word
   if (wSmoke > 0.05) {
