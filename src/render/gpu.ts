@@ -24,8 +24,8 @@ const HDR: GPUTextureFormat = 'rgba16float';
 const BLOOM_LEVELS = 6;
 const TAPE_MAX = 1024;
 const RELIEF_RES = 512;
-/** Points drawn by the data layer (instance 0 is its light). */
-const FIELD_N = 160_000;
+/** Points drawn by the data layer. */
+const FIELD_N = 240_000;
 const SAND_N = 512;
 const WORD_W = 2048;
 const WORD_H = 160;
@@ -46,6 +46,7 @@ export class Renderer {
   private fBuf!: GPUBuffer;
   private tapeBuf!: GPUBuffer;
   private sandVel!: GPUBuffer;
+  private camBuf!: GPUBuffer;
   private sandTex!: GPUTexture;
   private wrapSampler!: GPUSampler;
   private sand: GPUBuffer[] = [];
@@ -99,6 +100,7 @@ export class Renderer {
     this.tapeBuf = d.createBuffer({ size: TAPE_MAX * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.sand = [0, 1].map(() => d.createBuffer({ size: SAND_N * SAND_N * 4, usage: GPUBufferUsage.STORAGE }));
     this.sandVel = d.createBuffer({ size: SAND_N * SAND_N * 8, usage: GPUBufferUsage.STORAGE });
+    this.camBuf = d.createBuffer({ size: 5 * 16, usage: GPUBufferUsage.STORAGE });
     this.sandTex = d.createTexture({ size: [SAND_N, SAND_N], format: HDR, usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
     this.wrapSampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat' });
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
@@ -140,6 +142,7 @@ export class Renderer {
     });
 
     const field = mod('field', pre + fieldWGSL);
+    this.c.dataCamera = d.createComputePipeline({ layout: 'auto', compute: { module: field, entryPoint: 'camera' } });
     this.p.data = d.createRenderPipeline({
       layout: 'auto', vertex: { module: field, entryPoint: 'vs' },
       fragment: { module: field, entryPoint: 'fs', targets: [{ format: HDR, blend: add }] },
@@ -184,7 +187,8 @@ export class Renderer {
     group('sandR', this.c.sandRepose, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[1]) }, { binding: 2, resource: sb(this.sand[0]) }]);
     group('sandB', this.c.sandBake, [{ binding: 1, resource: sb(this.sand[0]) }, { binding: 5, resource: this.sandTex.createView() }]);
     group('sand', this.p.sand, [{ binding: 0, resource: uni }, { binding: 1, resource: this.sandTex.createView() }, { binding: 3, resource: this.wrapSampler }]);
-    group('data', this.p.data, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }]);
+    group('dataCam', this.c.dataCamera, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 3, resource: { buffer: this.camBuf } }]);
+    group('data', this.p.data, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: { buffer: this.camBuf } }]);
     this.resize();
   }
 
@@ -317,8 +321,11 @@ export class Renderer {
       fullPass(this.p.sand, this.bg.sand, this.trail.view);
       fullPass(this.p.dof, this.bg.dof, this.scene.view, {});
     } else if (layer === 'data') {
-      // points into the spare target (cleared: no trails), then onto the scene
-      const tp = enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }], ...stamp() });
+      // the camera once, then the points into the spare target (cleared: no trails), then onto the scene
+      const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
+      cp.setPipeline(this.c.dataCamera); cp.setBindGroup(0, this.bg.dataCam); cp.dispatchWorkgroups(1);
+      cp.end();
+      const tp = enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       tp.setPipeline(this.p.data);
       tp.setBindGroup(0, this.bg.data);
       tp.draw(4, FIELD_N);

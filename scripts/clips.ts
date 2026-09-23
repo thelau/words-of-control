@@ -14,6 +14,8 @@ const word = opt('--word', 'fuck');
 const dur = Number(opt('--dur', '5'));
 const seed = Number(opt('--seed', '12345'));
 const [echo, warp, flow] = opt('--ops', '0,0,0').split(',').map(Number);
+// --angles n: n camera angles across the shot (seeds spread over 0..1), one frame grabbed in each
+const nAngles = Number(opt('--angles', '1'));
 const clips = args.length ? args : ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'relief', 'chladni'];
 const dir = 'docs/captures/clips';
 mkdirSync(dir, { recursive: true });
@@ -26,19 +28,19 @@ await s.page.waitForFunction(() => (window as any).__woc, null, { timeout: 30000
 for (const clip of clips) {
   for (const f of readdirSync(dir)) if (f.startsWith(`${clip}-`)) rmSync(`${dir}/${f}`);
   const tag = `${clip}-${word}-${seed}-${echo}${warp}${flow}`;
-  await s.page.evaluate(([a, w, clip, dur, seed, echo, warp, flow]) => {
+  await s.page.evaluate(([a, w, clip, dur, seed, echo, warp, flow, nAngles]) => {
     const W = (window as any).__woc;
     W.perform(a, w);
     const A = W.show().A;
-    W.performPlan(A, { cuts: [], shots: [{ clip, start: 0.05, dur, seed, aborted: false, angles: [{ at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 }], ops: { echo, warp, flow } }], blackAt: dur + 0.1, end: dur + 0.3 });
-  }, [fixtures[word], word, clip, dur, seed, echo, warp, flow] as const);
+    W.performPlan(A, { cuts: [], shots: [{ clip, start: 0.05, dur, seed, aborted: false, angles: Array.from({ length: nAngles }, (_, k) => ({ at: (k * dur) / nAngles, seed: nAngles > 1 ? (k + 0.37) / nAngles : 0.5, zoom: 1, offX: 0, offY: 0 })), ops: { echo, warp, flow } }], blackAt: dur + 0.1, end: dur + 0.3 });
+  }, [fixtures[word], word, clip, dur, seed, echo, warp, flow, nAngles] as const);
   let n = 0;
-  for (const u of [0.1, 0.3, 0.55, 0.9]) {
+  for (const u of nAngles > 1 ? Array.from({ length: nAngles }, (_, k) => (k + 0.6) / nAngles) : [0.1, 0.3, 0.55, 0.9]) {
     await s.page.waitForFunction((t) => { const w = (window as any).__woc; const sh = w.show(); return !sh || w.audioClock() - sh.t0 >= t; }, 0.05 + u * dur, { polling: 'raf', timeout: 30000 });
     await s.page.screenshot({ path: `${dir}/${clip}-${n++}.png` });
   }
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-pattern_type', 'glob', '-i', `${dir}/${clip}-*.png`,
-    '-vf', 'scale=640:-1,tile=4x1:padding=4:color=0x3a3a3a', '-frames:v', '1', `${dir}/sheet-${tag}.png`]);
+    '-vf', `scale=640:-1,tile=${Math.min(4, Math.max(4, nAngles))}x${Math.ceil(Math.max(4, nAngles) / 4)}:padding=4:color=0x3a3a3a`, '-frames:v', '1', `${dir}/sheet-${tag}.png`]);
   console.log(`${tag} → ${dir}/sheet-${tag}.png`);
   await s.page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 200, timeout: 20000 });
 }

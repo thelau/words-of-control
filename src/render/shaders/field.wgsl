@@ -24,6 +24,8 @@
 
 @group(0) @binding(0) var<uniform> F: FrameU;
 @group(0) @binding(1) var<storage, read> tape: array<f32>;
+@group(0) @binding(2) var<storage, read> CAM: array<vec4f>;          // the frame's camera (vs reads)
+@group(0) @binding(3) var<storage, read_write> CAMW: array<vec4f>;   // the same buffer (camera() writes)
 
 struct VOut {
   @builtin(position) pos: vec4f,
@@ -166,7 +168,7 @@ fn shape(xy: vec2f, kn0: f32, i: u32, t: f32) -> vec3f {
   else {
     let kk = floor(kn * 28.0);
     let d = normalize(vec3f(r1(u32(kk), 30u), r1(u32(kk), 31u), r1(u32(kk), 32u)) - 0.5 + 1e-3);
-    p = rotY(p, (r1(u32(kk), 33u) - 0.5) * kn * 2.0) + d * kn * mix(1.5, 3.5, F.s_energy) * ss(0.0, 1.0, F.u + 0.2);
+    p = rotY(p, (r1(u32(kk), 33u) - 0.5) * kn * 2.0) + d * kn * mix(0.7, 1.6, F.s_energy) * ss(0.0, 1.0, F.u + 0.2); // shards, still one body
   }
   let w = u32(F.warpOp + 0.5);
   if (w == 1u) { p.z += sin(p.x * 3.0 + t * 2.0 + kn * 4.0) * 0.15; }
@@ -205,6 +207,58 @@ fn behave(p: vec3f, i: u32, t: f32) -> vec3f {
   return vec3f(q.x * cos(ang) - q.z * sin(ang), q.y, q.x * sin(ang) + q.z * cos(ang));
 }
 
+/** Once per frame: the camera. The echo is a stack of screens facing +z. Each angle looks at it from its own
+ *  side and height (never straight on), 1 in 4 from inside it (macro). The reveal angle (F.angle < 0, the
+ *  first shot after the appraisal) starts dead frontal — the frame the appraisal left — then swings round;
+ *  −2 (a greeting) the reverse. It frames what is really there: 32 points of the formation, as shaped, warped
+ *  and moving now; it aims at the densest of them (the focus lands on structure) and stands back by the
+ *  spread — a burst, a fall or a melt never leaves the camera looking at nothing. */
+@compute @workgroup_size(1)
+fn camera() {
+  let t = F.lt * mix(1.0, 0.35, F.lazy);
+  let form = u32(F.variant2 + 0.5);
+  let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01)) * 0.5 + 0.5;
+  let inside = fract(F.angle * 5.17) < 0.25 && form < 5u;
+  let exact = F.moodNeu > 0.5;
+  // neutral: the instrument's views — straight on, side on, from above — tracking at constant speed
+  let axis = floor(ah.x * 3.0);
+  let yaw = select((ah.x * 2.0 - 1.0) * 1.3 + t * 0.03 * mix(1.0, 0.5, F.moodPos), select(0.0, 1.5708 * sign(ah.y - 0.5), axis == 1.0), exact);
+  let pitch = select((ah.y * 2.0 - 1.0) * 0.5, select(0.0, 1.45, axis == 2.0), exact);
+  var pts: array<vec3f, 32>;
+  var got = 0u;
+  var sum = vec3f(0.0);
+  for (var k = 0u; k < 64u; k++) {
+    if (got == 32u) { break; }
+    let cand = place(u32(fract(abs(F.angle) * 7.71 + f32(k) * 0.07373) * 159000.0) + 1u, t);
+    if (cand.w >= 0.0) { let q = behave(cand.xyz, 0u, t); pts[got] = q; sum += q; got += 1u; }
+  }
+  let centre = select(vec3f(0.0, 0.0, -1.2), sum / f32(max(got, 1u)), got > 0u);
+  var spread = 0.8;
+  var densest = centre;
+  var best = -1.0;
+  for (var k = 0u; k < got; k++) {
+    spread = max(spread, length(pts[k] - centre));
+    var near = 0.0;
+    for (var j = 0u; j < got; j++) { near += exp(-dot(pts[k] - pts[j], pts[k] - pts[j]) / 0.15); }
+    if (near > best) { best = near; densest = pts[k]; }
+  }
+  // wide angles aim between the densest structure and the centre; inside, at the structure itself
+  let aimPt = mix(densest, centre, select(0.4, 0.0, inside));
+  let reach = select(spread * mix(1.0, 1.6, ah.y), mix(0.3, 0.6, ah.x), inside && !exact);
+  let track = select(vec3f(0.0), vec3f(cos(yaw), 0.0, -sin(yaw)) * (t * 0.06 - 0.3), exact);
+  let orbit = aimPt + track + vec3f(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * reach * mix(1.0, 0.85, F.u) / F.zoom;
+  let reveal = select(select(1.0, ss(0.6, 2.8, F.lt), F.angle < 0.0), 1.0 - ss(0.4, 3.5, F.lt), F.angle < -1.5);
+  let cam = mix(vec3f(0.0, 0.0, 1.8), orbit, reveal);
+  let aim = mix(vec3f(0.0), aimPt + track, reveal);
+  let fwd = normalize(aim - cam);
+  let rt = normalize(cross(fwd, select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, -1.0), abs(fwd.y) > 0.98)));
+  CAMW[0] = vec4f(cam, length(aim - cam));
+  CAMW[1] = vec4f(fwd, select(0.0, 1.0, inside));
+  CAMW[2] = vec4f(rt, 0.0);
+  CAMW[3] = vec4f(cross(rt, fwd), 0.0);
+  CAMW[4] = vec4f(aimPt, 0.0);
+}
+
 @vertex
 fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   var o: VOut;
@@ -214,35 +268,15 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let t = F.lt * mix(1.0, 0.35, F.lazy);
   let form = u32(F.variant2 + 0.5);
 
-  // the camera: the echo is a stack of screens facing +z. Each angle looks at it from its own side and
-  // height (never straight on), 4 in 10 from inside it (macro). The reveal angle (F.angle < 0, the first shot
-  // after the appraisal) starts dead frontal — exactly the frame the appraisal left — then swings round.
-  let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01)) * 0.5 + 0.5;
-  let inside = fract(F.angle * 5.17) < 0.4 && form < 5u;
+  // the camera, computed once per frame (camera() above)
+  let cam = CAM[0].xyz;
+  let fwd = CAM[1].xyz;
+  let rt = CAM[2].xyz;
+  let up = CAM[3].xyz;
+  let aimPt = CAM[4].xyz;
+  let dist = CAM[0].w;
+  let inside = CAM[1].w > 0.5;
   let exact = F.moodNeu > 0.5;
-  // neutral: the instrument's views — straight on, side on, from above — tracking at constant speed
-  let axis = floor(ah.x * 3.0);
-  let yaw = select((ah.x * 2.0 - 1.0) * 1.3 + t * 0.03 * mix(1.0, 0.5, F.moodPos), select(0.0, 1.5708 * sign(ah.y - 0.5), axis == 1.0), exact);
-  let pitch = select((ah.y * 2.0 - 1.0) * 0.5, select(0.0, 1.45, axis == 2.0), exact);
-  let far = select(mix(1.7, 3.0, ah.y), mix(0.45, 1.1, ah.x), inside && !exact) * mix(1.0, 0.85, F.u) / F.zoom;
-  // aim (and focus) on a real point of the formation, so the focal plane always lands on structure
-  var aimPt = vec3f(0.0, 0.0, -0.6);
-  for (var k = 0u; k < 4u; k++) {
-    let cand = place(u32(fract(abs(F.angle) * 7.71 + f32(k) * 0.137) * 159000.0) + 1u, t);
-    if (cand.w >= 0.0) { aimPt = behave(cand.xyz, 0u, t); break; }
-  }
-  // frame between the chosen point and the heart of the echo, so the volume sits in the picture
-  aimPt = mix(aimPt, vec3f(0.0, 0.0, -1.2), 0.45);
-  let track = select(vec3f(0.0), vec3f(cos(yaw), 0.0, -sin(yaw)) * (t * 0.06 - 0.3), exact);
-  let orbit = aimPt + track + vec3f(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * far;
-  // −1: the reveal (frontal → into depth); −2: a greeting (the field turns round to face you)
-  let reveal = select(select(1.0, ss(0.6, 2.8, F.lt), F.angle < 0.0), 1.0 - ss(0.4, 3.5, F.lt), F.angle < -1.5);
-  let cam = mix(vec3f(0.0, 0.0, 1.8), orbit, reveal);
-  let aim = mix(vec3f(0.0), aimPt + track, reveal);
-  let dist = length(aim - cam);
-  let fwd = normalize(aim - cam);
-  let rt = normalize(cross(fwd, select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, -1.0), abs(fwd.y) > 0.98)));
-  let up = cross(rt, fwd);
 
   let P0 = place(i, t);
   if (P0.w < 0.0) { return o; }
@@ -253,7 +287,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let ndc = vec2f(dot(rel, rt), dot(rel, up)) * 1.8 / z;
 
   // the lens: circle of confusion (CSS px) from the distance to the focal plane (the aim)
-  let aperture = mix(0.012, 0.035, F.s_intensity) * F.zoom * select(1.0, 2.0, inside) * select(1.0, 0.1, exact);
+  let aperture = mix(0.012, 0.035, F.s_intensity) * F.zoom * select(1.0, 1.25, inside) * select(1.0, 0.1, exact);
   let coc = min(abs(z - dist) / z * aperture * res.y * 0.5, 22.0);
   // dust (85%): fine and sharp, and gone when out of focus; carriers (15%): the lens's discs
   let carrier = r1(i, 16u) < mix(0.15, 0.22, F.moodPos); // the positive glitters (never a haze of discs)
@@ -263,7 +297,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let point = max(fine, 1.0);
   let rad = select(point, max(coc, point), carrier);
   // out-of-focus points are thinned — faded in and out over a band, never popped
-  let keep = select(exp(-coc / 2.5), min(1.0, pow(3.0 / rad, 2.0)), carrier);
+  let keep = select(exp(-coc / 7.0), min(1.0, pow(3.0 / rad, 2.0)), carrier);
   let fadeIn = clamp((keep - r1(i, 10u)) / 0.2 + 0.5, 0.0, 1.0);
   if (fadeIn <= 0.0) { return o; }
   let energy = select(1.0, (point * point) / (rad * rad) / keep, carrier) * select(0.7, 1.8, carrier)
@@ -271,7 +305,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
 
   // brightness from the value it carries (a few blaze); a warm/cool ramp with depth, chosen by the word
   let v = P0.w;
-  let bright = (0.12 + 0.9 * v * v + 1.5 * pow(r1(i, 11u), 14.0)) * mix(0.8, 1.2, F.s_density);
+  let bright = (0.18 + 1.1 * v * v + 1.5 * pow(r1(i, 11u), 14.0)) * mix(0.9, 1.3, F.s_density);
   let warm = vec3f(1.0, 0.86, 0.72);
   let cool = vec3f(0.72, 0.84, 1.0);
   let lean = F.s_valence * 0.5 + F.s_temperature * 0.5; // warm near for a warm word, cool near for a cold one

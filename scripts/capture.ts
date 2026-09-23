@@ -58,7 +58,7 @@ for (const w of words) {
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-pattern_type', 'glob', '-i', `${dir}/${slug}-*.png`,
       '-vf', `scale=480:-1,tile=4x${Math.ceil(n / 4)}:padding=6:color=0x3a3a3a`, '-frames:v', '1', `${dir}/sheet-${slug}.png`]);
   } catch { /* frames remain */ }
-  console.log(`${w} [${plan.drama}]: ${plan.shots.map((x: any) => (x.aborted ? '~' : '') + x.clip).join(' ')} → ${dir}/sheet-${slug}.png`);
+  console.log(`${w} [${plan.drama}]: ${plan.shots.map((x: any) => (x.aborted ? '~' : '') + x.clip + (x.ops ? `(${x.ops.echo}${x.ops.warp}${x.ops.flow})` : '')).join(' ')} → ${dir}/sheet-${slug}.png`);
 }
 await s.close();
 if (errors.length) { console.error('console errors:\n' + [...new Set(errors)].join('\n')); process.exit(1); }

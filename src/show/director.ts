@@ -87,7 +87,7 @@ function affinity(A: Appraisal): Record<ClipId, number> {
     // a name: one point held alone (only ever chosen by the name dramaturgy)
     lone: 0,
     // the void, the lazy afternoon: a sparse dust drifting
-    drift: m.void * 0.9 + m.light * 0.4 + m.smoke * 0.5 + A.lazy * 0.8 + (1 - s.arousal) * 0.3 + m.water * 0.3 + mo.drifting * 0.4,
+    drift: (m.void * 0.9 + m.smoke * 0.4 + mo.drifting * 0.3) * A.lazy,
   };
 }
 
