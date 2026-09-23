@@ -18,7 +18,7 @@ const BUDGET_P95_MS = Number(arg('budget', '8.3'));
 
 const s = await openSession({ width: W, height: H, dpr: DPR });
 const { page } = s;
-await page.goto(`${s.url}?mock`);
+await page.goto(`${s.url}?mock&full`);
 await page.waitForFunction(() => (window as any).__woc, null, { timeout: 30000 });
 await page.waitForTimeout(1500);
 

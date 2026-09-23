@@ -21,7 +21,10 @@ const dir = 'docs/captures/clips';
 mkdirSync(dir, { recursive: true });
 const fixtures = JSON.parse(readFileSync('src/jev/fixtures.json', 'utf8'));
 
-const s = await openSession({ width: 1280, height: 720 });
+// --phone: a portrait phone viewport (390×844 @3×)
+const phone = args.includes('--phone');
+if (phone) args.splice(args.indexOf('--phone'), 1);
+const s = await openSession(phone ? { width: 390, height: 844, dpr: 3 } : { width: 1280, height: 720 });
 s.page.on('console', (m) => { if (/error|invalid|validation/i.test(m.text())) console.log('page:', m.text()); });
 await s.page.goto(s.url + '?mock');
 await s.page.waitForFunction(() => (window as any).__woc, null, { timeout: 30000 });

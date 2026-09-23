@@ -250,6 +250,14 @@ const BEDS = {
       o.connect(g);
       o.start(b.start); o.stop(b.end + 0.05);
     }
+    // its 5th partial, faint: small speakers carry the floor through it (the missing fundamental)
+    const hg = c.createGain();
+    hg.gain.value = 0.08;
+    hg.connect(g);
+    const h = c.createOscillator();
+    h.frequency.value = f0 * 5;
+    h.connect(hg);
+    h.start(b.start); h.stop(b.end + 0.05);
   },
   /** rising sine arpeggios in the just major of D, soft and echoing across the field: the positive's air */
   arpeggio(b: B) {
@@ -376,7 +384,10 @@ function impact(L: Float32Array, R: Float32Array, sr: number, s0: number, amp: n
     p2 += (2 * Math.PI * (f1 + beat) * sweep) / sr;
     const env = (1 - Math.exp(-u / 0.003)) * Math.exp(-u / tau);
     lp += 0.03 * ((Math.random() * 2 - 1) - lp);
-    const v = Math.tanh(1.2 * (Math.sin(p1) + Math.sin(p2)) * 0.6 * env) + lp * 3 * Math.exp(-u / 0.06);
+    // its 4th–6th partials (≈ 180–280 Hz), shorter: a phone or laptop speaker can't play the sub, but from
+    // these the ear hears it anyway (the missing fundamental)
+    const upper = (Math.sin(p1 * 4) * 0.5 + Math.sin(p1 * 5) * 0.35 + Math.sin(p1 * 6) * 0.25) * Math.exp(-u / (tau * 0.35)) * (1 - Math.exp(-u / 0.003)) * 0.22;
+    const v = Math.tanh(1.2 * (Math.sin(p1) + Math.sin(p2)) * 0.6 * env) + upper + lp * 3 * Math.exp(-u / 0.06);
     L[s0 + i] += v * amp; R[s0 + i] += v * amp;
   }
 }

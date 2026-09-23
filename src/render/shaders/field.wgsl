@@ -300,7 +300,9 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
 
   // the lens: circle of confusion (CSS px) from the distance to the focal plane (the aim)
   let aperture = mix(0.012, 0.035, F.s_intensity) * F.zoom * select(1.0, 1.25, inside) * select(1.0, 0.1, exact);
-  let coc = min(abs(z - dist) / z * aperture * res.y * 0.5, 22.0);
+  // (the frame is measured by its short side, so a portrait phone sees the whole formation)
+  let side = min(res.x, res.y);
+  let coc = min(abs(z - dist) / z * aperture * side * 0.5, 22.0);
   // dust (85%): fine and sharp, and gone when out of focus; carriers (15%): the lens's discs
   let carrier = r1(i, 16u) < mix(0.15, 0.22, F.moodPos); // the positive glitters (never a haze of discs)
   // never smaller than a pixel (a sub-pixel point sparkles as the camera moves): a finer point is drawn
@@ -341,7 +343,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let lamp = select(1.0, 6.0, form == 5u && i % 997u == 0u);
   o.col = base * bright * energy * fog * tw * lamp * glow * mix(0.8, 1.3, F.s_light) * ss(0.0, 0.3, F.lt);
   let sz = (rad + 1.0) / res * 2.0;
-  o.pos = vec4f(ndc.x * res.y / res.x + corner.x * sz.x, ndc.y + corner.y * sz.y, 0.0, 1.0);
+  o.pos = vec4f(ndc.x * side / res.x + corner.x * sz.x, ndc.y * side / res.y + corner.y * sz.y, 0.0, 1.0);
   o.q = corner * (rad + 1.0) / rad;
   return o;
 }

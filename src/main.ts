@@ -223,9 +223,17 @@ async function boot() {
   // ---- frame loop
   let last = performance.now();
   let lastKey = '';
+  // quality follows the device: if a performance runs slow (frames over ~20 ms on average), the soft layers
+  // and the point count step down (1 → 0.75 → 0.5) — a phone plays the same piece, lighter
+  let slow = 0;
   const loop = (now: number) => {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
+    if (show) {
+      slow = slow * 0.97 + (dt > 0.02 ? 1 : 0) * 0.03;
+      // (?full pins it: the perf check measures full quality)
+      if (slow > 0.5 && renderer.quality > 0.5 && !query.has('full')) { renderer.quality = renderer.quality > 0.8 ? 0.75 : 0.5; slow = 0; }
+    }
     renderer.resize();
     const f = (k: string, v: number) => frame.set(k, v);
     f('outX', renderer.width); f('outY', renderer.height); f('outDpr', renderer.dpr);
