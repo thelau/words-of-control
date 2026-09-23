@@ -2,7 +2,17 @@
 
 Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
-## 2026-09-23 (evening)
+## 2026-09-23 (night)
+
+- **The verdict is the appraisal gone 3D, same style** (Laurent: "from that 2D mode … to 3D versions of his style").
+  One language across the piece: monochrome, one accent, every mark placed by the word's data, seen through a
+  macro lens (references video-a/c/f/h/i). Formations: landscape, city, lattice, cloud, tube, drift (the void).
+  The verdict opens on the 3D form of the reading the appraisal showed most. Emotion = behaviour, not new worlds.
+- **Kept:** relief (video-d) and Chladni sand. **Retired:** kaleidoscope, mirror/mosaic/strips framings ("matrix
+  view is not working" — zoom and camera angles instead), iris, dust, sand dunes/crater/furrow/drain, fireworks,
+  glass, haze, and scan ("I hate this visual").
+- **References must be studied, all of them** (references/craft/, video-a … video-i + contact sheets).
+
 
 - **Sand is the core material** ("I like the one that looks like sand moving texture"). **Retired:** the
   fireworks/sparks and the broken-glass fracture ("ugly"). Verdict vocabulary now: sand in five behaviours

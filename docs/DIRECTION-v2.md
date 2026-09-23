@@ -36,16 +36,16 @@ many short ones; low confidence produces false starts and shots that don't resol
 
 - **Clip** = a self-contained generator (WebGPU scene + matching Web Audio voice) with one interface:
   `(analysis, seed, duration) → shot`. Every clip is composed around the centre.
-- **Library now (2026-09-23, evening):** sand is the core — one simulation (src/show/sand.ts, sand.wgsl) in
-  five behaviours: *chladni* (a sound's figure), *dunes* (wind ripples), *crater* (strikes), *furrow* (blades
-  drawn through), *drain* (pouring away), seen through a macro camera with depth of field as *sand*, dark
-  *beads* (pin-art) or *points* of light. Counterpoints: *relief* (monolith), *dust* (motes in a light slab),
-  *haze* (shutter light, the void), *scan* (a laser reading a surface).
-- **Coverage and framing:** each shot is cut between camera angles on the same continuous scene (grazing,
-  three-quarter, top-down, near/far, sometimes tilted); some angles break the frame (kaleidoscope, mirror,
-  mosaic of 1:1 crops, offset strips). Every camera cut is heard (beds.ts accents).
-- **Sound beds** (src/audio/beds.ts): 12 authored textures (pressure, rumble, dread, metal, swells, heartbeat,
-  static, choir, tape, pulse, bells, breath), 1–3 drawn per performance under the clips.
+- **Library now (2026-09-23, night): the appraisal gone 3D.** Points of light placed by the word's own data
+  (src/render/shaders/field.wgsl), fine dust plus a few bokeh carriers, a warm/cool depth ramp and the
+  appraisal's accent: *landscape* (spectrum → rows of streaming lines), *city* (barcode → bars with bright caps),
+  *lattice* (bits → voxels), *cloud* (scatter → a path through the return map), *tube* (line → one closed
+  curve), *drift* (the void). Plus *relief* (data → surface, video-d) and *chladni* (the word's bytes as a sound
+  shaping sand). Each shot is covered by several camera angles (wide, grazing, inside the formation), each
+  aimed and focused on a real data point.
+- **Sound** follows the same data: the formations are sonified in the appraisal's palette (tones, clicks,
+  pulses, FM blips, a high grain for the points), over 1–3 beds (src/audio/beds.ts), with deep beating
+  impacts on cuts and, for dark words, on every shot. No voices after the appraisal. No swooshes.
 - **Director** = picks 1–7 clips by affinity to the analysis (material, motion, emotion, texture…) with a
   weighted draw, sets their parameters, orders them and cuts them to the edit pace (dark/violent → fast,
   calm → long takes). Seeded by the word + the answers + a per-performance salt; it remembers the last
