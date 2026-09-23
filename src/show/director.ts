@@ -27,7 +27,8 @@ export type CutMode = (typeof CUT_MODES)[number];
 export type Cut = { start: number; dur: number; mode: CutMode; variant: number };
 
 /** One camera angle inside a shot, from `at` seconds: a cut on the same continuous scene.
- *  zoom 1 = wide, > 1 = close on (offX, offY); `seed` sets the camera (sand: height, direction, roll). */
+ *  zoom 1 = wide, > 1 = close on (offX, offY); `seed` sets the camera (sand: height, direction, roll;
+ *  data: side, height, inside or not — and −1 = the frontal reveal of the appraisal's reading). */
 export type Angle = { at: number; seed: number; zoom: number; offX: number; offY: number };
 export const WIDE: Angle = { at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 };
 
@@ -188,7 +189,11 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   }
   picks.forEach((clip, i) => {
     const dur = ((verdictDur - gap * (picks.length - 1)) * w[i]) / wsum;
-    shots.push({ clip, start: t, dur, seed: (rand() * 2 ** 31) | 0, aborted: false, angles: angles(dur) });
+    let cover = angles(dur);
+    // the reveal: the first shot, when it is the echo of the appraisal's main reading, opens on the reading
+    // itself, frontal (angle seed −1), and holds ≥ 3 s while the camera swings round into its depth
+    if (i === 0 && clip === handOff) cover = [{ ...WIDE, seed: -1 }, ...cover.filter((x) => x.at >= 3)];
+    shots.push({ clip, start: t, dur, seed: (rand() * 2 ** 31) | 0, aborted: false, angles: cover });
     t += dur + (i < picks.length - 1 ? gap : 0);
   });
 

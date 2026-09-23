@@ -1,21 +1,26 @@
-// DATA — the appraisal gone 3D (Ryoji Ikeda's move from raster to space, seen
-// through a macro lens: references video-a/c/f/h/i). Points of light in space,
-// every one placed by the word's own data (the same tape the 2D readings show:
-// bytes, Jev's distributions and scores, the typing rhythm). No simulation
-// state: a point's place is computed from its index and the time, in one of
-// six formations (F.variant2), each the 3D form of a 2D reading:
-//   0 landscape — spectrum → the tape as rows of streaming lines (a spectrogram in space)
-//   1 city      — barcode → bars whose heights are the values: bright caps, stems fading to the floor
-//   2 lattice   — bits → a cube of voxels, lit where the bit is 1
-//   3 cloud     — scatter → each value against the next two: a smooth path through the return map, puffs at its vertices
-//   4 tube      — line → the tape as one closed curve in space, fraying into dust
+// DATA — the appraisal's long echo. Each formation is a 2D reading of the
+// appraisal, drawn in points of light by the very same formulas (the same tape:
+// bytes, Jev's distributions and scores, the typing rhythm), repeated back into
+// depth: the front layer is the reading as it is now; each layer behind it is
+// the same reading a moment earlier (or the next stretch of the tape) — time
+// and memory become depth. The first shot starts dead frontal, exactly the
+// frame the appraisal left on screen, then the camera swings round and the
+// flat reading is revealed as a volume, and flies through it.
+//   0 landscape — spectrum's rows, echoed back: a spectrogram in space
+//   1 city      — the barcode's bars, scrolling, echoed back: a corridor of time
+//   2 lattice   — the bit grid, each layer the next bytes: a cube of the word's bits
+//   3 cloud     — the scatter's return map, each layer shifted one value: a sheaf of paths
+//   4 tube      — the closing line, each echo turned by the next value: a twisting ribbon
 //   5 drift     — the void: sparse dust drifting, one highlight wandering through it
-// Two kinds of point: most are fine dust (sub-pixel, sharp, gone when out of
-// focus); a few carry the lens (a disc as wide as their circle of confusion —
-// true bokeh), thinned and brightened when large so the cost stays flat.
-// Monochrome with a warm/cool depth ramp chosen by the word; the accent, as in
-// the appraisal, on high values. The emotion is behaviour: sadness sinks, anger
-// jitters, joy expands, circling turns.
+// Two kinds of point: most are fine dust (sharp, gone when out of focus); a few
+// carry the lens (true bokeh), thinned and brightened when large so the cost
+// stays flat. Monochrome with a warm/cool depth ramp and the appraisal's accent.
+// The emotion is behaviour: sadness sinks, anger jitters, joy expands.
+// The mood is a world: positive is warm light — a glow inside the formation
+// lighting the points near it, glitter in the word's own colours (Jev's
+// palette), rising and opening; neutral is clinical — cold white, axis-aligned
+// views, no blur, no jitter, a constant track, like an instrument measuring;
+// negative is the dark — colourless, falling, contracting, the red accent alone.
 
 @group(0) @binding(0) var<uniform> F: FrameU;
 @group(0) @binding(1) var<storage, read> tape: array<f32>;
@@ -30,20 +35,18 @@ fn tv(i: i32) -> f32 {
   let n = max(i32(F.tapeLen), 1);
   return tape[((i % n) + n) % n];
 }
-/** The tape, smoothed (4 taps) and continuous at x (in values). */
-fn tvs(x: f32) -> f32 {
-  let k = i32(floor(x));
-  let f = fract(x);
-  let a = tv(k - 1); let b = tv(k); let c = tv(k + 1); let d = tv(k + 2);
-  return mix(mix(a, b, 0.75) * 0.5 + b * 0.5, mix(c, d, 0.25) * 0.5 + c * 0.5, ss(0.0, 1.0, f));
-}
 fn byteOf(i: i32) -> u32 { return u32(clamp(tv(i), 0.0, 1.0) * 255.0 + 0.5); }
 fn r1(i: u32, s: u32) -> f32 { return rnd(i, s ^ u32(F.seed)); }
 fn ink() -> vec3f { return vec3f(F.baseR, F.baseG, F.baseB); }
 fn acc() -> vec3f { return vec3f(F.accR, F.accG, F.accB); }
+fn pal(k: u32) -> vec3f {
+  if (k == 0u) { return vec3f(F.p1R, F.p1G, F.p1B); }
+  if (k == 1u) { return vec3f(F.p2R, F.p2G, F.p2B); }
+  return vec3f(F.p3R, F.p3G, F.p3B);
+}
 
-/** A return-map vertex: three consecutive values as a point in the unit cube, centred. */
-fn rv(k: i32) -> vec3f { return vec3f(tv(k), tv(k + 1), tv(k + 2)) - 0.5; }
+/** The appraisal's virtual screen (px, 1000 tall) → world (y up; the frontal camera sees exactly this). */
+fn scr(px: vec2f, R: vec2f) -> vec2f { return vec2f(px.x - R.x * 0.5, R.y * 0.5 - px.y) / (R.y * 0.5); }
 
 /** Where point i is (world, y up) and the value it carries (0..1; < 0 = not drawn). */
 fn place(i: u32, t: f32) -> vec4f {
@@ -51,60 +54,62 @@ fn place(i: u32, t: f32) -> vec4f {
   let a = r1(i, 1u);
   let b = r1(i, 2u);
   let c = r1(i, 3u);
-  let n = max(F.tapeLen, 1.0);
-  let scroll = t * mix(2.0, 14.0, F.s_arousal); // the data streams past, faster when charged
+  let R = vec2f(1000.0 * F.resX / F.resY, 1000.0);
+  // the echo: layer 0 is now; layer k is the reading k beats ago, k steps back in depth
+  let K = 28.0;
+  let k = floor(pow(r1(i, 17u), 1.7) * K);
+  let tk = max(t - k * mix(0.12, 0.04, F.s_arousal), 0.0);
+  let z = -k * mix(0.06, 0.13, F.s_scale);
+  let fade = mix(1.0, 0.18, k / K);
   if (form == 0u) {
-    // landscape: 40 rows, each a continuous line of the (smoothed) tape streaming along x
-    let row = floor(b * 40.0);
-    let x = a * 96.0;
-    let v = tvs(x + scroll + row * 5.0);
-    return vec4f((x - 48.0) * 0.06, v * mix(0.6, 1.5, F.s_intensity), (row - 20.0) * 0.12, v);
+    // spectrum: rows 3 px apart, bars as long as their value; each echo reads the tape one row on
+    let H = R.y * 0.72;
+    let row = floor(a * H / 3.0);
+    let v = tv(i32(row) + i32(F.variant * 50.0) + i32(k));
+    let L = v * R.x * 0.46 * ss(0.0, 0.6, F.u + row * 0.002 + 0.5);
+    let x = R.x * 0.5 + (b * 2.0 - 1.0) * L;
+    let p = scr(vec2f(x, (R.y - H) * 0.5 + row * 3.0), R);
+    return vec4f(p, z, v * fade);
   }
   if (form == 1u) {
-    // city: a 20×20 grid of bars; points gather at the caps, stems thin toward the floor
-    let cell = vec2f(floor(a * 20.0), floor(b * 20.0));
-    let v = tv(i32(cell.x + cell.y * 20.0) + i32(scroll * 0.2));
-    let hgt = v * mix(0.6, 2.0, F.s_intensity);
-    let along = 1.0 - pow(c, 5.0); // mostly near 1: the cap
-    let side = r1(i, 4u);
-    let off = select(vec2f(side * 0.06, 0.0), vec2f(0.0, side * 0.06), r1(i, 5u) > 0.5);
-    return vec4f((cell.x - 10.0) * 0.14 + off.x, along * hgt, (cell.y - 10.0) * 0.14 + off.y, v * mix(0.25, 1.0, along * along));
+    // barcode: bars of the tape's bits scrolling; each echo is the barcode as it was a beat ago
+    let w = 1.5 * (1.0 + floor(F.variant * 3.0));
+    let speed = (300.0 + 2200.0 * F.s_arousal) * select(1.0, -1.0, F.variant > 0.5);
+    let x = a * R.x;
+    let idx = i32(floor((x + tk * speed) / w));
+    if (((byteOf(idx / 8) >> u32(idx % 8)) & 1u) == 0u) { return vec4f(0.0, 0.0, 0.0, -1.0); }
+    let band = select(R.y, R.y * (0.18 + 0.2 * F.variant), fract(F.variant * 7.0) > 0.45);
+    let p = scr(vec2f(x, R.y * 0.5 + (b - 0.5) * band), R);
+    return vec4f(p, z, (0.5 + 0.5 * tv(idx / 8)) * fade);
   }
   if (form == 2u) {
-    // lattice: 16³ voxels, lit where the tape's bit is 1; a point jittered inside each lit voxel
-    let vox = vec3f(floor(a * 16.0), floor(b * 16.0), floor(c * 16.0));
-    let bitIdx = i32(vox.x + vox.y * 16.0 + vox.z * 256.0) + i32(scroll * 2.0);
-    let on = (byteOf(bitIdx / 8) >> u32(bitIdx % 8)) & 1u;
-    if (on == 0u) { return vec4f(0.0, 0.0, 0.0, -1.0); }
-    let j = vec3f(r1(i, 4u), r1(i, 5u), r1(i, 6u)) - 0.5;
-    return vec4f((vox - 7.5) * 0.14 + j * 0.05, tv(bitIdx / 8));
+    // bits: the grid of the word's bits; each echo holds the next stretch of bytes
+    let cell = 1.5 * (5.0 + floor(F.variant * 4.0));
+    let side = R.y * 0.78;
+    let cols = floor(side / cell);
+    let ci = vec2f(floor(a * cols), floor(b * cols));
+    let bi = i32(ci.y * floor(cols / 8.0) + ci.x / 8.0 + k * cols);
+    if (((byteOf(bi) >> u32(i32(ci.x) % 8)) & 1u) == 0u) { return vec4f(0.0, 0.0, 0.0, -1.0); }
+    let o = (R - vec2f(side)) * 0.5;
+    let q = o + (ci + 0.12 + vec2f(c, r1(i, 4u)) * 0.76) * cell;
+    return vec4f(scr(q, R), z, (0.4 + 0.6 * tv(bi)) * fade);
   }
   if (form == 3u) {
-    let k = i32(floor(a * min(n, 90.0)));
-    if (r1(i, 7u) < 0.35) {
-      // a puff of dust around a vertex
-      let g = vec3f(r1(i, 4u), r1(i, 5u), r1(i, 6u)) * 2.0 - 1.0;
-      return vec4f(rv(k) * 3.0 + g * g * g * 0.12, tv(k) * 0.8);
-    }
-    // the path: a smooth (Catmull-Rom) curve through the vertices, fading along its length behind a moving head
-    let s = b;
-    let p0 = rv(k - 1); let p1 = rv(k); let p2 = rv(k + 1); let p3 = rv(k + 2);
-    let s2 = s * s; let s3 = s2 * s;
-    let p = 0.5 * ((2.0 * p1) + (-p0 + p2) * s + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * s2 + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * s3);
-    let head = fract(scroll * 0.01);
-    let age = fract(head - (f32(k) + s) / min(n, 90.0));
-    return vec4f(p * 3.0, mix(0.9, 0.1, age));
+    // scatter: the return map (each value against the next), joined; each echo one value further on
+    let side = R.y * 0.7;
+    let o = (R - vec2f(side)) * 0.5;
+    let j = i32(floor(a * 30.0)) + i32(k);
+    let p0 = o + vec2f(tv(j), 1.0 - tv(j + 1)) * side;
+    let p1 = o + vec2f(tv(j + 1), 1.0 - tv(j + 2)) * side;
+    let dot_ = select(b, 0.0, r1(i, 5u) < 0.25); // a quarter of the points mark the readings themselves
+    return vec4f(scr(mix(p0, p1, dot_), R), z, select(0.35, 0.9, dot_ == 0.0) * fade);
   }
   if (form == 4u) {
-    // tube: the smoothed tape wound into one closed curve; a thin skin, fraying into dust
-    let s = a * TAU;
-    let v = tvs(a * min(n, 24.0)); // a slow reading: the curve breathes, never saw-tooths
-    let R = 1.4 + v * 0.9;
-    let spine = vec3f(cos(s) * R, sin(s * 3.0 + scroll * 0.05) * 0.35 * (0.5 + F.s_tension), sin(s) * R);
-    let ring = b * TAU;
-    let fray = select(0.0, pow(c, 3.0) * 0.5, r1(i, 8u) < 0.2);
-    let tubeR = min(0.02 + 0.03 * v, 0.04) + fray;
-    return vec4f(spine + vec3f(cos(ring) * cos(s), sin(ring), cos(ring) * sin(s)) * tubeR, v * (1.0 - fray * 1.6));
+    // line: one line through the centre; each echo turned a little more by the next value — a ribbon
+    let ang = k * (tv(i32(k)) - 0.5) * 0.35 + tk * 0.1 * (tv(i32(k) + 3) - 0.5);
+    let x = (a * 2.0 - 1.0) * R.x * 0.5 / (R.y * 0.5);
+    let p = vec2f(x * cos(ang), x * sin(ang) + (tv(i32(k) + 7) - 0.5) * 0.1);
+    return vec4f(p, z, (0.6 + 0.4 * tv(i32(k))) * fade);
   }
   // drift: the void — a sparse dust drifting slowly through the dark, one highlight wandering
   if (r1(i, 9u) > 0.12) { return vec4f(0.0, 0.0, 0.0, -1.0); }
@@ -112,15 +117,20 @@ fn place(i: u32, t: f32) -> vec4f {
   return vec4f(p, 0.15 + 0.2 * r1(i, 10u));
 }
 
-/** The emotion as behaviour: sadness sinks, anger jitters, joy expands, circling turns, calm is still. */
+/** The emotion as behaviour: sadness sinks, anger jitters, joy expands and rises, circling turns, calm is still.
+ *  The neutral mood holds everything exactly where the data puts it. */
 fn behave(p: vec3f, i: u32, t: f32) -> vec3f {
   var q = p;
-  q.y -= F.mo_falling * 0.25 * t * r1(i, 20u) + (1.0 - F.s_valence) * F.lazy * 0.05 * t;
-  q *= 1.0 + F.mo_spreading * 0.3 * ss(0.0, 1.0, F.u) + F.s_energy * 0.1 * ss(0.0, 1.0, F.u);
-  let jit = F.mo_trembling * 0.02 + F.s_tension * 0.015 * F.s_arousal;
+  let exact = ss(0.45, 0.65, F.moodNeu);
+  q.y -= (F.mo_falling * 0.25 * t * r1(i, 20u) + (1.0 - F.s_valence) * F.lazy * 0.05 * t) * (1.0 - exact);
+  q.y += F.moodPos * 0.25 * t * r1(i, 24u) * r1(i, 25u); // the positive rises, unhurried
+  // the positive opens outward; the negative contracts, drawn in on itself
+  let neg = 1.0 - F.moodPos - F.moodNeu;
+  q *= 1.0 + (F.mo_spreading * 0.3 + F.moodPos * 0.25 - neg * 0.12) * ss(0.0, 1.0, F.u) * (1.0 - exact) + F.s_energy * 0.1 * ss(0.0, 1.0, F.u);
+  let jit = (F.mo_trembling * 0.02 + F.s_tension * 0.015 * F.s_arousal) * (1.0 - exact);
   let h = u32(t * 30.0);
   q += (vec3f(r1(i ^ h, 21u), r1(i ^ h, 22u), r1(i ^ h, 23u)) - 0.5) * jit;
-  let ang = t * (0.03 + 0.25 * F.mo_circling + 0.1 * F.s_arousal);
+  let ang = t * (0.03 + 0.25 * F.mo_circling + 0.1 * F.s_arousal) * (1.0 - exact);
   return vec3f(q.x * cos(ang) - q.z * sin(ang), q.y, q.x * sin(ang) + q.z * cos(ang));
 }
 
@@ -133,23 +143,33 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let t = F.lt * mix(1.0, 0.35, F.lazy);
   let form = u32(F.variant2 + 0.5);
 
-  // the camera: each angle orbits to its own side and height; 4 in 10 go inside the formation (macro)
+  // the camera: the echo is a stack of screens facing +z. Each angle looks at it from its own side and
+  // height (never straight on), 4 in 10 from inside it (macro). The reveal angle (F.angle < 0, the first shot
+  // after the appraisal) starts dead frontal — exactly the frame the appraisal left — then swings round.
   let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01)) * 0.5 + 0.5;
   let inside = fract(F.angle * 5.17) < 0.4 && form != 5u;
-  let yaw = F.angle * TAU + t * 0.03;
-  let low = form <= 1u; // the landscape and the city are seen from low, grazing; the others from anywhere
-  let pitch = select(mix(-0.6, 0.9, ah.y), mix(0.12, 0.45, ah.y), low);
-  let far = select(mix(2.6, 5.0, ah.x), mix(3.2, 6.0, ah.x), low);
-  let dist = select(far, mix(0.4, 1.2, ah.x), inside) * mix(1.0, 0.85, F.u) / F.zoom;
+  let exact = F.moodNeu > 0.5;
+  // neutral: the instrument's views — straight on, side on, from above — tracking at constant speed
+  let axis = floor(ah.x * 3.0);
+  let yaw = select((ah.x * 2.0 - 1.0) * 1.3 + t * 0.03 * mix(1.0, 0.5, F.moodPos), select(0.0, 1.5708 * sign(ah.y - 0.5), axis == 1.0), exact);
+  let pitch = select((ah.y * 2.0 - 1.0) * 0.5, select(0.0, 1.45, axis == 2.0), exact);
+  let far = select(mix(1.7, 3.0, ah.y), mix(0.45, 1.1, ah.x), inside && !exact) * mix(1.0, 0.85, F.u) / F.zoom;
   // aim (and focus) on a real point of the formation, so the focal plane always lands on structure
-  var aim = vec3f(0.0);
+  var aimPt = vec3f(0.0, 0.0, -0.6);
   for (var k = 0u; k < 4u; k++) {
-    let cand = place(u32(fract(F.angle * 7.71 + f32(k) * 0.137) * 159000.0) + 1u, t);
-    if (cand.w >= 0.0) { aim = behave(cand.xyz, 0u, t) * select(0.7, 1.0, inside); break; }
+    let cand = place(u32(fract(abs(F.angle) * 7.71 + f32(k) * 0.137) * 159000.0) + 1u, t);
+    if (cand.w >= 0.0) { aimPt = behave(cand.xyz, 0u, t); break; }
   }
-  let cam = aim + vec3f(cos(yaw) * cos(pitch), sin(pitch), sin(yaw) * cos(pitch)) * dist;
+  // frame between the chosen point and the heart of the echo, so the volume sits in the picture
+  aimPt = mix(aimPt, vec3f(0.0, 0.0, -1.2), 0.45);
+  let track = select(vec3f(0.0), vec3f(cos(yaw), 0.0, -sin(yaw)) * (t * 0.06 - 0.3), exact);
+  let orbit = aimPt + track + vec3f(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * far;
+  let reveal = select(1.0, ss(0.6, 2.8, F.lt), F.angle < 0.0);
+  let cam = mix(vec3f(0.0, 0.0, 1.8), orbit, reveal);
+  let aim = mix(vec3f(0.0), aimPt + track, reveal);
+  let dist = length(aim - cam);
   let fwd = normalize(aim - cam);
-  let rt = normalize(cross(fwd, vec3f(0.0, 1.0, 0.0)));
+  let rt = normalize(cross(fwd, select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, -1.0), abs(fwd.y) > 0.98)));
   let up = cross(rt, fwd);
 
   let P0 = place(i, t);
@@ -161,10 +181,10 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let ndc = vec2f(dot(rel, rt), dot(rel, up)) * 1.8 / z;
 
   // the lens: circle of confusion (CSS px) from the distance to the focal plane (the aim)
-  let aperture = mix(0.012, 0.035, F.s_intensity) * F.zoom * select(1.0, 2.0, inside);
+  let aperture = mix(0.012, 0.035, F.s_intensity) * F.zoom * select(1.0, 2.0, inside) * select(1.0, 0.1, exact);
   let coc = min(abs(z - dist) / z * aperture * res.y * 0.5, 22.0);
   // dust (85%): fine and sharp, and gone when out of focus; carriers (15%): the lens's discs
-  let carrier = r1(i, 16u) < 0.15;
+  let carrier = r1(i, 16u) < mix(0.15, 0.32, F.moodPos); // the positive glitters
   let point = select(mix(0.55, 0.85, r1(i, 9u)), mix(0.8, 1.4, r1(i, 9u)), carrier);
   let rad = select(point, max(coc, point), carrier);
   let keep = select(exp(-coc / 2.5), min(1.0, pow(3.0 / rad, 2.0)), carrier);
@@ -178,7 +198,15 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let cool = vec3f(0.72, 0.84, 1.0);
   let lean = F.s_valence * 0.5 + F.s_temperature * 0.5; // warm near for a warm word, cool near for a cold one
   let depth = ss(0.0, 1.0, (z - dist * 0.6) / (dist * 1.2));
-  let tone = ink() * mix(mix(cool, warm, lean), mix(warm, cool, lean), depth);
+  var tone = ink() * mix(mix(cool, warm, lean), mix(warm, cool, lean), depth);
+  // the mood's colour: the positive's glitter takes the word's palette and a warm light glows inside it;
+  // the neutral is cold instrument white; the negative drains to colourless
+  let neg = max(1.0 - F.moodPos - F.moodNeu, 0.0);
+  let glitter = pal(u32(r1(i, 18u) * 2.99)) * 1.3;
+  tone = mix(tone, glitter, F.moodPos * select(0.5, 0.95, carrier));
+  tone = mix(tone, vec3f(0.85, 0.92, 1.05), ss(0.5, 0.7, F.moodNeu));
+  tone = mix(tone, vec3f(dot(tone, vec3f(0.33))), neg * 0.8);
+  let glow = 1.0 + F.moodPos * 3.0 * exp(-dot(P - aimPt, P - aimPt) / 0.35);
   // the accent, as in the appraisal: on high values, more often for an intense word
   let accented = v > 0.85 && r1(i, 15u) < mix(0.15, 0.6, F.s_intensity);
   let base = select(tone, acc() * 1.6, accented);
@@ -187,7 +215,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let tw = 0.75 + 0.25 * sin(F.time * (0.6 + r1(i, 13u)) + r1(i, 14u) * TAU);
   // the drift's one wandering highlight
   let lamp = select(1.0, 6.0, form == 5u && i % 997u == 0u);
-  o.col = base * bright * energy * fog * tw * lamp * mix(0.8, 1.3, F.s_light) * ss(0.0, 0.3, F.lt);
+  o.col = base * bright * energy * fog * tw * lamp * glow * mix(0.8, 1.3, F.s_light) * ss(0.0, 0.3, F.lt);
   let sz = (rad + 1.0) / res * 2.0;
   o.pos = vec4f(ndc.x * res.y / res.x + corner.x * sz.x, ndc.y + corner.y * sz.y, 0.0, 1.0);
   o.q = corner * (rad + 1.0) / rad;

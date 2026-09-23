@@ -29,7 +29,7 @@ const MOTIONS = ['rising', 'falling', 'spreading', 'contracting', 'circling', 't
 const SHAPES = ['round', 'jagged', 'flowing', 'splintered', 'knotted', 'flat', 'spiral', 'branching', 'point'] as const;
 const TEXTURES = ['smooth', 'grainy', 'crystalline', 'liquid', 'powdery', 'fibrous', 'cracked', 'soft'] as const;
 const APPRAISAL = [
-  ...SCORES.map((k) => `s_${k}`), 'lazy', 'conf', 'tapeLen', 'byteLen',
+  ...SCORES.map((k) => `s_${k}`), 'lazy', 'conf', 'tapeLen', 'byteLen', 'moodPos', 'moodNeu',
   ...MATERIALS.map((k) => `m_${k}`), ...MOTIONS.map((k) => `mo_${k}`), ...SHAPES.map((k) => `sh_${k}`), ...TEXTURES.map((k) => `tx_${k}`),
   'baseR', 'baseG', 'baseB', 'accR', 'accG', 'accB',
   // the colour clips' palette (from Jev's colour distribution): primary, second, contrast
@@ -67,6 +67,7 @@ export class Frame {
   setAppraisal(A: Appraisal) {
     for (const k of SCORES) this.set(`s_${k}`, A.s[k] ?? 0.5);
     this.set('lazy', A.lazy);
+    this.set('moodPos', A.mood.pos); this.set('moodNeu', A.mood.neu);
     this.set('conf', A.c.emotion.confidence);
     this.set('tapeLen', A.tape.length);
     this.set('byteLen', A.bytes.length);

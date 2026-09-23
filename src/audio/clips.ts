@@ -209,6 +209,18 @@ function data(v: V): number[] {
   const tv = (i: number) => tape[((i % tape.length) + tape.length) % tape.length];
   const rate = lerp(2, 14, A.s.arousal) * lerp(1, 0.35, A.lazy); // values per second, as the image scrolls
   const f0 = D2 * 4 * Math.pow(2, (A.s.pitch - 0.5) * 0.6);
+  // the mood tunes the data: positive settles on the just major of D, neutral on exact test frequencies
+  // (half-octaves of 1 kHz), negative stays free (the raw value)
+  const JUST = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3, 2];
+  const tune = (f: number) => {
+    if (A.mood.pos > A.mood.neg && A.mood.pos > A.mood.neu) {
+      const oct = Math.floor(Math.log2(f / D2));
+      const r = f / (D2 * 2 ** oct);
+      return D2 * 2 ** oct * JUST.reduce((best, x) => (Math.abs(x - r) < Math.abs(best - r) ? x : best), 1);
+    }
+    if (A.mood.neu > A.mood.neg) return 1000 * 2 ** (Math.round(Math.log2(f / 1000) * 2) / 2); // half-octaves of 1 kHz
+    return f;
+  };
   const src = rendered(v, (L, R, sr) => {
     const n = L.length;
     if (form === 4) {
@@ -218,7 +230,7 @@ function data(v: V): number[] {
         const u = i / n;
         const k = u * tape.length;
         const val = tv(Math.floor(k)) * (1 - (k % 1)) + tv(Math.floor(k) + 1) * (k % 1);
-        const f = f0 * Math.pow(2, (val - 0.5) * 0.5);
+        const f = tune(f0 * Math.pow(2, (val - 0.5) * 0.5));
         ph += (2 * Math.PI * f) / sr; ph2 += (2 * Math.PI * f * 1.5) / sr;
         // the tone holds 1.5 s, then breaks into grains (never a steady whistle)
         const held = i / sr < 1.5 ? 1 : Math.exp(-(i / sr - 1.5) * 3) + ((i >> 9) % 3 === 0 ? 0.6 : 0);
@@ -236,7 +248,7 @@ function data(v: V): number[] {
       const pan = Math.sin(k * 0.7) * 0.7;
       if (form === 0) {
         // landscape: a soft sine tone per value, pitch = height, long and overlapping
-        const f = f0 * Math.pow(2, val * 2);
+        const f = tune(f0 * Math.pow(2, val * 2));
         const len = Math.floor(sr * step * 2.5);
         for (let i = 0; i < len && s0 + i < n; i++) {
           const w = Math.sin((Math.PI * i) / len);

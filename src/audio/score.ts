@@ -21,8 +21,9 @@ import { playBeds } from './beds.ts';
 import type { VoiceSpec } from './voice.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-/** How loud and intense Jev heard the word (0..1): every layer scales by it. */
-export const loud = (A: Appraisal) => A.s.loudness * 0.5 + A.s.intensity * 0.5;
+/** How loud and intense Jev heard the word (0..1): every layer scales by it. A positive word is never
+ *  played timid: it has a floor. */
+export const loud = (A: Appraisal) => Math.max(A.s.loudness * 0.5 + A.s.intensity * 0.5, A.mood.pos * 0.5);
 const VOICE_SR = 16000;
 
 let worker: Worker | null = null;

@@ -37,6 +37,8 @@ export type Appraisal = {
   tape: Float32Array;
   /** 0..1 — how indifferent the machine is to this word. */
   lazy: number;
+  /** The mood the piece is played in (sums to 1): each is its own world, in image and in sound. */
+  mood: { pos: number; neu: number; neg: number };
 };
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
@@ -72,5 +74,12 @@ export function buildAppraisal(a: Answers, text: string, typing: TypingTrace, se
     (1 - s.intensity) * 0.45 + (1 - s.arousal) * 0.2 + (1 - s.strangeness) * 0.15 + (1 - Math.abs(s.valence - 0.5) * 2) * 0.2 - 0.35,
   ) / 0.65;
 
-  return { seed, bytes, typing, s, c, n, tape: new Float32Array(tape), lazy: clamp01(lazy) };
+  // the mood: light for joy, tenderness, awe, play and warm calm; clinical for the neutral and the idle;
+  // dark for anger, fear, anxiety, sadness and violence
+  const em = c.emotion.p;
+  const pos = (em.joy + em.tender + em.awe + em.playful + em.calm * 0.5) * (0.4 + s.valence) + n.closeness * 0.3;
+  const neg = (em.anger + em.fear + em.anxiety + em.sadness) * (1.4 - s.valence) + n.violence * 0.8 + n.loss * 0.4;
+  const neu = clamp01(lazy) * 0.9 + (1 - s.intensity) * 0.5 + (1 - c.emotion.confidence) * 0.3 + (c.kind?.p?.object ?? 0) * 0.5;
+  const sum = pos + neg + neu + 1e-6;
+  return { seed, bytes, typing, s, c, n, tape: new Float32Array(tape), lazy: clamp01(lazy), mood: { pos: pos / sum, neu: neu / sum, neg: neg / sum } };
 }

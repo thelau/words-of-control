@@ -1,7 +1,8 @@
 /**
  * Beds: the ground the verdict's clips play over — a vocabulary of authored
  * synthesis textures (dark and light), drawn per performance from the
- * judgement with some chance. A charged word gets two or three layered; an
+ * judgement with some chance, weighted by the word's mood (a positive, a neutral
+ * and a negative music). A charged word gets two or three layered; an
  * idle word one, quietly. Violence is heard as pressure, dread and distance
  * (sine clusters, rumble, a falling Shepard tone, metal ringing, a sub floor), not as guns.
  * Beds run under all the shots and die at the cut to black (perfDry), their
@@ -250,6 +251,48 @@ const BEDS = {
       o.start(b.start); o.stop(b.end + 0.05);
     }
   },
+  /** rising sine arpeggios in the just major of D, soft and echoing across the field: the positive's air */
+  arpeggio(b: B) {
+    const bpm = lerp(84, 132, b.A.s.energy);
+    const steps = [1, 1.25, 1.5, 2, 2.5, 3, 4];
+    const s = rendered(b, (L, R, sr) => {
+      const step = 60 / bpm / 4;
+      let k = 0;
+      for (let t = 0; t < b.end - b.start; t += step, k++) {
+        if (b.rand() < 0.2) continue;
+        const f = D2 * 4 * steps[(k % steps.length + Math.floor(k / 16)) % steps.length];
+        const s0 = Math.floor(t * sr), n = Math.floor(sr * step * 3), pan = Math.sin(k * 0.9) * 0.8;
+        for (let i = 0; i < n && s0 + i < L.length; i++) {
+          const u = i / n;
+          const v = Math.sin((2 * Math.PI * f * i) / sr) * Math.min(1, u * 40) * Math.pow(1 - u, 2) * 0.05;
+          L[s0 + i] += v * (1 - pan); R[s0 + i] += v * (1 + pan);
+        }
+      }
+    });
+    s.connect(b.out);
+  },
+  /** a test pattern: pure tones gated on a strict sixteenth grid from the word's bytes, clicks on the beat */
+  testpattern(b: B) {
+    const bpm = 120;
+    const tones = [440, 880, 1000, 2000, 4000].map((f) => f * (b.rand() < 0.5 ? 1 : 1.5));
+    const bytes = b.A.bytes.length ? [...b.A.bytes] : [0x5a];
+    const s = rendered(b, (L, R, sr) => {
+      const step = 60 / bpm / 4;
+      let k = 0;
+      for (let t = 0; t < b.end - b.start; t += step, k++) {
+        const s0 = Math.floor(t * sr);
+        if (k % 4 === 0 && s0 < L.length) { L[s0] += 0.4; R[s0] += 0.4; }
+        const byte = bytes[Math.floor(k / 8) % bytes.length];
+        if (!((byte >> (k % 8)) & 1)) continue;
+        const f = tones[(byte + k) % tones.length], n = Math.floor(sr * step * 0.5), right = k % 2 === 1;
+        for (let i = 0; i < n && s0 + i < L.length; i++) {
+          const v = Math.sin((2 * Math.PI * f * i) / sr) * 0.05;
+          if (right) R[s0 + i] += v; else L[s0 + i] += v;
+        }
+      }
+    });
+    s.connect(b.out);
+  },
 } satisfies Record<string, (b: B) => void>;
 
 type BedId = keyof typeof BEDS;
@@ -257,7 +300,7 @@ type BedId = keyof typeof BEDS;
 function weights(A: Appraisal): Record<BedId, number> {
   const em = A.c.emotion.p, n = A.n, s = A.s, d = A.c.domain.p;
   const dark = clamp01(n.violence + em.anger * 0.6 + em.fear * 0.6);
-  return {
+  const raw = {
     pressure: dark + s.tension * 0.5 + s.weight * 0.3 + em.awe * 0.3,
     rumble: dark * 1.2 + s.loudness * 0.3 + s.scale * 0.3,
     dread: em.fear + em.anxiety * 0.6 + n.violence * 0.5 + (1 - s.valence) * 0.3,
@@ -271,7 +314,17 @@ function weights(A: Appraisal): Record<BedId, number> {
     sinefield: d.machine * 0.6 + d.mind * 0.5 + s.order * 0.5 + (1 - s.temperature) * 0.4 + em.calm * 0.3 + 0.2,
     datarain: d.machine * 0.7 + s.density * 0.6 + s.strangeness * 0.4 + A.c.act.p.nonsense * 0.8 + em.anxiety * 0.4,
     subfloor: dark * 0.8 + s.weight * 0.5 + s.scale * 0.5 + em.awe * 0.3 + n.loss * 0.3,
+    arpeggio: em.joy + em.playful * 0.8 + em.tender * 0.5 + s.energy * 0.3,
+    testpattern: d.machine * 0.5 + s.order * 0.5 + A.lazy * 0.5 + 0.3,
   };
+  // each bed belongs to a mood; the word's mood weights them: three different musics, not one with variants
+  const P = ['hymn', 'plates', 'tape', 'arpeggio', 'sinefield'], U = ['testpattern', 'sinefield', 'datarain', 'pulse'];
+  const out = {} as Record<BedId, number>;
+  for (const id of Object.keys(raw) as BedId[]) {
+    const mood = P.includes(id) ? A.mood.pos : U.includes(id) ? A.mood.neu : A.mood.neg;
+    out[id] = raw[id] * (0.1 + 2 * mood);
+  }
+  return out;
 }
 
 /** Lay the beds under the verdict and the accents on its camera cuts. */
@@ -329,10 +382,11 @@ function impact(L: Float32Array, R: Float32Array, sr: number, s0: number, amp: n
 }
 
 /** Every camera cut inside a shot is heard; for a dark word every shot lands with a deep impact.
- *  The family is chosen per performance: impacts, ticks, or data blips (a short high sine). */
+ *  The family follows the mood: impacts (negative), data blips (positive), ticks (neutral). */
 function accents(a: AudioEngine, A: Appraisal, plan: Plan, t0: number, rand: () => number, x: number) {
-  const fam: AccentId[] = ['impact', 'tick', 'datum'];
-  const main = fam[Math.floor(rand() * fam.length)];
+  // the cut's sound follows the mood: impacts in the dark, bright blips in the light, ticks for the neutral
+  const m = A.mood;
+  const main: AccentId = m.neg >= m.pos && m.neg >= m.neu ? 'impact' : m.pos >= m.neu ? 'datum' : 'tick';
   const em = A.c.emotion.p;
   const dark = clamp01(A.n.violence + em.anger * 0.6 + em.fear * 0.6);
   const c = a.ctx;
