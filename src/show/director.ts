@@ -32,8 +32,12 @@ export type Cut = { start: number; dur: number; mode: CutMode; variant: number }
 export type Angle = { at: number; seed: number; zoom: number; offX: number; offY: number };
 export const WIDE: Angle = { at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 };
 
-/** One verdict clip and its coverage (angles, in order). */
-export type Shot = { clip: ClipId; start: number; dur: number; seed: number; aborted: boolean; angles: Angle[] };
+/** How a data shot is built (field.wgsl shape()): echo 0–5, warp 0–6, flow 0–3. */
+export type Ops = { echo: number; warp: number; flow: number };
+export const STILL: Ops = { echo: 0, warp: 0, flow: 0 };
+
+/** One verdict clip, its operators and its coverage (angles, in order). */
+export type Shot = { clip: ClipId; start: number; dur: number; seed: number; aborted: boolean; angles: Angle[]; ops: Ops };
 
 export type Plan = {
   cuts: Cut[];
@@ -80,6 +84,8 @@ function affinity(A: Appraisal): Record<ClipId, number> {
 
 /** The clips of the last few performances: the room remembers, and the machine avoids repeating itself. */
 const recent: ClipId[] = [];
+/** The operator combinations of the last performances: never built the same way twice in a row. */
+const recentOps: string[] = [];
 const openers: ClipId[] = [];
 
 /** `salt` makes every performance of the same answers a little different (the room is live, never a replay). */
@@ -178,13 +184,32 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     return out.length ? out : [WIDE];
   };
 
+  // the operators of each data shot: weighted by the mood and by the word's own dimensions, drawn with
+  // chance, never a combination this performance or the last ones already used
+  const mo = A.c.motion.p, md = A.mood;
+  const draw = (w: number[]) => { let q = rand() * w.reduce((x, y) => x + y, 0); for (let k = 0; k < w.length; k++) { q -= w[k]; if (q <= 0) return k; } return 0; };
+  const chooseOps = (): Ops => {
+    for (let tries = 0; tries < 12; tries++) {
+      const ops: Ops = {
+        echo: draw([md.neu * 1.5 + 0.3, md.neu + md.pos * 0.8 + 0.2, md.pos * 1.2 + A.c.shape.p.spiral + 0.2, md.pos * 1.5 + A.c.shape.p.round * 0.5 + 0.1,
+          md.neg * 0.8 + mo.falling * 0.5 + 0.1, md.neg * 1.3 + mo.spreading + mo.breaking + 0.1]),
+        warp: draw([md.neu * 1.5 + 0.3, md.pos + A.c.shape.p.flowing * 0.8 + 0.1, A.s.tension * 0.6 + mo.circling * 0.5 + 0.1, md.neg * 0.7 + 0.1,
+          md.neg * 0.6 + mo.falling + 0.05, md.pos * 1.2 + 0.1, md.neg * 0.8 + A.c.emotion.p.sadness + 0.05]),
+        flow: draw([md.neu + mo.still + 0.2, md.neu * 0.8 + md.neg * 0.6 + 0.2, md.pos + mo.circling + 0.2, md.neg * 0.5 + A.c.rhythm.p.pulsing + 0.1]),
+      };
+      const key = `${ops.echo}${ops.warp}${ops.flow}`;
+      if (!recentOps.includes(key)) { recentOps.push(key); recentOps.splice(0, Math.max(0, recentOps.length - 24)); return ops; }
+    }
+    return { echo: Math.floor(rand() * 6), warp: Math.floor(rand() * 7), flow: Math.floor(rand() * 4) };
+  };
+
   const shots: Shot[] = [];
   t += 0.15;
   // low confidence: a false start — a shot begins, is cut off, and the machine starts again
   if (conf < 0.5 && lazy < 0.7) {
     const alt = ranked[1 + Math.floor(rand() * 2)];
     const d = lerp(0.35, 0.8, rand());
-    shots.push({ clip: alt, start: t, dur: d, seed: (rand() * 2 ** 31) | 0, aborted: true, angles: [WIDE] });
+    shots.push({ clip: alt, start: t, dur: d, seed: (rand() * 2 ** 31) | 0, aborted: true, angles: [WIDE], ops: STILL });
     t += d + lerp(0.25, 0.6, 1 - conf);
   }
   picks.forEach((clip, i) => {
@@ -193,7 +218,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     // the reveal: the first shot, when it is the echo of the appraisal's main reading, opens on the reading
     // itself, frontal (angle seed −1), and holds ≥ 3 s while the camera swings round into its depth
     if (i === 0 && clip === handOff) cover = [{ ...WIDE, seed: -1 }, ...cover.filter((x) => x.at >= 3)];
-    shots.push({ clip, start: t, dur, seed: (rand() * 2 ** 31) | 0, aborted: false, angles: cover });
+    shots.push({ clip, start: t, dur, seed: (rand() * 2 ** 31) | 0, aborted: false, angles: cover, ops: chooseOps() });
     t += dur + (i < picks.length - 1 ? gap : 0);
   });
 

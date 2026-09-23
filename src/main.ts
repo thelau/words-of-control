@@ -255,6 +255,7 @@ async function boot() {
         f('mode', m.mode);
         f('zoom', m.zoom); f('offX', m.offX); f('offY', m.offY);
         f('angle', m.angle);
+        f('echoOp', m.ops.echo); f('warpOp', m.ops.warp); f('flowOp', m.ops.flow);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
         if (m.key !== lastKey && layer === 'sand') f('mode', 1); // lay a fresh layer of sand
         if (m.clip === 'chladni') {

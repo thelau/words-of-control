@@ -48,50 +48,58 @@ fn pal(k: u32) -> vec3f {
 /** The appraisal's virtual screen (px, 1000 tall) → world (y up; the frontal camera sees exactly this). */
 fn scr(px: vec2f, R: vec2f) -> vec2f { return vec2f(px.x - R.x * 0.5, R.y * 0.5 - px.y) / (R.y * 0.5); }
 
-/** Where point i is (world, y up) and the value it carries (0..1; < 0 = not drawn). */
-fn place(i: u32, t: f32) -> vec4f {
+/** Point i of the reading on its frontal plane: (x, y) in world units, z = its echo layer (0 = now … 1 = the
+ *  deepest), w = the value it carries (< 0 = not drawn). The drift returns its own world position. */
+fn reading(i: u32, t: f32) -> vec4f {
   let form = u32(F.variant2 + 0.5);
   let a = r1(i, 1u);
   let b = r1(i, 2u);
   let c = r1(i, 3u);
   let R = vec2f(1000.0 * F.resX / F.resY, 1000.0);
   // the echo: layer 0 is now; layer k is the reading k beats ago, k steps back in depth
-  let K = 28.0;
-  let k = floor(pow(r1(i, 17u), 1.7) * K);
+  // (12 distinct planes, each dense enough to read — more would only make a haze)
+  let K = 12.0;
+  let k = floor(pow(r1(i, 17u), 1.4) * K);
   let tk = max(t - k * mix(0.12, 0.04, F.s_arousal), 0.0);
-  let z = -k * mix(0.06, 0.13, F.s_scale);
-  let fade = mix(1.0, 0.18, k / K);
+  let z = k / K;
+  let fade = mix(1.0, 0.3, k / K);
   if (form == 0u) {
-    // spectrum: rows 3 px apart, bars as long as their value; each echo reads the tape one row on
+    // spectrum: rows 6 px apart (points exactly on each row: lines), as long as their value; each echo one row on
     let H = R.y * 0.72;
-    let row = floor(a * H / 3.0);
+    let row = floor(a * H / 6.0);
     let v = tv(i32(row) + i32(F.variant * 50.0) + i32(k));
     let L = v * R.x * 0.46 * ss(0.0, 0.6, F.u + row * 0.002 + 0.5);
     let x = R.x * 0.5 + (b * 2.0 - 1.0) * L;
-    let p = scr(vec2f(x, (R.y - H) * 0.5 + row * 3.0), R);
+    let p = scr(vec2f(x, (R.y - H) * 0.5 + row * 6.0), R);
     return vec4f(p, z, v * fade);
   }
   if (form == 1u) {
     // barcode: bars of the tape's bits scrolling; each echo is the barcode as it was a beat ago
-    let w = 1.5 * (1.0 + floor(F.variant * 3.0));
+    let w = 6.0 * (1.0 + floor(F.variant * 3.0));
     let speed = (300.0 + 2200.0 * F.s_arousal) * select(1.0, -1.0, F.variant > 0.5);
     let x = a * R.x;
     let idx = i32(floor((x + tk * speed) / w));
     if (((byteOf(idx / 8) >> u32(idx % 8)) & 1u) == 0u) { return vec4f(0.0, 0.0, 0.0, -1.0); }
     let band = select(R.y, R.y * (0.18 + 0.2 * F.variant), fract(F.variant * 7.0) > 0.45);
-    let p = scr(vec2f(x, R.y * 0.5 + (b - 0.5) * band), R);
+    // each set bar is drawn as a crisp line of points on its centre
+    let xc = (f32(idx) + 0.5) * w - tk * speed;
+    let p = scr(vec2f(xc, R.y * 0.5 + (b - 0.5) * band), R);
     return vec4f(p, z, (0.5 + 0.5 * tv(idx / 8)) * fade);
   }
   if (form == 2u) {
     // bits: the grid of the word's bits; each echo holds the next stretch of bytes
-    let cell = 1.5 * (5.0 + floor(F.variant * 4.0));
+    let cell = 3.0 * (5.0 + floor(F.variant * 4.0));
     let side = R.y * 0.78;
     let cols = floor(side / cell);
     let ci = vec2f(floor(a * cols), floor(b * cols));
     let bi = i32(ci.y * floor(cols / 8.0) + ci.x / 8.0 + k * cols);
     if (((byteOf(bi) >> u32(i32(ci.x) % 8)) & 1u) == 0u) { return vec4f(0.0, 0.0, 0.0, -1.0); }
     let o = (R - vec2f(side)) * 0.5;
-    let q = o + (ci + 0.12 + vec2f(c, r1(i, 4u)) * 0.76) * cell;
+    // a lit bit is a small square drawn by its outline: crisp, readable at any depth
+    let side4 = floor(c * 4.0);
+    let along = r1(i, 4u);
+    let sq = select(select(vec2f(along, 0.0), vec2f(1.0, along), side4 == 1.0), select(vec2f(along, 1.0), vec2f(0.0, along), side4 == 3.0), side4 >= 2.0);
+    let q = o + (ci + 0.18 + sq * 0.64) * cell;
     return vec4f(scr(q, R), z, (0.4 + 0.6 * tv(bi)) * fade);
   }
   if (form == 3u) {
@@ -115,6 +123,61 @@ fn place(i: u32, t: f32) -> vec4f {
   if (r1(i, 9u) > 0.12) { return vec4f(0.0, 0.0, 0.0, -1.0); }
   let p = (vec3f(a, b, c) - 0.5) * vec3f(8.0, 4.0, 8.0) + vec3f(t * 0.04, sin(t * 0.2 + a * 9.0) * 0.1, 0.0);
   return vec4f(p, 0.15 + 0.2 * r1(i, 10u));
+}
+
+/** A rotation of p about the y axis. */
+fn rotY(p: vec3f, a: f32) -> vec3f { return vec3f(p.x * cos(a) + p.z * sin(a), p.y, -p.x * sin(a) + p.z * cos(a)); }
+
+/** The reading made space. Operators chosen per shot by the director (F.echoOp, F.warpOp, F.flowOp), all
+ *  leaving the front layer (kn = 0) exactly where the appraisal drew it:
+ *   echo — how the layers stand in space: 0 back in depth · 1 round a ring (a zoetrope) · 2 a twisting tunnel ·
+ *          3 onion shells · 4 fanned like pages from their lower edge · 5 burst apart into shards
+ *   warp — how the matter bends: 0 none · 1 a wave · 2 a twist · 3 folded on itself · 4 falling · 5 breathing · 6 melting
+ *   flow — how it moves: 0 still · 1 a conveyor (the layers stream toward you) · 2 turning · 3 pulsing */
+fn shape(xy: vec2f, kn0: f32, i: u32, t: f32) -> vec3f {
+  let D = mix(1.7, 3.6, F.s_scale); // the echo's full depth
+  let flow = u32(F.flowOp + 0.5);
+  let kn = select(kn0, fract(kn0 + t * 0.05 * (0.5 + F.s_arousal)), flow == 1u && kn0 > 0.0);
+  var p = vec3f(xy, 0.0);
+  let e = u32(F.echoOp + 0.5);
+  if (e == 0u) { p.z = -kn * D; }
+  else if (e == 1u) { p = rotY(p - vec3f(0.0, 0.0, -1.6), kn * TAU * 0.92) + vec3f(0.0, 0.0, -1.6); }
+  else if (e == 2u) {
+    let a = kn * PI * mix(1.0, 3.0, F.s_tension);
+    p = vec3f(p.x * cos(a) - p.y * sin(a), p.x * sin(a) + p.y * cos(a), -kn * D);
+  }
+  else if (e == 3u) {
+    let r = 1.3 + kn * D * 0.8;
+    let dir = normalize(vec3f(p.x, p.y, 1.3));
+    p = mix(p, dir * r - vec3f(0.0, 0.0, 1.3 + kn * 0.4), ss(0.0, 0.12, kn));
+  }
+  else if (e == 4u) {
+    let a = kn * PI * 0.85;
+    let q = p + vec3f(0.0, 1.0, 0.0);
+    p = vec3f(q.x, q.y * cos(a), -q.y * sin(a)) - vec3f(0.0, 1.0, 0.0);
+  }
+  else {
+    let kk = floor(kn * 28.0);
+    let d = normalize(vec3f(r1(u32(kk), 30u), r1(u32(kk), 31u), r1(u32(kk), 32u)) - 0.5 + 1e-3);
+    p = rotY(p, (r1(u32(kk), 33u) - 0.5) * kn * 2.0) + d * kn * mix(1.5, 3.5, F.s_energy) * ss(0.0, 1.0, F.u + 0.2);
+  }
+  let w = u32(F.warpOp + 0.5);
+  if (w == 1u) { p.z += sin(p.x * 3.0 + t * 2.0 + kn * 4.0) * 0.15; }
+  else if (w == 2u) { p = rotY(p, p.y * 1.2 * sin(t * 0.4 + 1.0)); }
+  else if (w == 3u) { p.x = abs(p.x) - 0.25; p.z -= abs(p.x) * 0.6; }
+  else if (w == 4u) { p.y -= r1(i, 34u) * t * 0.35 * ss(0.0, 1.0, kn + 0.3); }
+  else if (w == 5u) { p *= 1.0 + 0.1 * sin(t * 1.6 + kn * 6.0); }
+  else if (w == 6u) { p.y -= max(gnoise(p.xz * 2.0 + 3.0), 0.0) * t * 0.25 * (p.y + 1.2); }
+  if (flow == 2u) { p = rotY(p + vec3f(0.0, 0.0, D * 0.4), t * 0.25) - vec3f(0.0, 0.0, D * 0.4); }
+  else if (flow == 3u) { p *= 1.0 + 0.07 * sin(t * mix(3.0, 7.0, F.s_arousal)); }
+  return p;
+}
+
+/** Where point i is (world, y up) and the value it carries (< 0 = not drawn). */
+fn place(i: u32, t: f32) -> vec4f {
+  let r = reading(i, t);
+  if (u32(F.variant2 + 0.5) == 5u || r.w < 0.0) { return r; }
+  return vec4f(shape(r.xy, r.z, i, t), r.w);
 }
 
 /** The emotion as behaviour: sadness sinks, anger jitters, joy expands and rises, circling turns, calm is still.
@@ -185,7 +248,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let aperture = mix(0.012, 0.035, F.s_intensity) * F.zoom * select(1.0, 2.0, inside) * select(1.0, 0.1, exact);
   let coc = min(abs(z - dist) / z * aperture * res.y * 0.5, 22.0);
   // dust (85%): fine and sharp, and gone when out of focus; carriers (15%): the lens's discs
-  let carrier = r1(i, 16u) < mix(0.15, 0.32, F.moodPos); // the positive glitters
+  let carrier = r1(i, 16u) < mix(0.15, 0.22, F.moodPos); // the positive glitters (never a haze of discs)
   // never smaller than a pixel (a sub-pixel point sparkles as the camera moves): a finer point is drawn
   // at 1 px and dimmer instead
   let fine = select(mix(0.55, 0.85, r1(i, 9u)), mix(0.8, 1.4, r1(i, 9u)), carrier);
@@ -200,7 +263,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
 
   // brightness from the value it carries (a few blaze); a warm/cool ramp with depth, chosen by the word
   let v = P0.w;
-  let bright = (0.06 + 0.5 * v * v + 1.5 * pow(r1(i, 11u), 14.0)) * mix(0.6, 1.1, F.s_density);
+  let bright = (0.12 + 0.9 * v * v + 1.5 * pow(r1(i, 11u), 14.0)) * mix(0.8, 1.2, F.s_density);
   let warm = vec3f(1.0, 0.86, 0.72);
   let cool = vec3f(0.72, 0.84, 1.0);
   let lean = F.s_valence * 0.5 + F.s_temperature * 0.5; // warm near for a warm word, cool near for a cold one
