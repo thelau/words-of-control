@@ -10,6 +10,8 @@ const FRAME = [
   'lt', 'dur', 'u', 'seed', 'variant', 'variant2', 'mode', 'aborted', 'layerFade',
   // framing: every clip maps p = p / zoom + off (wide ↔ macro between repeated shots)
   'zoom', 'offX', 'offY',
+  // plate: the Chladni mode sounding now
+  'modeM', 'modeN',
   'charge', 'kick', 'flash', 'invert', 'exposure', 'bloom', 'grain',
   // the output (canvas) size; scenes may render smaller (resX/resY) and be upscaled
   'outX', 'outY', 'outDpr', 'hiRes',
@@ -46,6 +48,10 @@ const NEUTRAL = new Set(['black', 'white', 'grey']);
 
 export class Frame {
   readonly f32 = new Float32Array(FRAME_BYTES / 4);
+
+  get(k: string): number {
+    return this.f32[INDEX.get(k)!];
+  }
 
   set(k: string, v: number) {
     const i = INDEX.get(k);

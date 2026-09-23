@@ -12,6 +12,9 @@ import fractureWGSL from './shaders/fracture.wgsl?raw';
 import hazeWGSL from './shaders/haze.wgsl?raw';
 import grainsWGSL from './shaders/grains.wgsl?raw';
 import grainsDrawWGSL from './shaders/grains_draw.wgsl?raw';
+import scanWGSL from './shaders/scan.wgsl?raw';
+import plateWGSL from './shaders/plate.wgsl?raw';
+import plateDrawWGSL from './shaders/plate_draw.wgsl?raw';
 import fadeWGSL from './shaders/fade.wgsl?raw';
 import blitWGSL from './shaders/blit.wgsl?raw';
 import bloomWGSL from './shaders/bloom.wgsl?raw';
@@ -27,6 +30,7 @@ const BLOOM_LEVELS = 6;
 const TAPE_MAX = 1024;
 const RELIEF_RES = 640;
 const GRAINS_DEFAULT = 150_000;
+const PLATE_N = 384;
 const WORD_W = 2048;
 const WORD_H = 160;
 
@@ -47,6 +51,7 @@ export class Renderer {
   private tapeBuf!: GPUBuffer;
   private grainBuf!: GPUBuffer;
   private raysBuf!: GPUBuffer;
+  private sand: GPUBuffer[] = [];
   private sampler!: GPUSampler;
   private atlas!: GPUTexture;
   private heightTex!: GPUTexture;
@@ -98,6 +103,7 @@ export class Renderer {
     this.fBuf = d.createBuffer({ size: FRAME_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.tapeBuf = d.createBuffer({ size: TAPE_MAX * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.grainBuf = d.createBuffer({ size: this.grainCount * 32, usage: GPUBufferUsage.STORAGE });
+    this.sand = [0, 1].map(() => d.createBuffer({ size: PLATE_N * PLATE_N * 4, usage: GPUBufferUsage.STORAGE }));
     this.raysBuf = d.createBuffer({ size: MAX_RAYS * RAY_VEC4 * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
     this.atlas = await makeGlyphAtlas(d);
@@ -147,6 +153,21 @@ export class Renderer {
       primitive: { topology: 'triangle-strip' },
     });
 
+    const scan = mod('scan', pre + scanWGSL);
+    this.p.scan = d.createRenderPipeline({
+      layout: 'auto', vertex: { module: scan, entryPoint: 'vs_full' },
+      fragment: { module: scan, entryPoint: 'fs', targets: [{ format: HDR, blend: add }] },
+    });
+
+    const plate = mod('plate', pre + plateWGSL);
+    this.c.plateTransport = d.createComputePipeline({ layout: 'auto', compute: { module: plate, entryPoint: 'transport' } });
+    this.c.plateRepose = d.createComputePipeline({ layout: 'auto', compute: { module: plate, entryPoint: 'repose' } });
+    const plateDraw = mod('plate_draw', pre + plateDrawWGSL);
+    this.p.plate = d.createRenderPipeline({
+      layout: 'auto', vertex: { module: plateDraw, entryPoint: 'vs_full' },
+      fragment: { module: plateDraw, entryPoint: 'fs', targets: [{ format: HDR }] },
+    });
+
     const fade = mod('fade', fadeWGSL);
     this.p.fade = d.createRenderPipeline({
       layout: 'auto', vertex: { module: fade, entryPoint: 'vs' },
@@ -177,6 +198,12 @@ export class Renderer {
     ]);
     group('reliefHeight', this.c.reliefHeight, [{ binding: 0, resource: uni }, { binding: 1, resource: this.heightTex.createView() }]);
     group('relief', this.p.relief, [{ binding: 0, resource: uni }, { binding: 2, resource: this.heightTex.createView() }, { binding: 3, resource: this.sampler }]);
+    group('scan', this.p.scan, [{ binding: 0, resource: uni }, { binding: 2, resource: this.heightTex.createView() }, { binding: 3, resource: this.sampler }]);
+    // sand ping-pong: transport A→B, repose B→A (the drawing reads A)
+    const sb = (b: GPUBuffer) => ({ buffer: b });
+    group('plateT', this.c.plateTransport, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }, { binding: 2, resource: sb(this.sand[1]) }]);
+    group('plateR', this.c.plateRepose, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[1]) }, { binding: 2, resource: sb(this.sand[0]) }]);
+    group('plate', this.p.plate, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }]);
     group('grainsSim', this.c.grainsSim, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.grainBuf } }]);
     group('grains', this.p.grains, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.grainBuf } }]);
     this.resize();
@@ -304,6 +331,31 @@ export class Renderer {
       cp.dispatchWorkgroups(RELIEF_RES / 16, RELIEF_RES / 16);
       cp.end();
       fullPass(this.p.relief, this.bg.relief);
+    } else if (layer === 'plate') {
+      const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
+      const wg = Math.ceil(PLATE_N / 16);
+      for (let k = 0; k < 3; k++) {
+        cp.setPipeline(this.c.plateTransport); cp.setBindGroup(0, this.bg.plateT); cp.dispatchWorkgroups(wg, wg);
+        cp.setPipeline(this.c.plateRepose); cp.setBindGroup(0, this.bg.plateR); cp.dispatchWorkgroups(wg, wg);
+      }
+      cp.end();
+      fullPass(this.p.plate, this.bg.plate);
+    } else if (layer === 'scan') {
+      // the hidden surface, then the laser into the long exposure
+      const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
+      cp.setPipeline(this.c.reliefHeight);
+      cp.setBindGroup(0, this.bg.reliefHeight);
+      cp.dispatchWorkgroups(RELIEF_RES / 16, RELIEF_RES / 16);
+      cp.end();
+      const tp = enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'load', storeOp: 'store' }] });
+      tp.setPipeline(this.p.fade);
+      tp.setBlendConstant({ r: persist, g: persist, b: persist, a: persist });
+      tp.draw(3);
+      tp.setPipeline(this.p.scan);
+      tp.setBindGroup(0, this.bg.scan);
+      tp.draw(3);
+      tp.end();
+      fullPass(this.p.blit, this.bg.blit);
     } else if (layer === 'grains') {
       const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
       cp.setPipeline(this.c.grainsSim);
@@ -353,7 +405,7 @@ export class Renderer {
 
   /** Draw every layer once so no pipeline compiles mid-performance. */
   warmUp(frame: Float32Array) {
-    for (const l of ['room', 'appraisal', 'relief', 'fracture', 'haze', 'grains', 'black'] as Layer[]) this.render(l, frame, 0.9, l === 'appraisal');
+    for (const l of ['room', 'appraisal', 'relief', 'fracture', 'haze', 'grains', 'scan', 'plate', 'black'] as Layer[]) this.render(l, frame, 0.9, l === 'appraisal');
   }
 
   /** Clear the long-exposure buffer (a new grains shot starts from black). */

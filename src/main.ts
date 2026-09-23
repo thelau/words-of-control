@@ -22,6 +22,7 @@ import { seedFromText } from './core/rng.ts';
 import { showSupport, hideSupport } from './support.ts';
 import { showError } from './errorPopup.ts';
 import { fractureRays } from './render/fractureRays.ts';
+import { plateMode } from './show/plateModes.ts';
 
 export type State = 'idle' | 'typing' | 'analyzing' | 'performing' | 'barred' | 'support' | 'error';
 
@@ -33,6 +34,8 @@ const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = 
   appraisal: { bloom: 0.02, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
   fracture: { bloom: 0.05, halation: 0.06, flat: 0 }, grains: { bloom: 0.08, halation: 0.08, flat: 0 },
   haze: { bloom: 0.08, halation: 0.03, flat: 0 },
+  scan: { bloom: 0.1, halation: 0.05, flat: 1 },
+  plate: { bloom: 0.03, halation: 0.02, flat: 0 },
 };
 
 /** White balance from the matter: cold for glass, ice, water; warm for fire, sand, lazy afternoons. */
@@ -256,9 +259,13 @@ async function boot() {
         f('mode', m.mode);
         f('zoom', m.zoom); f('offX', m.offX); f('offY', m.offY);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
-        if (m.key !== lastKey && layer === 'grains') {
+        if (m.key !== lastKey && (layer === 'grains' || layer === 'scan' || layer === 'plate')) {
           renderer.clearTrail();
-          f('mode', 1); // grains: spawn this frame
+          f('mode', 1); // grains: spawn this frame; plate: lay fresh sand
+        }
+        if (layer === 'plate') {
+          const [mm, nn] = plateMode(show.A, m.seed, m.lt / m.dur);
+          f('modeM', mm); f('modeN', nn);
         }
         if (m.key !== lastKey && layer === 'fracture') {
           const r = fractureRays(show.A, m.seed);
@@ -267,8 +274,10 @@ async function boot() {
         }
         lastKey = m.key;
         const mat = show.A.c.material.p;
+        f('variant2', layer === 'scan' ? 1 : layer === 'fracture' ? frame.get('variant2') : 0);
         const sparks = Math.min(1, show.A.c.motion.p.spreading + show.A.c.motion.p.breaking);
-        persist = Math.pow(Math.max(0.86 + 0.1 * Math.min(1, mat.smoke + mat.void * 0.5) + 0.04 * mat.fire, 0.95 * sparks), dt * 60);
+        persist = layer === 'scan' ? Math.pow(0.985, dt * 60) // the scanner forgets: a form is only ever glimpsed as it is read
+          : Math.pow(Math.max(0.86 + 0.1 * Math.min(1, mat.smoke + mat.void * 0.5) + 0.04 * mat.fire, 0.95 * sparks), dt * 60);
       }
     }
     if (layer === 'room') {

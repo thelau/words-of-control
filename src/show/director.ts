@@ -7,7 +7,7 @@
 import type { Appraisal } from '../jev/appraisal.ts';
 import { mulberry32 } from '../core/rng.ts';
 
-export const CLIPS = ['relief', 'grains', 'fracture', 'haze'] as const;
+export const CLIPS = ['relief', 'grains', 'fracture', 'haze', 'scan', 'plate'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
 export const CUT_MODES = ['barcode', 'numbers', 'spectrum', 'bits', 'scatter', 'line', 'word'] as const;
@@ -43,6 +43,12 @@ function affinity(A: Appraisal): Record<ClipId, number> {
       + mo.breaking + rh.strike * 0.6 + A.s.tension * 0.5,
     haze: m.light + m.smoke + m.water * 0.8 + m.void * 0.7 + tx.liquid * 0.6 + tx.smooth * 0.3 + mo.drifting * 0.4 + mo.still * 0.3
       + (1 - A.s.arousal) * 0.5 + A.lazy * 0.6,
+    // the machine reading a surface: ordered, cold, technical, strange words
+    scan: A.s.order * 0.7 + m.metal * 0.5 + m.stone * 0.4 + A.c.domain.p.machine * 1.2 + A.c.domain.p.mind * 0.5
+      + A.c.sense.p.sight * 0.4 + A.s.strangeness * 0.6 + tx.smooth * 0.3 + mo.still * 0.3,
+    // sand shaken into figures by a sound: tonal, ordered, rhythmic, heard words
+    plate: m.sand * 0.8 + tx.grainy * 0.5 + tx.powdery * 0.4 + A.s.order * 0.6 + (1 - A.s.tone) * 0.5
+      + A.c.sense.p.hearing * 0.9 + rh.pulsing * 0.6 + rh.steady * 0.3 + mo.trembling * 0.5 + mo.circling * 0.3,
   };
 }
 

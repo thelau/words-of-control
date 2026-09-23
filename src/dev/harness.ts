@@ -1,7 +1,7 @@
 /**
  * Dev harness (dev builds only; backtick toggles). While open, the keyboard
  * and mouse belong to the harness.
- *   click a word = perform its recorded Jev answers · 1–4 = play one clip alone
+ *   click a word = perform its recorded Jev answers · 1–6 = play one clip alone
  *   N next word · R replay · C record one performance to WebM
  */
 import type { App } from '../main.ts';
@@ -89,7 +89,7 @@ export async function mountHarness(app: App) {
     if (k === 'n') next();
     else if (k === 'r' && lastWord) play(lastWord);
     else if (k === 'c') record();
-    else if (k >= '1' && k <= '4') solo(CLIPS[Number(k) - 1]);
+    else if (k >= '1' && k <= String(CLIPS.length)) solo(CLIPS[Number(k) - 1]);
   }, true);
 }
 

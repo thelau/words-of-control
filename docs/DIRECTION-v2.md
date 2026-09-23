@@ -35,9 +35,12 @@ many short ones; low confidence produces false starts and shots that don't resol
 ## Clip library + director (Laurent, 2026-09-23)
 
 - **Clip** = a self-contained generator (WebGPU scene + matching Web Audio voice) with one interface:
-  `(analysis, seed, duration) → shot`. Families: particles (dust, sparks, filaments, swarm), surfaces
-  (relief, liquid, cloth), fields (ink / reaction-diffusion, cymatics, fracture), light (line, scan,
-  flicker), matter (sand, glass, smoke). Every clip is composed around the centre.
+  `(analysis, seed, duration) → shot`. Every clip is composed around the centre.
+- **Library now (2026-09-23):** *relief* (raymarched monolith, raking light), *fracture* (lit glass shards /
+  a single cleave; each crack sings), *grains* (sparks with physics / dust in a light slab), *haze* (gobo
+  shaft, shutter light for idle afternoons, pinprick void, pool caustics), *scan* (a laser reads a hidden
+  surface; contours glimpsed and forgotten), *plate* (Chladni sand from the word's bytes; the plate sounds
+  its mode). Candidates next: iris, raked grooves, ink/reaction-diffusion, a held "still".
 - **Director** = picks 2–5 clips by affinity to the analysis (material, motion, emotion, texture…),
   sets their parameters, orders them and cuts them to the edit rhythm (arousal, rhythm, confidence).
   Deterministic from the word's seed + the answers.

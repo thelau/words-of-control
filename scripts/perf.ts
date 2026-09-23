@@ -66,20 +66,20 @@ const solo = (clip: string, mode: string) => page.evaluate(([a, clip, mode]) => 
   const W = (window as any).__woc;
   W.perform(a, 'fuck');
   const A = W.show().A;
-  const cuts = mode ? [{ start: 0, dur: 2.5, mode, variant: 0.3 }] : [];
-  const shots = clip ? [{ clip, start: 0.05, dur: 2.5, seed: 7, aborted: false, zoom: 1, offX: 0, offY: 0 }] : [];
-  W.performPlan(A, { cuts, shots, blackAt: 2.6, end: 3.2 });
+  const cuts = mode ? [{ start: 0, dur: 3.2, mode, variant: 0.3 }] : [];
+  const shots = clip ? [{ clip, start: 0.05, dur: 3.2, seed: 7, aborted: false, zoom: 1, offX: 0, offY: 0 }] : [];
+  W.performPlan(A, { cuts, shots, blackAt: 3.3, end: 3.9 });
 }, [fixtures.fuck, clip, mode]);
-for (const clip of ['relief', 'grains', 'fracture', 'haze']) {
+for (const clip of ['relief', 'grains', 'fracture', 'haze', 'scan', 'plate']) {
   await solo(clip, '');
   await page.waitForTimeout(700);
-  layers.push([`clip ${clip}`, stats(await sample(1200))]);
+  layers.push([`clip ${clip}`, stats(await sample(2000))]);
   await page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 100, timeout: 10000 });
 }
 for (const mode of ['barcode', 'numbers', 'spectrum', 'bits', 'scatter', 'line']) {
   await solo('', mode);
   await page.waitForTimeout(700);
-  layers.push([`appraisal ${mode}`, stats(await sample(1200))]);
+  layers.push([`appraisal ${mode}`, stats(await sample(2000))]);
   await page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 100, timeout: 10000 });
 }
 await s.close();

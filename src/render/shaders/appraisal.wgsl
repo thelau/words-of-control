@@ -129,10 +129,10 @@ fn scatter(px: vec2f, res: vec2f) -> vec3f {
   if (abs(e) < F.dpr * 0.6) { c += ink() * 0.25; }
   let inside = q.x > -2.0 * F.dpr && q.y > -2.0 * F.dpr && q.x < side + 2.0 * F.dpr && q.y < side + 2.0 * F.dpr;
   if (!inside) { return c; }
-  let n = min(i32(F.tapeLen) - 1, 56);
+  let n = min(i32(F.tapeLen) - 1, 44);
   let shown = i32(F.u * 1.15 * f32(n));
   var prevPt = vec2f(tv(0), 1.0 - tv(1)) * side;
-  for (var i = 1; i < 56; i++) {
+  for (var i = 1; i < 44; i++) {
     if (i >= min(shown, n)) { break; }
     let pt = vec2f(tv(i), 1.0 - tv(i + 1)) * side;
     let dv = q - pt;

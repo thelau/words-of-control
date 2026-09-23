@@ -3,7 +3,9 @@
  * uses. One material — a resonant plate — excited differently: relief is
  * bowed (the raking light is the bow), fracture is struck and each crack
  * sings a dispersive chirp as it opens, grains are rained on (windowed noise
- * grains), haze barely touches it (the drone exhales; motes glint). Every
+ * grains), haze barely touches it (the drone exhales; motes glint), scan reads
+ * it (one pure tone tracing the surface the laser crosses), plate is the
+ * plate itself ringing in the Chladni mode that shapes its sand. Every
  * voice is hard-cut with its shot and sends only to the short room.
  * Levels: each clip is calibrated to the same loudness, then scaled by how
  * loud and intense Jev heard the word (a dB curve).
@@ -13,12 +15,13 @@ import type { Shot } from '../show/director.ts';
 import { D2, dbToGain, type AudioEngine } from './audio.ts';
 import type { Drone } from './drone.ts';
 import { fractureRays } from '../render/fractureRays.ts';
+import { plateModes } from '../show/plateModes.ts';
 import { mulberry32 } from '../core/rng.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
-const CAL: Record<Shot['clip'], number> = { relief: 0, fracture: 0, grains: -10, haze: 0 };
+const CAL: Record<Shot['clip'], number> = { relief: 0, fracture: 0, grains: -10, haze: 0, scan: -4, plate: -2 };
 
 type V = { a: AudioEngine; drone: Drone; A: Appraisal; shot: Shot; start: number; end: number; out: AudioNode; rand: () => number };
 
@@ -45,6 +48,8 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, shot: Shot,
     case 'fracture': return fracture(v);
     case 'grains': return grains(v);
     case 'haze': return haze(v);
+    case 'scan': return scan(v);
+    case 'plate': return plate(v);
   }
 }
 
@@ -244,4 +249,83 @@ function haze(v: V): number[] {
   });
   glints.connect(v.out);
   return [D2 * 2, D2 * 3];
+}
+
+// ------------------------------------------------------------------ scan: the machine reading the surface
+function scan(v: V): number[] {
+  const { a, A } = v;
+  const c = a.ctx;
+  const sweeps = A.s.arousal > 0.55 ? 2 : 1;
+  const sweepDur = (v.shot.dur / sweeps) / lerp(1, 0.6, A.lazy);
+  const base = D2 * 16 * Math.pow(2, lerp(-0.5, 0.5, A.s.pitch));
+  // one thin tone whose pitch traces the profile the laser crosses (the tape stands for the surface)
+  const o = c.createOscillator();
+  o.type = 'sine';
+  const steps = Math.floor(v.shot.dur / 0.05);
+  for (let i = 0; i <= steps; i++) {
+    const t = v.start + i * 0.05;
+    const h = A.tape[(i * 3) % A.tape.length];
+    o.frequency.setValueAtTime(base * Math.pow(2, (h - 0.5) * 1.2), t);
+  }
+  const g = c.createGain();
+  g.gain.value = 0.08;
+  o.connect(g).connect(v.out);
+  o.start(v.start);
+  o.stop(v.end + 0.02);
+  // a click as each sweep begins
+  const clicks = rendered(v, (L, R, sr) => {
+    for (let k = 0; k < sweeps; k++) {
+      const s0 = Math.floor(k * sweepDur * sr);
+      for (let i = 0; i < 24 && s0 + i < L.length; i++) { const x = (i < 12 ? 0.6 : -0.6) * (1 - i / 24); L[s0 + i] += x; R[s0 + i] += x; }
+    }
+  });
+  clicks.connect(v.out);
+  return [D2 * 8];
+}
+
+// ------------------------------------------------------------------ plate: the plate itself, in the mode that shapes the sand
+function plate(v: V): number[] {
+  const { a, A } = v;
+  const c = a.ctx;
+  const modes = plateModes(A, v.shot.seed);
+  const seg = v.shot.dur / modes.length;
+  // a square plate's mode frequency ∝ m² + n²: one bowed resonance per mode, switching with the figure
+  const freqOf = ([m, n]: [number, number]) => D2 * 2 * (m * m + n * n) / 8;
+  const bowIn = noiseSrc(v);
+  const out = c.createGain();
+  out.gain.value = 5;
+  out.connect(v.out);
+  const bands = [1, 2.01, 3.03].map((r, i) => {
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 600 / (1 + i);
+    const g = c.createGain();
+    g.gain.value = [1, 0.4, 0.2][i];
+    bowIn.connect(bp).connect(g).connect(out);
+    return { bp, r };
+  });
+  const tone = c.createOscillator();
+  const tg = c.createGain();
+  tg.gain.value = 0.03;
+  tone.connect(tg).connect(v.out);
+  modes.forEach((md, k) => {
+    const t = v.start + k * seg;
+    const f = freqOf(md);
+    for (const b of bands) b.bp.frequency.setValueAtTime(f * b.r, t);
+    tone.frequency.setValueAtTime(f, t);
+  });
+  tone.start(v.start);
+  tone.stop(v.end + 0.02);
+  // the sand hissing as it migrates (strongest just after each change of mode)
+  const hiss = rendered(v, (L, R, sr) => {
+    for (let i = 0; i < L.length; i++) {
+      const u = (i / sr) % seg / seg;
+      const x = (v.rand() * 2 - 1) * 0.02 * Math.exp(-u * 3);
+      L[i] += x; R[i] += x * 0.9;
+    }
+  });
+  const hp = c.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = 4000;
+  hiss.connect(hp).connect(v.out);
+  return modes.map(freqOf).slice(0, 1);
 }
