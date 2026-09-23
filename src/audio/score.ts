@@ -2,41 +2,42 @@
  * The score: schedules one performance's sound from the same plan the image
  * plays, on the same clock (t0 = performance start, audio time).
  *
- * - Appraisal: every cut is sonified from the same data it shows (bits →
- *   clicks, digits → blips, spectrum → sine clusters…), rendered sample-exact
- *   into one buffer so sound and image cut together.
- * - Chorus: robot voices "reading" the tape — sawtooth glottis through vowel
- *   formants, staccato syllables, stepwise pitch. Jev's reading sets their
- *   character (age, dominance, arousal, matter: metal rings, smoke whispers).
+ * - Appraisal: every cut is sonified from the same data it shows — bits as
+ *   clicks, digits as rectangular test tones, the spectrum as a sine cluster,
+ *   one pure tone that closes with the line — rendered sample-exact into one
+ *   dry buffer, so sound and image cut together. The first cut replays how the
+ *   word was typed.
+ * - Voices: robot voices read the digits on screen (voice.ts, in a worker).
  * - Verdict: one voice per clip (clips.ts), hard-cut with the image.
- * - Release: the dry path is cut with the image; only the reverb rings on.
+ * - Release: the hall blooms once at the cut to black; the drone ducks.
  */
 import type { Appraisal } from '../jev/appraisal.ts';
 import type { Cut, Plan } from '../show/director.ts';
 import { D2, type AudioEngine } from './audio.ts';
 import type { Drone } from './drone.ts';
 import { playShot } from './clips.ts';
-import { mulberry32 } from '../core/rng.ts';
+import type { VoiceSpec } from './voice.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const VOICE_SR = 16000;
+
+let worker: Worker | null = null;
+let nextId = 1;
 
 export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan, t0: number) {
   const buf = renderAppraisal(a.ctx, A, plan.cuts);
   const src = a.ctx.createBufferSource();
   src.buffer = buf;
   const g = a.ctx.createGain();
-  g.gain.value = 0.9;
-  const s = a.ctx.createGain();
-  s.gain.value = 0.18;
+  g.gain.value = 0.35; // precise, not big: the verdict carries the dynamics
   src.connect(g).connect(a.perfDry);
-  g.connect(s).connect(a.perfSend);
   src.start(t0);
 
-  const verdictAt = plan.shots[0]?.start ?? plan.blackAt;
-  chorus(a, A, t0 + 0.08, t0 + verdictAt);
+  voices(a, A, plan.cuts, t0);
   const residue: number[] = [];
-  for (const shot of plan.shots) residue.push(...playShot(a, A, shot, t0));
+  for (const shot of plan.shots) residue.push(...playShot(a, drone, A, shot, t0));
   a.cutAt(t0 + plan.blackAt, t0 + plan.end);
+  drone.duck(t0 + plan.blackAt);
   drone.remember({
     rough: Math.min(1, A.s.arousal * 0.6 + A.s.tension * 0.4),
     bright: A.s.light,
@@ -47,7 +48,7 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, plan
 // ------------------------------------------------------------------ appraisal
 function renderAppraisal(ctx: BaseAudioContext, A: Appraisal, cuts: Cut[]): AudioBuffer {
   const sr = ctx.sampleRate;
-  const end = cuts.length ? cuts[cuts.length - 1].start + cuts[cuts.length - 1].dur + 0.3 : 0.5;
+  const end = cuts.length ? cuts[cuts.length - 1].start + cuts[cuts.length - 1].dur + 0.1 : 0.5;
   const buf = ctx.createBuffer(2, Math.ceil(end * sr), sr);
   const L = buf.getChannelData(0), R = buf.getChannelData(1);
   const tape = A.tape;
@@ -56,35 +57,34 @@ function renderAppraisal(ctx: BaseAudioContext, A: Appraisal, cuts: Cut[]): Audi
   const aro = A.s.arousal;
 
   const add = (i: number, l: number, r: number) => { if (i >= 0 && i < L.length) { L[i] += l; R[i] += r; } };
-  const blip = (t: number, f: number, dur: number, amp: number, pan: number) => {
+  /** A rectangular-gated test tone starting at a zero crossing: a signal, not a plink. */
+  const burst = (t: number, f: number, dur: number, amp: number, pan: number) => {
     const n = Math.floor(dur * sr), s0 = Math.floor(t * sr);
     for (let k = 0; k < n; k++) {
-      const e = Math.min(1, k / 48) * Math.exp(-k / (n * 0.35));
-      const v = Math.sin((2 * Math.PI * f * k) / sr) * e * amp;
+      const v = Math.sin((2 * Math.PI * f * k) / sr) * amp;
       add(s0 + k, v * (1 - pan), v * (1 + pan));
     }
   };
 
+  // the gesture: the first cut replays how the word was typed, as clicks, 4× faster
+  let tc = 0;
+  for (const dt of A.typing.intervals) {
+    tc += dt / 4000;
+    if (tc > (cuts[0]?.dur ?? 0.2)) break;
+    add(Math.floor(tc * sr), 0.55, 0.55);
+  }
+
   for (const c of cuts) {
     const s0 = Math.floor(c.start * sr), n = Math.floor(c.dur * sr);
-    // a low hit marks the cut (felt more than heard)
-    if (c.variant < 0.45 || c.mode === 'line') {
-      for (let k = 0; k < sr * 0.09; k++) {
-        const f = 62 - 18 * (k / (sr * 0.09));
-        const v = Math.sin((2 * Math.PI * f * k) / sr) * Math.exp(-k / (sr * 0.025)) * 0.32;
-        add(s0 + k, v, v);
-      }
-    }
     switch (c.mode) {
       case 'barcode': {
         // the bars you see, as clicks: one per set bit, at the scroll rate
         const w = 1 + Math.floor(c.variant * 3);
-        const rate = (300 + 2200 * aro) / w; // bars per second (CSS px basis)
+        const rate = (300 + 2200 * aro) / w;
         for (let b = 0; b < c.dur * rate; b++) {
-          const bit = (byteOf(Math.floor(b / 8)) >> (b % 8)) & 1;
-          if (!bit) continue;
+          if (!((byteOf(Math.floor(b / 8)) >> (b % 8)) & 1)) continue;
           const i = s0 + Math.floor((b / rate) * sr);
-          const amp = 0.5 * (b % 2 ? 1 : -1);
+          const amp = 0.55 * (b % 2 ? 1 : -1);
           add(i, amp * (b % 3 ? 1 : 0.4), amp * (b % 3 ? 0.4 : 1));
         }
         break;
@@ -92,9 +92,8 @@ function renderAppraisal(ctx: BaseAudioContext, A: Appraisal, cuts: Cut[]): Audi
       case 'numbers': {
         const rows = Math.max(6, Math.floor(c.dur * (18 + 40 * aro)));
         for (let r = 0; r < rows; r++) {
-          const v = tv(r * 7 + Math.floor(c.variant * 97));
-          const digit = Math.floor(v * 10) % 10;
-          blip(c.start + (r / rows) * c.dur, 1200 + digit * 480, 0.011, 0.1, ((r * 0.37) % 1) * 1.6 - 0.8);
+          const digit = Math.floor(tv(r * 7 + Math.floor(c.variant * 97)) * 10) % 10;
+          burst(c.start + (r / rows) * c.dur, 1200 + digit * 480, 0.008, 0.12, ((r * 0.37) % 1) * 1.6 - 0.8);
         }
         break;
       }
@@ -102,11 +101,9 @@ function renderAppraisal(ctx: BaseAudioContext, A: Appraisal, cuts: Cut[]): Audi
         const k0 = Math.floor(c.variant * 50);
         for (let j = 0; j < 20; j++) {
           const v = tv(k0 + j);
-          const f = 110 * Math.pow(2, v * 6.5);
+          const f = 110 * Math.pow(2, v * 5.9); // ≤ 6.5 kHz: never a piercing sustained sine
           for (let k = 0; k < n; k++) {
-            const reveal = Math.min(1, k / (n * 0.6));
-            const e = reveal * Math.min(1, (n - k) / 240) * 0.035 * v;
-            const x = Math.sin((2 * Math.PI * f * k) / sr) * e;
+            const x = Math.sin((2 * Math.PI * f * k) / sr) * 0.03 * v * Math.min(1, k / (n * 0.6));
             add(s0 + k, x * (j % 2 ? 0.6 : 1), x * (j % 2 ? 1 : 0.6));
           }
         }
@@ -116,24 +113,23 @@ function renderAppraisal(ctx: BaseAudioContext, A: Appraisal, cuts: Cut[]): Audi
         const rate = 1600;
         for (let k = 0; k < n; k++) {
           const b = Math.floor((k / sr) * rate);
-          const bit = (byteOf(Math.floor(b / 8)) >> (b % 8)) & 1;
-          const x = bit ? ((k >> 2) & 1 ? 0.07 : -0.07) : 0;
+          const x = (byteOf(Math.floor(b / 8)) >> (b % 8)) & 1 ? ((k >> 2) & 1 ? 0.08 : -0.08) : 0;
           add(s0 + k, x, x * 0.7);
         }
         break;
       }
       case 'scatter': {
         const pts = Math.min(tape.length, 40);
-        for (let j = 0; j < pts; j++) blip(c.start + (j / pts) * c.dur * 0.85, 300 + tv(j) * 3600, 0.03, 0.08, tv(j + 1) * 2 - 1);
+        for (let j = 0; j < pts; j++) burst(c.start + (j / pts) * c.dur * 0.85, 300 + tv(j) * 3600, 0.006, 0.1, tv(j + 1) * 2 - 1);
         break;
       }
       case 'line': {
-        // one pure tone (D6) that closes with the line; a click where it becomes a point
+        // the one sub pulse (rectangular, 55 Hz, 40 ms) as the line appears; a pure D6 that closes with it; a click where it becomes a point
+        for (let k = 0; k < sr * 0.04; k++) { const v = Math.sin((2 * Math.PI * 55 * k) / sr) * 0.12; add(s0 + k, v, v); }
         const f = D2 * 16;
         for (let k = 0; k < n; k++) {
           const u = k / n;
-          const e = Math.min(1, k / 200) * (1 - Math.max(0, (u - 0.25) / 0.7)) * 0.16;
-          const x = Math.sin((2 * Math.PI * f * k) / sr) * Math.max(0, e);
+          const x = Math.sin((2 * Math.PI * f * k) / sr) * 0.14 * Math.max(0, 1 - Math.max(0, (u - 0.25) / 0.7));
           add(s0 + k, x, x);
         }
         add(s0 + n - 1, 0.7, 0.7);
@@ -141,111 +137,61 @@ function renderAppraisal(ctx: BaseAudioContext, A: Appraisal, cuts: Cut[]): Audi
       }
     }
   }
-  // gentle saturation keeps the transients hard but the sum bounded
-  for (const ch of [L, R]) for (let i = 0; i < ch.length; i++) ch[i] = Math.tanh(ch[i] * 1.2) * 0.9;
+  // a hard ceiling only: transients stay hard
+  for (const ch of [L, R]) for (let i = 0; i < ch.length; i++) ch[i] = Math.max(-0.98, Math.min(0.98, ch[i]));
   return buf;
 }
 
-// ------------------------------------------------------------------ chorus
-const VOWELS: [number, number, number][] = [
-  [800, 1150, 2900], [400, 1600, 2700], [270, 2300, 3000], [450, 800, 2830],
-  [325, 700, 2530], [660, 1700, 2400], [500, 1500, 2500],
-];
-const JUST = [1, 3 / 2, 2, 5 / 2, 3, 4, 9 / 2, 5];
-
-function chorus(a: AudioEngine, A: Appraisal, from: number, to: number) {
-  const c = a.ctx;
-  const rand = mulberry32(A.seed ^ 0xc0ffee);
-  const voices = Math.round(lerp(4, 11, A.s.density * 0.5 + A.s.arousal * 0.5));
-  const syl = lerp(5, 14, A.s.arousal);
-  const base = D2 * Math.pow(2, lerp(-0.2, 1.6, A.s.pitch * 0.6 + (1 - A.s.age) * 0.2 + (1 - A.s.dominance) * 0.2));
-  const shift = lerp(0.85, 1.3, 1 - A.s.age);
+// ------------------------------------------------------------------ voices
+function voices(a: AudioEngine, A: Appraisal, cuts: Cut[], t0: number) {
+  if (!cuts.length) return;
+  worker ??= new Worker(new URL('./voice.worker.ts', import.meta.url), { type: 'module' });
   const m = A.c.material.p;
-  const whisper = Math.min(1, m.smoke + m.void * 0.7 + (1 - A.s.loudness) * 0.3);
-  const metal = Math.min(1, m.metal + m.glass * 0.6);
-  const heat = Math.min(1, m.fire + A.s.arousal * A.s.tension);
-  const tape = A.tape;
-
-  const out = c.createGain();
-  out.gain.value = lerp(0.05, 0.11, A.s.loudness) / Math.sqrt(voices / 4);
-  let tail: AudioNode = out;
-  if (heat > 0.4) {
-    const ws = c.createWaveShaper();
-    const curve = new Float32Array(1024);
-    for (let i = 0; i < curve.length; i++) { const x = (i / 511.5 - 1) * (1 + heat * 6); curve[i] = Math.tanh(x); }
-    ws.curve = curve;
-    out.connect(ws);
-    tail = ws;
-  }
-  if (metal > 0.35) {
-    const ring = c.createGain();
-    ring.gain.value = 0;
-    const mod = c.createOscillator();
-    mod.frequency.value = lerp(300, 900, A.s.pitch);
-    mod.connect(ring.gain);
-    mod.start(from);
-    mod.stop(to + 0.1);
-    tail.connect(ring);
-    const mix = c.createGain();
-    mix.gain.value = 1;
-    ring.connect(mix);
-    tail = mix;
-  }
-  tail.connect(a.perfDry);
-  const snd = c.createGain();
-  snd.gain.value = 0.25;
-  tail.connect(snd).connect(a.perfSend);
-
-  for (let v = 0; v < voices; v++) {
-    const pan = c.createStereoPanner();
-    pan.pan.value = (v / Math.max(1, voices - 1)) * 1.6 - 0.8;
-    const env = c.createGain();
-    env.gain.value = 0;
-    env.connect(pan).connect(out);
-    const formants = [0, 1, 2].map((k) => {
-      const f = c.createBiquadFilter();
-      f.type = 'bandpass';
-      f.Q.value = [7, 11, 14][k];
-      const g = c.createGain();
-      g.gain.value = [1, 0.55, 0.3][k];
-      f.connect(g).connect(env);
-      return f;
-    });
-    // glottis: a sawtooth, or breath for whispering matter
-    let src: AudioScheduledSourceNode;
-    let osc: OscillatorNode | null = null;
-    if (rand() < whisper) {
-      const n = c.createBufferSource();
-      n.buffer = a.noise;
-      n.loop = true;
-      src = n;
-    } else {
-      osc = c.createOscillator();
-      osc.type = 'sawtooth';
-      src = osc;
+  const count = Math.round(lerp(4, 16, A.s.density * 0.5 + A.s.arousal * 0.5));
+  // the first voice reads the word's own bytes; the others read the tape the screen shows
+  const bytesDigits = [...A.bytes].flatMap((b) => String(b).split('').map(Number));
+  const digits: number[][] = [bytesDigits.length ? bytesDigits : [0]];
+  for (let v = 1; v < count; v++) {
+    const seq: number[] = [];
+    for (let k = 0; k < 12; k++) {
+      const x = Math.floor(A.tape[(v * 13 + k) % A.tape.length] * 10000);
+      seq.push(...String(x).padStart(4, '0').split('').map(Number));
     }
-    for (const f of formants) src.connect(f);
-    const start = from + rand() * 0.25;
-    src.start(start);
-    src.stop(to + 0.05);
-
-    const step = 1 / syl;
-    let t = start;
-    let j = 0;
-    let ratio = JUST[Math.floor(rand() * JUST.length)];
-    while (t < to - 0.02) {
-      const val = tape[(v * 13 + j) % tape.length];
-      if (j % 4 === 0) ratio = JUST[Math.floor(val * JUST.length) % JUST.length]; // robotic stepwise intonation
-      if (osc) osc.frequency.setValueAtTime(base * ratio * (v % 3 === 2 ? 0.5 : 1), t);
-      const vw = VOWELS[Math.floor(val * VOWELS.length) % VOWELS.length];
-      formants.forEach((f, k) => f.frequency.setValueAtTime(vw[k] * shift, t));
-      const on = step * lerp(0.55, 0.8, rand());
-      env.gain.setValueAtTime(0, t);
-      env.gain.linearRampToValueAtTime(1, t + 0.008);
-      env.gain.setValueAtTime(1, Math.min(t + on, to));
-      env.gain.linearRampToValueAtTime(0, Math.min(t + on + 0.012, to + 0.02));
-      t += step * (0.85 + rand() * 0.3);
-      j++;
-    }
+    digits.push(seq);
   }
+  const h = A.s.age < 0.33 ? 4 : A.s.age < 0.66 ? 3 : 2;
+  const spec: VoiceSpec = {
+    sr: VOICE_SR,
+    digits,
+    cuts: cuts.map((c) => ({ start: c.start, dur: c.dur, mode: c.mode })),
+    end: cuts[cuts.length - 1].start + cuts[cuts.length - 1].dur,
+    f0: D2 * h,
+    formantScale: lerp(0.85, 1.25, 1 - A.s.age),
+    rate: lerp(2.5, 7, A.s.arousal),
+    crush: Math.min(1, 0.3 + A.s.tension * 0.7),
+    lead: A.s.dominance,
+    whisper: Math.min(1, m.smoke + m.void * 0.7),
+    tin: Math.min(1, m.metal + m.glass * 0.6),
+    drive: m.fire,
+    seed: A.seed,
+  };
+  const id = nextId++;
+  const onMessage = (e: MessageEvent<{ id: number; pcm: Float32Array }>) => {
+    if (e.data.id !== id) return;
+    worker!.removeEventListener('message', onMessage);
+    const pcm = e.data.pcm;
+    const frames = pcm.length / 2;
+    const buf = a.ctx.createBuffer(2, frames, VOICE_SR);
+    const l = buf.getChannelData(0), r = buf.getChannelData(1);
+    for (let i = 0; i < frames; i++) { l[i] = pcm[i * 2]; r[i] = pcm[i * 2 + 1]; }
+    const src = a.ctx.createBufferSource();
+    src.buffer = buf;
+    const g = a.ctx.createGain();
+    g.gain.value = 0.22;
+    src.connect(g).connect(a.perfDry);
+    const late = Math.max(0, a.now - t0);
+    src.start(t0 + late, late); // sample-locked to the cuts; if the worker was late, join in step
+  };
+  worker.addEventListener('message', onMessage);
+  worker.postMessage({ id, spec });
 }

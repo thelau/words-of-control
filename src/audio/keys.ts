@@ -17,7 +17,10 @@ function hash(s: string): number {
 export class Keys {
   private impulse: AudioBuffer;
 
-  constructor(private a: AudioEngine) {
+  private a: AudioEngine;
+
+  constructor(a: AudioEngine) {
+    this.a = a;
     const c = a.ctx;
     this.impulse = c.createBuffer(1, Math.floor(c.sampleRate * 0.002), c.sampleRate);
     const d = this.impulse.getChannelData(0);

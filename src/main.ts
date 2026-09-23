@@ -27,7 +27,22 @@ export type State = 'idle' | 'typing' | 'analyzing' | 'performing' | 'barred' | 
 
 const query = new URLSearchParams(location.search);
 
-const BLOOM: Record<Layer, number> = { room: 0.12, black: 0, appraisal: 0.04, relief: 0.03, fracture: 0.2, grains: 0.18, haze: 0.14 };
+// grading per layer: neutral bloom, film halation (only the brightest light), flat = data (true black)
+const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = {
+  room: { bloom: 0.06, halation: 0, flat: 0 }, black: { bloom: 0, halation: 0, flat: 0 },
+  appraisal: { bloom: 0.02, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
+  fracture: { bloom: 0.05, halation: 0.06, flat: 0 }, grains: { bloom: 0.08, halation: 0.08, flat: 0 },
+  haze: { bloom: 0.08, halation: 0.03, flat: 0 },
+};
+
+/** White balance from the matter: cold for glass, ice, water; warm for fire, sand, lazy afternoons. */
+function whiteBalance(A: Appraisal): [number, number, number] {
+  const m = A.c.material.p;
+  const cold = Math.min(1, m.glass + m.ice + m.water + m.metal * 0.5);
+  const warm = Math.min(1, m.fire + m.sand + m.wood * 0.5 + A.lazy * 0.6);
+  const k = warm - cold; // -1 cold … +1 warm
+  return [1 + 0.12 * k, 1 + 0.02 * k, 1 - 0.18 * k];
+}
 
 /** A performance in flight: its plan, its start on the shared clock. */
 export type Show = { A: Appraisal; plan: Plan; t0: number };
@@ -61,6 +76,7 @@ async function boot() {
   const frame = new Frame();
   frame.set('outX', renderer.width); frame.set('outY', renderer.height); frame.set('outDpr', renderer.dpr);
   frame.set('resX', renderer.lowW); frame.set('resY', renderer.lowH); frame.set('dpr', 1);
+  frame.set('wbR', 1); frame.set('wbG', 1); frame.set('wbB', 1); frame.set('zoom', 1);
   renderer.warmUp(frame.f32);
   const display = new Display();
 
@@ -110,6 +126,7 @@ async function boot() {
 
   function perform(answers: Answers, text: string) {
     const A = buildAppraisal(answers, text, typing.trace(), seedFromText(text));
+    renderer.setWord(text);
     performPlan(A, direct(A));
   }
 
@@ -222,7 +239,7 @@ async function boot() {
 
     let layer: Layer = 'room';
     let persist = 0.9;
-    f('flash', 0); f('invert', 0); f('mode', 0);
+    f('flash', 0); f('invert', 0); f('mode', 0); f('zoom', 1); f('offX', 0); f('offY', 0);
     if (show) {
       const m = momentAt(show.plan, clock() - show.t0, show.A.s.arousal);
       moment = m;
@@ -237,6 +254,7 @@ async function boot() {
         f('variant', m.variant); f('aborted', m.aborted ? 1 : 0);
         f('flash', m.flash); f('invert', m.invert ? 1 : 0);
         f('mode', m.mode);
+        f('zoom', m.zoom); f('offX', m.offX); f('offY', m.offY);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
         if (m.key !== lastKey && layer === 'grains') {
           renderer.clearTrail();
@@ -249,15 +267,18 @@ async function boot() {
         }
         lastKey = m.key;
         const mat = show.A.c.material.p;
-        persist = Math.pow(0.86 + 0.1 * Math.min(1, mat.smoke + mat.void * 0.5) + 0.04 * mat.fire, dt * 60);
+        const sparks = Math.min(1, show.A.c.motion.p.spreading + show.A.c.motion.p.breaking);
+        persist = Math.pow(Math.max(0.86 + 0.1 * Math.min(1, mat.smoke + mat.void * 0.5) + 0.04 * mat.fire, 0.95 * sparks), dt * 60);
       }
     }
     if (layer === 'room') {
       roomFade = Math.min(1, roomFade + dt / 1.8);
       f('layerFade', roomFade * roomFade);
     }
-    // bloom per layer: data and relief stay crisp; sparks and light glow
-    f('bloom', BLOOM[layer]);
+    const g = GRADE[layer];
+    f('bloom', g.bloom); f('halation', g.halation); f('flat', g.flat);
+    const wb = show && layer !== 'appraisal' ? whiteBalance(show.A) : [1, 1, 1];
+    f('wbR', wb[0]); f('wbG', wb[1]); f('wbB', wb[2]);
     // text and lines are drawn at native resolution; everything soft (and scatter's dots) at CSS resolution
     const hi = layer === 'appraisal' && moment?.mode !== CUT_MODES.indexOf('scatter');
     f('hiRes', hi ? 1 : 0);

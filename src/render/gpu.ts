@@ -27,6 +27,8 @@ const BLOOM_LEVELS = 6;
 const TAPE_MAX = 1024;
 const RELIEF_RES = 640;
 const GRAINS_DEFAULT = 150_000;
+const WORD_W = 2048;
+const WORD_H = 160;
 
 type Target = { tex: GPUTexture; view: GPUTextureView };
 
@@ -48,6 +50,7 @@ export class Renderer {
   private sampler!: GPUSampler;
   private atlas!: GPUTexture;
   private heightTex!: GPUTexture;
+  private wordTex!: GPUTexture;
   private scene!: Target;   // soft layers, CSS resolution
   private sceneHi!: Target; // the appraisal's data, native resolution
   private trail!: Target;
@@ -64,7 +67,10 @@ export class Renderer {
   /** Last measured GPU time of a frame, in ms (dev only; -1 when unavailable). */
   gpuMs = -1;
 
-  constructor(readonly canvas: HTMLCanvasElement, grains = GRAINS_DEFAULT) {
+  readonly canvas: HTMLCanvasElement;
+
+  constructor(canvas: HTMLCanvasElement, grains = GRAINS_DEFAULT) {
+    this.canvas = canvas;
     this.grainCount = grains;
   }
 
@@ -95,6 +101,7 @@ export class Renderer {
     this.raysBuf = d.createBuffer({ size: MAX_RAYS * RAY_VEC4 * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
     this.atlas = await makeGlyphAtlas(d);
+    this.wordTex = d.createTexture({ size: [WORD_W, WORD_H], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
     this.heightTex = d.createTexture({
       size: [RELIEF_RES, RELIEF_RES], format: HDR,
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
@@ -165,7 +172,8 @@ export class Renderer {
     group('fracture', this.p.fracture, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.raysBuf } }]);
     group('appraisal', this.p.appraisal, [
       { binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } },
-      { binding: 2, resource: this.atlas.createView() }, { binding: 3, resource: this.sampler },
+      { binding: 2, resource: this.atlas.createView() },
+      { binding: 4, resource: this.wordTex.createView() },
     ]);
     group('reliefHeight', this.c.reliefHeight, [{ binding: 0, resource: uni }, { binding: 1, resource: this.heightTex.createView() }]);
     group('relief', this.p.relief, [{ binding: 0, resource: uni }, { binding: 2, resource: this.heightTex.createView() }, { binding: 3, resource: this.sampler }]);
@@ -177,6 +185,19 @@ export class Renderer {
   /** The crack pattern of the fracture shot about to play (fractureRays.ts). */
   setFracture(data: Float32Array) {
     this.d.queue.writeBuffer(this.raysBuf, 0, data);
+  }
+
+  /** Draw the typed word once for the appraisal's opening cut (any script; never stored). */
+  setWord(text: string) {
+    const c = new OffscreenCanvas(WORD_W, WORD_H);
+    const g = c.getContext('2d')!;
+    g.clearRect(0, 0, WORD_W, WORD_H);
+    g.fillStyle = '#fff';
+    g.font = '400 120px "IBM Plex Mono", ui-monospace, monospace';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(text, WORD_W / 2, WORD_H / 2, WORD_W - 40);
+    this.d.queue.copyExternalImageToTexture({ source: c }, { texture: this.wordTex }, [WORD_W, WORD_H]);
   }
 
   setTape(tape: Float32Array) {

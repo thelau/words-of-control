@@ -1,12 +1,12 @@
 // APPRAISAL — the machine reading the word, as raw data. Every mark is a real
 // value from this word's tape (Jev's distributions, scores, confidences, the
 // word's UTF-8 bytes, the typing rhythm). Monochrome, pixel-exact, one accent.
-// Modes: 0 barcode · 1 numbers · 2 spectrum · 3 bits · 4 scatter · 5 line.
+// Modes: 0 barcode · 1 numbers · 2 spectrum · 3 bits · 4 scatter · 5 line · 6 word.
 
 @group(0) @binding(0) var<uniform> F: FrameU;
 @group(0) @binding(1) var<storage, read> tape: array<f32>;
 @group(0) @binding(2) var atlas: texture_2d<f32>;
-@group(0) @binding(3) var samp: sampler;
+@group(0) @binding(4) var wordTex: texture_2d<f32>; // the typed word, drawn once per performance
 
 const GLYPHS_PER_ROW = 16.0; // atlas row 0: 0-9 A-F · row 1: . - x : (16..19), blank (20)
 
@@ -24,8 +24,9 @@ fn acc() -> vec3f { return vec3f(F.accR, F.accG, F.accB); }
 fn glyph(g: f32, uv: vec2f) -> f32 {
   let col = g % GLYPHS_PER_ROW;
   let row = floor(g / GLYPHS_PER_ROW);
-  let a = vec2f((col + uv.x) / GLYPHS_PER_ROW, (row + uv.y) / 2.0);
-  return textureSampleLevel(atlas, samp, a, 0.0).a;
+  let dim = vec2f(textureDimensions(atlas));
+  let a = vec2f((col + uv.x) / GLYPHS_PER_ROW, (row + uv.y) / 2.0) * dim;
+  return textureLoad(atlas, vec2i(clamp(a, vec2f(0.0), dim - 1.0)), 0).a; // nearest: crisp figures
 }
 
 fn hexDigit(b: u32, hi: bool) -> f32 { return f32(select(b & 15u, (b >> 4u) & 15u, hi)); }
@@ -57,11 +58,16 @@ fn numbers(px: vec2f, res: vec2f) -> vec3f {
   let j = i32(floor(lx / cw));
   let gh = fract(sin(group * 12.9898 + F.variant * 78.233) * 43758.5453);
   let dir = select(1.0, -1.0, gh > 0.5);
-  let scroll = F.lt * ch * (4.0 + 26.0 * gh) * (0.5 + F.s_arousal) * dir;
+  // whole-pixel scroll: figures stay crisp
+  let scroll = floor(F.lt * ch * (4.0 + 26.0 * gh) * (0.5 + F.s_arousal) * dir / F.dpr) * F.dpr;
   let rowf = (px.y + scroll) / ch;
   let row = floor(rowf);
   let uv = vec2f(fract(lx / cw), fract(rowf));
-  let k = i32(row) * 7 + i32(group) * 13 + i32(F.variant * 97.0);
+  // every value appears once: column-major over the tape, black past its end
+  let rows = ceil(F.tapeLen / nG);
+  let rr = row - floor(row / (rows + 6.0)) * (rows + 6.0);
+  let k = i32(group * rows + rr);
+  if (rr >= rows || f32(k) >= F.tapeLen) { return vec3f(0.0); }
   let v = tv(k);
   var g = 20.0; // blank cell
   if (gh < 0.3) {
@@ -114,30 +120,31 @@ fn bits(px: vec2f, res: vec2f) -> vec3f {
 }
 
 fn scatter(px: vec2f, res: vec2f) -> vec3f {
+  // a return map: each value against the next, joined in order, drawn progressively
   let side = res.y * 0.7;
   let o = (res - vec2f(side)) * 0.5;
   let q = px - o;
   var c = vec3f(0.0);
-  // frame
   let e = min(min(q.x, q.y), min(side - q.x, side - q.y));
-  if (abs(e) < F.dpr * 0.6) { c += ink() * 0.35; }
-  let n = min(i32(F.tapeLen), 56);
-  let shown = i32(F.u * 1.2 * f32(n));
-  var last = vec2f(-1e4);
-  // only pixels inside the plot need the points (the loop is per pixel)
+  if (abs(e) < F.dpr * 0.6) { c += ink() * 0.25; }
   let inside = q.x > -2.0 * F.dpr && q.y > -2.0 * F.dpr && q.x < side + 2.0 * F.dpr && q.y < side + 2.0 * F.dpr;
-  for (var i = 0; i < 56; i++) {
-    if (!inside) { break; }
+  if (!inside) { return c; }
+  let n = min(i32(F.tapeLen) - 1, 56);
+  let shown = i32(F.u * 1.15 * f32(n));
+  var prevPt = vec2f(tv(0), 1.0 - tv(1)) * side;
+  for (var i = 1; i < 56; i++) {
     if (i >= min(shown, n)) { break; }
     let pt = vec2f(tv(i), 1.0 - tv(i + 1)) * side;
     let dv = q - pt;
     let d2 = dot(dv, dv);
-    if (d2 < 16.0 * F.dpr * F.dpr) { c += ink() * exp(-d2 / (1.6 * F.dpr * F.dpr)); }
-    last = pt;
-  }
-  // crosshair on the latest reading
-  if (abs(q.x - last.x) < F.dpr * 0.5 || abs(q.y - last.y) < F.dpr * 0.5) {
-    if (q.x > 0.0 && q.y > 0.0 && q.x < side && q.y < side) { c += acc() * 0.8; }
+    if (d2 < 9.0 * F.dpr * F.dpr) { c += ink() * exp(-d2 / (0.8 * F.dpr * F.dpr)); }
+    // the thin line from the previous reading
+    let pa = q - prevPt;
+    let ba = pt - prevPt;
+    let dl = length(pa - ba * clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0));
+    if (dl < F.dpr) { c += ink() * 0.28 * (1.0 - dl / F.dpr); }
+    if (i == min(shown, n) - 1 && (abs(q.x - pt.x) < F.dpr * 0.5 || abs(q.y - pt.y) < F.dpr * 0.5)) { c += acc() * 0.7; }
+    prevPt = pt;
   }
   return c;
 }
@@ -148,6 +155,33 @@ fn line(px: vec2f, res: vec2f) -> vec3f {
   let d = abs(px.y - res.y * 0.5);
   if (abs(px.x - res.x * 0.5) > max(half, F.dpr)) { return vec3f(0.0); }
   return ink() * exp(-d * d / (0.5 * F.dpr * F.dpr)) * (1.0 + 2.0 * ss(0.8, 1.0, F.u));
+}
+
+fn word(px: vec2f, res: vec2f) -> vec3f {
+  // the typed word, as drawn once per performance, then its UTF-8 bytes in hex beneath
+  let dim = vec2f(textureDimensions(wordTex));
+  let h = res.y * 0.07;
+  let w = h * dim.x / dim.y;
+  let o = vec2f((res.x - w) * 0.5, res.y * 0.5 - h * 0.62);
+  let uv = (px - o) / vec2f(w, h);
+  var c = vec3f(0.0);
+  if (all(uv >= vec2f(0.0)) && all(uv < vec2f(1.0))) { c += ink() * textureLoad(wordTex, vec2i(uv * dim), 0).a; }
+  // bytes: "E6 B5 B7 …", appearing one by one
+  let cw = 8.0 * F.dpr;
+  let chh = 14.0 * F.dpr;
+  let nb = F.byteLen;
+  let rowW = nb * 3.0 * cw;
+  let bo = vec2f((res.x - rowW) * 0.5, res.y * 0.5 + h * 0.62);
+  let bq = (px - bo) / vec2f(cw, chh);
+  if (bq.y >= 0.0 && bq.y < 1.0 && bq.x >= 0.0 && bq.x < nb * 3.0) {
+    let bi = i32(floor(bq.x / 3.0));
+    let j = i32(floor(bq.x)) % 3;
+    if (j < 2 && f32(bi) < F.u * 1.3 * nb) {
+      let b = byteOf(bi);
+      c += acc() * glyph(hexDigit(b, j == 0), fract(bq));
+    }
+  }
+  return c;
 }
 
 @fragment
@@ -161,6 +195,7 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   else if (m == 2) { c = spectrum(px, res); }
   else if (m == 3) { c = bits(px, res); }
   else if (m == 4) { c = scatter(px, res); }
-  else { c = line(px, res); }
+  else if (m == 5) { c = line(px, res); }
+  else { c = word(px, res); }
   return vec4f(c * 1.4, 1.0);
 }

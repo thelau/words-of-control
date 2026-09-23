@@ -10,7 +10,7 @@ const live = process.argv.includes('--live');
 const s = await openSession({ width: 1280, height: 720, dpr: 1 });
 const { page } = s;
 const errors: string[] = [];
-page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('console', (m) => { if (m.type() === 'error' || /invalid|validation/i.test(m.text())) errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(e.message));
 const requests: string[] = [];
 page.on('request', (r) => { if (!r.url().includes('/@') && !r.url().includes('/src/') && !r.url().includes('node_modules')) requests.push(`${r.method()} ${new URL(r.url()).pathname} ${r.postData() ?? ''}`); });

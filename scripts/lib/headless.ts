@@ -22,7 +22,8 @@ export async function openSession(opts: { width?: number; height?: number; dpr?:
   const browser = await chromium.launch({ headless: true, args });
   const page = await browser.newPage({ viewport: { width: opts.width ?? 1280, height: opts.height ?? 720 }, deviceScaleFactor: opts.dpr ?? 1 });
   page.on('pageerror', (e) => console.error('[pageerror]', e.message));
-  page.on('console', (m) => { if (m.type() === 'error') console.error('[console]', m.text()); });
+  // WebGPU validation failures arrive as warnings: surface them too
+  page.on('console', (m) => { if (m.type() === 'error' || /invalid|validation/i.test(m.text())) console.error('[console]', m.text()); });
   return { server, browser, page, url, close: async () => { await browser.close(); await server.close(); } };
 }
 

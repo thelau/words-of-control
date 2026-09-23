@@ -20,7 +20,7 @@ mkdirSync(dir, { recursive: true });
 
 const s = await openSession({ width: W, height: H, dpr: DPR });
 const errors: string[] = [];
-s.page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+s.page.on('console', (m) => { if (m.type() === 'error' || /invalid|validation/i.test(m.text())) errors.push(m.text()); });
 await s.page.goto(`${s.url}?mock`);
 await s.page.waitForFunction(() => (window as any).__woc, null, { timeout: 30000 });
 await s.page.waitForTimeout(1200);

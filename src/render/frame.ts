@@ -8,9 +8,13 @@ import type { Appraisal } from '../jev/appraisal.ts';
 const FRAME = [
   'resX', 'resY', 'dpr', 'time', 'dt',
   'lt', 'dur', 'u', 'seed', 'variant', 'variant2', 'mode', 'aborted', 'layerFade',
+  // framing: every clip maps p = p / zoom + off (wide ↔ macro between repeated shots)
+  'zoom', 'offX', 'offY',
   'charge', 'kick', 'flash', 'invert', 'exposure', 'bloom', 'grain',
   // the output (canvas) size; scenes may render smaller (resX/resY) and be upscaled
   'outX', 'outY', 'outDpr', 'hiRes',
+  // grading per layer: white balance, halation, flat (data: pure black, no vignette)
+  'wbR', 'wbG', 'wbB', 'halation', 'flat',
 ] as const;
 
 // qualities read by the scenes (0..1)

@@ -10,14 +10,14 @@ import { mulberry32 } from '../core/rng.ts';
 export const CLIPS = ['relief', 'grains', 'fracture', 'haze'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
-export const CUT_MODES = ['barcode', 'numbers', 'spectrum', 'bits', 'scatter', 'line'] as const;
+export const CUT_MODES = ['barcode', 'numbers', 'spectrum', 'bits', 'scatter', 'line', 'word'] as const;
 export type CutMode = (typeof CUT_MODES)[number];
 
 /** One flash of the appraisal. */
 export type Cut = { start: number; dur: number; mode: CutMode; variant: number };
 
-/** One verdict clip. `u` values are the clip's own 0..1 controls (see each clip). */
-export type Shot = { clip: ClipId; start: number; dur: number; seed: number; aborted: boolean };
+/** One verdict clip, framed: zoom 1 = wide; > 1 = macro on (offX, offY). */
+export type Shot = { clip: ClipId; start: number; dur: number; seed: number; aborted: boolean; zoom: number; offX: number; offY: number };
 
 export type Plan = {
   cuts: Cut[];
@@ -54,12 +54,14 @@ export function direct(A: Appraisal): Plan {
   // ---- appraisal: rapid cuts, faster when the word is charged; always ends on a single line (the verdict reached)
   const appraisalDur = lerp(1.7, 2.6, clamp01(A.tape.length / 180)) * lerp(1.1, 0.85, aro);
   const cutLen = lerp(0.26, 0.075, aro) * (lazy > 0.6 ? 1.8 : 1);
-  const cuts: Cut[] = [];
-  let t = 0;
-  let prev: CutMode | null = null;
+  // it opens on the word itself and its bytes: proof the machine is reading *this*
+  const cuts: Cut[] = [{ start: 0, dur: lerp(0.32, 0.16, aro), mode: 'word', variant: 0 }];
+  let t = cuts[0].dur;
+  let prev: CutMode | null = 'word';
+  const readings: CutMode[] = ['barcode', 'numbers', 'spectrum', 'bits', 'scatter'];
   while (t < appraisalDur - 0.35) {
     let mode: CutMode;
-    do mode = CUT_MODES[Math.floor(rand() * (CUT_MODES.length - 1))]; while (mode === prev);
+    do mode = readings[Math.floor(rand() * readings.length)]; while (mode === prev);
     const irregular = rh === 'stuttering' ? 0.9 : rh === 'steady' ? 0.1 : 0.45;
     const dur = cutLen * lerp(1, 0.35 + rand() * 1.6, irregular);
     cuts.push({ start: t, dur, mode, variant: rand() });
@@ -74,7 +76,9 @@ export function direct(A: Appraisal): Plan {
   const aff = affinity(A);
   const ranked = [...CLIPS].sort((a, b) => aff[b] - aff[a]);
   const count = lazy > 0.7 ? 1 : Math.max(1, Math.min(4, Math.round(lerp(1.5, 4.2, aro) - lazy * 1.5)));
-  const verdictDur = lazy > 0.7 ? lerp(6, 9, lazy) : lerp(4.5, 9, clamp01(A.s.intensity * 0.7 + A.s.duration * 0.3));
+  // "nothing" is almost nothing: a short void and a long tail; an idle word lingers
+  const empty = A.c.material.top === 'void' && lazy > 0.6;
+  const verdictDur = empty ? 3.2 : lazy > 0.7 ? lerp(6, 9, lazy) : lerp(4.5, 9, clamp01(A.s.intensity * 0.7 + A.s.duration * 0.3));
   const gap = lazy > 0.7 ? 0 : lerp(0.45, 0.06, aro);
 
   // only clips that genuinely suit the word; the strongest repeat (new seed) when more shots are needed
@@ -95,16 +99,23 @@ export function direct(A: Appraisal): Plan {
   if (conf < 0.5 && lazy < 0.7) {
     const alt = ranked[1 + Math.floor(rand() * 2)];
     const d = lerp(0.35, 0.8, rand());
-    shots.push({ clip: alt, start: t, dur: d, seed: (rand() * 2 ** 31) | 0, aborted: true });
+    shots.push({ clip: alt, start: t, dur: d, seed: (rand() * 2 ** 31) | 0, aborted: true, zoom: 1, offX: 0, offY: 0 });
     t += d + lerp(0.25, 0.6, 1 - conf);
   }
+  // framing: a family seen again is seen differently — wide, then macro on a detail, then wide
+  const seen: Partial<Record<ClipId, number>> = {};
   picks.forEach((clip, i) => {
     const dur = ((verdictDur - gap * (count - 1)) * w[i]) / wsum;
-    shots.push({ clip, start: t, dur, seed: (rand() * 2 ** 31) | 0, aborted: false });
+    const n = (seen[clip] = (seen[clip] ?? 0) + 1);
+    const macro = n % 2 === 0;
+    const ang = rand() * Math.PI * 2;
+    const zoom = macro ? lerp(2.8, 5, rand()) : 1;
+    const off = macro ? lerp(0.12, 0.45, rand()) : 0;
+    shots.push({ clip, start: t, dur, seed: (rand() * 2 ** 31) | 0, aborted: false, zoom, offX: Math.cos(ang) * off, offY: Math.sin(ang) * off });
     t += dur + (i < count - 1 ? gap : 0);
   });
 
   const blackAt = t;
-  const tail = lerp(2.4, 4, clamp01(A.s.scale * 0.5 + A.s.duration * 0.5));
+  const tail = empty ? 6 : lerp(2.4, 4, clamp01(A.s.scale * 0.5 + A.s.duration * 0.5));
   return { cuts, shots, blackAt, end: blackAt + tail };
 }

@@ -1,25 +1,35 @@
 /**
- * Clip voices: the sound of each verdict clip, from the same appraisal the
- * clip draws. One shared material — a resonant plate — excited differently:
- * relief is bowed, fracture is struck and crazed, grains are rained on, haze
- * barely touched. Every voice is hard-cut with its shot (5 ms) and sends to
- * the reverb, so the cut to black leaves only the room ringing.
+ * Clip voices: the sound of each verdict clip, from the same data its image
+ * uses. One material — a resonant plate — excited differently: relief is
+ * bowed (the raking light is the bow), fracture is struck and each crack
+ * sings a dispersive chirp as it opens, grains are rained on (windowed noise
+ * grains), haze barely touches it (the drone exhales; motes glint). Every
+ * voice is hard-cut with its shot and sends only to the short room.
+ * Levels: each clip is calibrated to the same loudness, then scaled by how
+ * loud and intense Jev heard the word (a dB curve).
  */
 import type { Appraisal } from '../jev/appraisal.ts';
 import type { Shot } from '../show/director.ts';
-import { D2, type AudioEngine } from './audio.ts';
+import { D2, dbToGain, type AudioEngine } from './audio.ts';
+import type { Drone } from './drone.ts';
+import { fractureRays } from '../render/fractureRays.ts';
 import { mulberry32 } from '../core/rng.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
+/** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
+const CAL: Record<Shot['clip'], number> = { relief: 0, fracture: 0, grains: -10, haze: 0 };
+
+type V = { a: AudioEngine; drone: Drone; A: Appraisal; shot: Shot; start: number; end: number; out: AudioNode; rand: () => number };
 
 /** Schedules one shot's voice. Returns pitches worth remembering (drone residue). */
-export function playShot(a: AudioEngine, A: Appraisal, shot: Shot, t0: number): number[] {
+export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, shot: Shot, t0: number): number[] {
   const c = a.ctx;
   const start = t0 + shot.start;
   const end = start + shot.dur;
-  // how loud the word is, as Jev heard it: an indifferent word is quiet
-  const level = lerp(0.22, 1, A.s.loudness * 0.5 + A.s.intensity * 0.5);
+  // how loud the word is, as Jev heard it: −20 dB for an indifferent word, 0 for a scream
+  const x = A.s.loudness * 0.5 + A.s.intensity * 0.5;
+  const level = dbToGain(lerp(-20, 0, x ** 1.3) + CAL[shot.clip]);
   const gate = c.createGain();
   gate.gain.setValueAtTime(0, start - 0.001);
   gate.gain.linearRampToValueAtTime(level, start + 0.004);
@@ -27,9 +37,9 @@ export function playShot(a: AudioEngine, A: Appraisal, shot: Shot, t0: number): 
   gate.gain.linearRampToValueAtTime(0, end);
   gate.connect(a.perfDry);
   const send = c.createGain();
-  send.gain.value = shot.aborted ? 0.15 : 0.45;
+  send.gain.value = shot.aborted ? 0.05 : 0.2;
   gate.connect(send).connect(a.perfSend);
-  const v = { a, A, shot, start, end, out: gate, rand: mulberry32(shot.seed) };
+  const v: V = { a, drone, A, shot, start, end, out: gate, rand: mulberry32(shot.seed) };
   switch (shot.clip) {
     case 'relief': return relief(v);
     case 'fracture': return fracture(v);
@@ -37,8 +47,6 @@ export function playShot(a: AudioEngine, A: Appraisal, shot: Shot, t0: number): 
     case 'haze': return haze(v);
   }
 }
-
-type V = { a: AudioEngine; A: Appraisal; shot: Shot; start: number; end: number; out: AudioNode; rand: () => number };
 
 function modes(v: V, input: AudioNode, freqs: number[], q: number, gains: number[], out: AudioNode) {
   freqs.forEach((f, i) => {
@@ -63,24 +71,11 @@ function noiseSrc(v: V): AudioBufferSourceNode {
   return n;
 }
 
-/** A buffer of sparse impulses whose density follows `rate(u)` (events/s). */
-function crackle(v: V, rate: (u: number) => number, stereo = true): AudioBufferSourceNode {
+/** A stereo buffer the length of the shot, filled by `fill(L, R, sr)`. */
+function rendered(v: V, fill: (L: Float32Array, R: Float32Array, sr: number) => void): AudioBufferSourceNode {
   const c = v.a.ctx;
-  const sr = c.sampleRate;
-  const len = Math.ceil(v.shot.dur * sr);
-  const b = c.createBuffer(2, len, sr);
-  const L = b.getChannelData(0), R = b.getChannelData(1);
-  let t = 0;
-  while (t < v.shot.dur) {
-    const r = Math.max(0.5, rate(t / v.shot.dur));
-    t += -Math.log(1 - v.rand()) / r;
-    const i = Math.floor(t * sr);
-    if (i >= len) break;
-    const amp = (0.2 + 0.8 * Math.pow(v.rand(), 3)) * (v.rand() < 0.5 ? 1 : -1);
-    const pan = stereo ? v.rand() : 0.5;
-    L[i] += amp * (1 - pan);
-    R[i] += amp * pan;
-  }
+  const b = c.createBuffer(2, Math.ceil(v.shot.dur * c.sampleRate), c.sampleRate);
+  fill(b.getChannelData(0), b.getChannelData(1), c.sampleRate);
   const s = c.createBufferSource();
   s.buffer = b;
   s.start(v.start);
@@ -91,122 +86,121 @@ function crackle(v: V, rate: (u: number) => number, stereo = true): AudioBufferS
 function relief(v: V): number[] {
   const { a, A } = v;
   const c = a.ctx;
-  const f0 = D2 * Math.pow(2, lerp(1, -1, A.s.weight * 0.6 + A.s.scale * 0.4));
+  const f0 = D2 * 2 * Math.pow(2, lerp(0.8, -0.2, A.s.weight * 0.6 + A.s.scale * 0.4)); // ≥ D3: the modes sing
+  const slow = lerp(1, 0.3, A.lazy);
+  // the raking light is the bow: a slow band sweeping up the plate
   const bow = c.createBiquadFilter();
-  bow.type = 'lowpass';
-  bow.Q.value = 0.7;
-  // the light sweeping the surface = the bow moving up the plate
-  bow.frequency.setValueAtTime(250, v.start);
-  bow.frequency.exponentialRampToValueAtTime(lerp(900, 3500, A.s.light), v.end);
+  bow.type = 'bandpass';
+  bow.Q.value = 1.2;
+  bow.frequency.setValueAtTime(400, v.start);
+  bow.frequency.exponentialRampToValueAtTime(400 + 3600 * slow, v.end);
   noiseSrc(v).connect(bow);
   const body = c.createGain();
   body.gain.setValueAtTime(0, v.start);
-  body.gain.linearRampToValueAtTime(lerp(0.9, 1.6, A.s.intensity), v.start + Math.min(1.4, v.shot.dur * 0.4));
+  body.gain.linearRampToValueAtTime(4, v.start + Math.min(1.4, v.shot.dur * 0.4));
   body.connect(v.out);
   const soft = A.c.material.p.cloth + A.c.material.p.flesh;
-  modes(v, bow, PLATE.map((r) => f0 * r), lerp(120, 35, soft), [1, 0.6, 0.4, 0.25, 0.15, 0.1], body);
-  if (A.c.texture.p.cracked > 0.25) {
-    const cr = crackle(v, (u) => 4 + 30 * u * A.c.texture.p.cracked);
-    const hp = c.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 2500;
-    const g = c.createGain();
-    g.gain.value = 0.25;
-    cr.connect(hp).connect(g).connect(v.out);
-  }
-  return [f0 * 2, f0 * 2.76];
+  modes(v, bow, PLATE.map((r) => f0 * r), lerp(900, 400, soft), [1, 0.7, 0.5, 0.35, 0.25, 0.15], body);
+  return [f0 * 2, f0 * 3];
 }
 
-// ------------------------------------------------------------------ fracture: struck, then crazing
+// ------------------------------------------------------------------ fracture: struck, then every crack sings
 function fracture(v: V): number[] {
   const { a, A } = v;
   const c = a.ctx;
   const m = A.c.material.p;
-  const bright = lerp(420, 1500, Math.min(1, m.glass + m.ice)) * (m.metal > 0.5 ? 0.6 : 1);
-  const ratios = [1, 2.32, 4.25, 6.63, 9.38, 12.6];
-  // the strike: a thud, a crack, and the plate ringing
+  const glass = Math.min(1, m.glass + m.ice);
+  const transpose = Math.pow(2, (v.rand() - 0.5) * 0.5); // ±3 semitones, off-lattice: repeats never clone
+  // the strike: a 1 ms click, a short thud, and six inharmonic modes ringing
+  const click = rendered(v, (L, R) => { for (let i = 0; i < 48; i++) { const x = (Math.random() * 2 - 1) * (1 - i / 48) * 0.9; L[i] = x; R[i] = x; } });
+  const ring = c.createGain();
+  ring.gain.value = 1.2;
+  ring.connect(v.out);
+  const base = lerp(600, 1100, glass) * transpose;
+  modes(v, click, [1, 1.93, 2.87, 4.12, 5.66, 8.3].map((r) => Math.min(5200, base * r)), lerp(25, 80, glass) * (m.metal > 0.5 ? 0.4 : 1),
+    [1, 0.8, 0.6, 0.45, 0.3, 0.2], ring);
+  click.connect(v.out);
   const thud = c.createOscillator();
-  thud.frequency.setValueAtTime(130, v.start);
-  thud.frequency.exponentialRampToValueAtTime(42, v.start + 0.25);
+  thud.frequency.setValueAtTime(180, v.start);
+  thud.frequency.exponentialRampToValueAtTime(98, v.start + 0.08);
   const tg = c.createGain();
-  tg.gain.setValueAtTime(lerp(0.3, 0.8, A.s.intensity), v.start);
-  tg.gain.exponentialRampToValueAtTime(0.001, v.start + 0.4);
+  tg.gain.setValueAtTime(lerp(0.3, 0.7, A.s.intensity), v.start);
+  tg.gain.exponentialRampToValueAtTime(0.001, v.start + 0.2);
   thud.connect(tg).connect(v.out);
   thud.start(v.start);
-  thud.stop(v.start + 0.45);
-  const hit = c.createBufferSource();
-  hit.buffer = a.noise;
-  const hg = c.createGain();
-  hg.gain.setValueAtTime(0.7, v.start);
-  hg.gain.exponentialRampToValueAtTime(0.001, v.start + 0.05);
-  hit.connect(hg);
-  hit.start(v.start, v.rand());
-  hit.stop(v.start + 0.06);
-  const ring = c.createGain();
-  ring.gain.value = 0.9;
-  ring.connect(v.out);
-  modes(v, hg, ratios.map((r) => bright * r * (0.98 + v.rand() * 0.04)), 420, [1, 0.7, 0.5, 0.35, 0.25, 0.15], ring);
-  hg.connect(v.out);
-  // the crazing: shards ticking as the front spreads (dense early, thinning)
-  const speed = lerp(0.35, 2.4, A.s.arousal);
-  const cr = crackle(v, (u) => lerp(40, 220, A.s.tension) * Math.exp(-u * 3 / speed) + 6);
-  const shard = c.createGain();
-  shard.gain.value = 0.55;
-  modes(v, cr, ratios.slice(1).map((r) => bright * 1.9 * r), 90, [0.8, 0.6, 0.4, 0.3, 0.2], shard);
-  shard.connect(v.out);
+  thud.stop(v.start + 0.25);
+
+  // every crack the image draws (same table) sings a dispersive chirp as it opens: frozen-lake "pew"
+  const { data, count } = fractureRays(A, v.shot.seed);
+  const speed = lerp(0.6, 4, A.s.arousal * 0.7 + A.s.tension * 0.3) * (count === 2 ? 2.5 : 1);
+  const chirps = rendered(v, (L, R, sr) => {
+    for (let k = 0; k < count; k++) {
+      const o = k * 9 * 4;
+      const ang = data[o], len = data[o + 1];
+      const at = (0.02 + (1 - len) * 0.4) / speed;
+      const dur = 0.02 + 0.04 * len * (count === 2 ? 3 : 1);
+      const pan = Math.cos(ang) * 0.8;
+      const s0 = Math.floor(at * sr), n = Math.floor(dur * sr);
+      let ph = 0;
+      for (let i = 0; i < n; i++) {
+        const u = i / n;
+        const f = (7000 * transpose) * Math.pow(900 / 7000, u); // falling, dispersive
+        ph += (2 * Math.PI * f) / sr;
+        const x = Math.sin(ph) * (1 - u) * 0.12;
+        if (s0 + i < L.length) { L[s0 + i] += x * (1 - pan); R[s0 + i] += x * (1 + pan); }
+      }
+    }
+  });
+  chirps.connect(v.out);
   // plates grinding apart
   if (A.c.motion.p.breaking > 0.2) {
     const gr = c.createBiquadFilter();
     gr.type = 'bandpass';
-    gr.frequency.value = 380;
-    gr.Q.value = 2;
+    gr.frequency.value = 900;
+    gr.Q.value = 3;
     const gg = c.createGain();
     gg.gain.setValueAtTime(0, v.start + 0.3);
-    gg.gain.linearRampToValueAtTime(0.4 * A.c.motion.p.breaking, v.end);
+    gg.gain.linearRampToValueAtTime(0.25 * A.c.motion.p.breaking, v.end);
     noiseSrc(v).connect(gr).connect(gg).connect(v.out);
   }
-  return [bright, bright * 2.32];
+  return [base, base * 2];
 }
 
 // ------------------------------------------------------------------ grains: rained on
 function grains(v: V): number[] {
-  const { a, A } = v;
-  const c = a.ctx;
+  const { A } = v;
   const mo = A.c.motion.p, m = A.c.material.p;
-  const aro = A.s.arousal;
+  const sparks = Math.min(1, mo.spreading + mo.breaking);
+  // density follows what is visible (events per second over the shot)
   const rate = (u: number) =>
-    mo.spreading * 2600 * Math.exp(-u * 4) + mo.breaking * 1800 * Math.exp(-u * 3) + mo.falling * lerp(300, 900, u) +
-    mo.rising * 500 * (0.5 + u) + mo.drifting * 90 + mo.circling * 400 + mo.trembling * 2200 + mo.still * 30 + mo.contracting * 900 * u + 40 * aro;
-  const cr = crackle(v, rate);
-  // matter decides the grain's voice
-  const f = lerp(2500, 7000, Math.min(1, m.sand + m.ice + m.glass)) * lerp(1, 0.4, Math.min(1, m.fire + m.smoke));
-  const bp = c.createBiquadFilter();
-  bp.type = 'bandpass';
-  bp.frequency.value = f;
-  bp.Q.value = lerp(0.8, 4, m.ice + m.glass);
-  const g = c.createGain();
-  g.gain.value = lerp(0.5, 1.1, A.s.intensity);
-  cr.connect(bp).connect(g).connect(v.out);
-  if (mo.circling > 0.3) {
-    const p = c.createStereoPanner();
-    const l = c.createOscillator();
-    l.frequency.value = 0.4 + aro;
-    l.connect(p.pan);
-    l.start(v.start);
-    l.stop(v.end);
-    g.disconnect();
-    g.connect(p).connect(v.out);
-  }
-  // fire and smoke carry a body under the grains — a band, not a rumble
-  if (m.fire + m.smoke > 0.3) {
-    const bp2 = c.createBiquadFilter();
-    bp2.type = 'bandpass';
-    bp2.frequency.value = m.fire > m.smoke ? 700 : 320;
-    bp2.Q.value = 0.9;
-    const bg = c.createGain();
-    bg.gain.value = 0.22 * (m.fire + m.smoke);
-    noiseSrc(v).connect(bp2).connect(bg).connect(v.out);
-  }
+    sparks * lerp(9000, 1500, u) + mo.falling * lerp(1500, 4000, u) + mo.rising * 2500 + mo.drifting * 900 + mo.circling * 1800 +
+    mo.trembling * 8000 + mo.still * 200 + mo.contracting * 6000 * u + 400;
+  // three bands; matter shifts them (sand/ice bright, fire/smoke dark)
+  const tilt = lerp(1, 0.45, Math.min(1, m.fire + m.smoke)) * lerp(1, 1.4, Math.min(1, m.sand + m.ice + m.glass));
+  const bands = [1500, 4000, 8000].map((f) => f * tilt);
+  const src = rendered(v, (L, R, sr) => {
+    let t = 0;
+    const dur = v.shot.dur;
+    while (t < dur) {
+      const u = t / dur;
+      t += -Math.log(1 - v.rand()) / rate(u);
+      const i0 = Math.floor(t * sr);
+      const len = Math.floor(sr * (0.001 + 0.003 * v.rand()));
+      const f = bands[Math.floor(v.rand() * 3)] * (sparks > 0.5 ? Math.pow(0.5, u) : 1); // a burst sweeps down an octave
+      const amp = (0.08 + 0.4 * Math.pow(v.rand(), 3)) * 0.5;
+      // bursts widen from mono to full; drifting dust pans with its flow
+      const pan = sparks > 0.5 ? (v.rand() * 2 - 1) * u : Math.sin(u * 6 + v.rand()) * 0.8;
+      for (let k = 0; k < len && i0 + k < L.length; k++) {
+        const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * k) / len); // Hann window
+        const x = Math.sin((2 * Math.PI * f * k) / sr + v.rand() * 6.28) * w * amp;
+        L[i0 + k] += x * (1 - pan);
+        R[i0 + k] += x * (1 + pan);
+      }
+    }
+  });
+  const g = v.a.ctx.createGain();
+  g.gain.value = 3;
+  src.connect(g).connect(v.out);
   return [];
 }
 
@@ -214,54 +208,40 @@ function grains(v: V): number[] {
 function haze(v: V): number[] {
   const { a, A } = v;
   const c = a.ctx;
-  const val = A.s.valence;
-  const third = val > 0.6 ? 5 / 4 : val < 0.4 ? 6 / 5 : 4 / 3;
-  const conf = A.c.emotion.confidence;
-  const notes = [2, 3, 4 * third, conf > 0.65 ? 8 : 16 / 3].map((r) => D2 * r);
+  const m = A.c.material.p;
   const slow = lerp(1, 2.8, A.lazy);
-  const body = c.createGain();
-  body.gain.setValueAtTime(0, v.start);
-  body.gain.linearRampToValueAtTime(0.5 * (1 - 0.5 * A.lazy), v.start + Math.min(v.shot.dur * 0.5, 1.2 * slow));
-  body.connect(v.out);
-  const wow = c.createOscillator();
-  wow.frequency.value = 0.22 / slow;
-  const wd = c.createGain();
-  wd.gain.value = 5;
-  wow.connect(wd);
-  wow.start(v.start);
-  wow.stop(v.end + 0.1);
-  notes.forEach((f, i) => {
-    const o = c.createOscillator();
-    o.type = i === 0 ? 'triangle' : 'sine';
-    o.frequency.value = f;
-    wd.connect(o.detune);
+  // the room exhales: the drone opens under the light
+  v.drone.open(v.start, v.end, lerp(0.3, 1, 1 - A.lazy * 0.5));
+  // water: noise through a slowly sweeping feedback comb (the caustics' drift)
+  if (m.water > 0.25) {
+    const d = c.createDelay(0.05);
+    const base = 1 / (D2 * 4);
+    d.delayTime.setValueAtTime(base, v.start);
+    d.delayTime.linearRampToValueAtTime(base * 1.03, v.end);
+    const fb = c.createGain();
+    fb.gain.value = 0.7;
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 3000;
     const g = c.createGain();
-    g.gain.value = [0.22, 0.16, 0.11, 0.06][i];
-    o.connect(g).connect(body);
-    o.start(v.start + i * 0.12 * slow);
-    o.stop(v.end + 0.05);
-  });
-  // air
-  const air = c.createBiquadFilter();
-  air.type = 'bandpass';
-  air.frequency.value = A.c.material.p.water > 0.4 ? 900 : 2400;
-  air.Q.value = 0.8;
-  const ag = c.createGain();
-  ag.gain.value = (0.035 + 0.05 * (A.c.material.p.water + A.c.material.p.smoke)) * (1 - 0.5 * A.lazy);
-  noiseSrc(v).connect(air).connect(ag).connect(v.out);
-  // motes catching the light: rare soft pings
-  const pings = Math.floor(v.shot.dur / (0.8 * slow));
-  for (let k = 0; k < pings; k++) {
-    const t = v.start + v.rand() * v.shot.dur;
-    const o = c.createOscillator();
-    o.frequency.value = D2 * [24, 27, 32, 36, 40][Math.floor(v.rand() * 5)];
-    const g = c.createGain();
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.025, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0005, t + 0.6);
-    o.connect(g).connect(v.out);
-    o.start(t);
-    o.stop(t + 0.65);
+    g.gain.value = 0.05 * m.water;
+    noiseSrc(v).connect(lp).connect(d);
+    d.connect(fb).connect(d);
+    d.connect(g).connect(v.out);
   }
-  return [notes[1], notes[2]];
+  // motes catching the light: 3 ms glints, high and sparse (never a melody)
+  const glints = rendered(v, (L, R, sr) => {
+    const count = Math.floor(v.shot.dur * lerp(3, 1.2, A.lazy) / slow * 3);
+    for (let k = 0; k < count; k++) {
+      const s0 = Math.floor(v.rand() * (L.length - sr * 0.004));
+      const f = 6000 + 3000 * v.rand();
+      const pan = v.rand() * 1.6 - 0.8;
+      for (let i = 0; i < sr * 0.003; i++) {
+        const x = Math.sin((2 * Math.PI * f * i) / sr) * 0.03;
+        L[s0 + i] += x * (1 - pan);
+        R[s0 + i] += x * (1 + pan);
+      }
+    }
+  });
+  glints.connect(v.out);
+  return [D2 * 2, D2 * 3];
 }

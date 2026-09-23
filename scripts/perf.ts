@@ -67,7 +67,7 @@ const solo = (clip: string, mode: string) => page.evaluate(([a, clip, mode]) => 
   W.perform(a, 'fuck');
   const A = W.show().A;
   const cuts = mode ? [{ start: 0, dur: 2.5, mode, variant: 0.3 }] : [];
-  const shots = clip ? [{ clip, start: 0.05, dur: 2.5, seed: 7, aborted: false }] : [];
+  const shots = clip ? [{ clip, start: 0.05, dur: 2.5, seed: 7, aborted: false, zoom: 1, offX: 0, offY: 0 }] : [];
   W.performPlan(A, { cuts, shots, blackAt: 2.6, end: 3.2 });
 }, [fixtures.fuck, clip, mode]);
 for (const clip of ['relief', 'grains', 'fracture', 'haze']) {

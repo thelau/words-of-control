@@ -20,9 +20,9 @@ fn h1(p: vec2f, salt: u32) -> f32 {
 
 const BG = vec3f(0.00304, 0.00243, 0.00182); // #0A0806, linear
 
-// red saturates first: bright warm light climbs red → orange → yellow → white
+// per-channel shoulder: bright light desaturates toward white; colour comes from each clip
 fn film(c: vec3f) -> vec3f {
-  let x = max(c, vec3f(0.0)) * vec3f(1.0, 0.92, 0.85);
+  let x = max(c, vec3f(0.0));
   let over = max(x - 1.2, vec3f(0.0));
   return clamp(1.0 - exp(-x) + vec3f(over.g * 0.03, over.r * 0.05 + over.b * 0.02, over.g * 0.03), vec3f(0.0), vec3f(1.0));
 }
@@ -35,10 +35,14 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   var c = textureSampleLevel(scene, samp, uv, 0.0).rgb;
   if (F.hiRes > 0.5) { c = textureLoad(sceneHi, vec2i(fc.xy), 0).rgb; }
   let q = uv - 0.5;
-  if (F.bloom > 0.0) { c += textureSampleLevel(bloomTex, samp, uv, 0.0).rgb * F.bloom * vec3f(1.0, 0.72, 0.55); }
-  c = c * F.exposure + vec3f(F.flash);
-  let vig = 1.0 - 0.35 * pow(dot(q * vec2f(1.0, 1.25), q * vec2f(1.0, 1.25)) * 2.2, 1.3);
-  var outc = toSrgb(BG + film(c) * vig);
+  // neutral bloom (small) + film halation: only the brightest light bleeds red into the emulsion
+  if (F.bloom > 0.0 || F.halation > 0.0) {
+    let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
+    c += bl * F.bloom + max(bl - vec3f(0.35), vec3f(0.0)) * vec3f(1.0, 0.35, 0.15) * F.halation;
+  }
+  c = c * vec3f(F.wbR, F.wbG, F.wbB) * F.exposure + vec3f(F.flash);
+  let vig = mix(1.0 - 0.35 * pow(dot(q * vec2f(1.0, 1.25), q * vec2f(1.0, 1.25)) * 2.2, 1.3), 1.0, F.flat);
+  var outc = toSrgb(BG * (1.0 - F.flat) + film(c) * vig);
   if (F.invert > 0.5) { outc = vec3f(0.93, 0.91, 0.88) - outc; }
   // film grain (24 fps, ~1.35 CSS px, strongest in the mid-tones) + dither against banding, one hash each
   let gf = u32(F.time * 24.0);

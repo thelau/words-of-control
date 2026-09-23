@@ -34,7 +34,10 @@ export class Typing {
   private intervals: number[] = [];
   private backspaces = 0;
 
-  constructor(private ev: TypingEvents) {
+  private ev: TypingEvents;
+
+  constructor(ev: TypingEvents) {
+    this.ev = ev;
     this.sink = document.getElementById('sink') as HTMLTextAreaElement;
     const s = this.sink;
     s.addEventListener('keydown', (e) => this.keydown(e));

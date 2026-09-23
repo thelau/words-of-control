@@ -9,35 +9,47 @@
 
 fn rnd1(i: u32, s: u32) -> f32 { return rnd(i, s ^ u32(F.seed)); }
 
+/** Burst words emit sparks in 1–3 cones (never 360°): the cone axis for grain i. */
+fn coneDir(i: u32) -> vec2f {
+  let cones = 1u + u32(rnd1(0u, 41u) * 2.99);
+  let c = i % cones;
+  let axis = rnd1(c, 43u) * TAU;
+  let half = mix(0.45, 1.0, F.s_arousal) * 0.9;
+  let a = axis + (rnd1(i, 44u) - 0.5) * 2.0 * half;
+  return vec2f(cos(a), sin(a));
+}
+
+/** Whether grain i was born a spark: the same draw spawn() makes. */
+fn isSpark(i: u32) -> bool {
+  let total = F.mo_rising + F.mo_falling + F.mo_spreading + F.mo_contracting + F.mo_circling + F.mo_trembling + F.mo_still + F.mo_breaking + F.mo_drifting + 1e-4;
+  return min(rnd1(i, 3u), 0.9999) * total < F.mo_spreading + F.mo_breaking;
+}
+
 /** Where a grain starts, by motion (world units: 1 = half the short side, y up). */
 fn spawn(i: u32) -> vec4f {
   let a = rnd1(i, 1u) * TAU;
   let r0 = rnd1(i, 2u);
   let dir = vec2f(cos(a), sin(a));
   let aspect = F.resX / F.resY;
-  // candidate positions per motion; the dominant motion wins by probability
-  let pick = rnd1(i, 3u);
-  var acc = 0.0;
-  var p = dir * sqrt(r0) * 0.05; // default: a tight knot at the word
-  var v = vec2f(0.0);
   let total = F.mo_rising + F.mo_falling + F.mo_spreading + F.mo_contracting + F.mo_circling + F.mo_trembling + F.mo_still + F.mo_breaking + F.mo_drifting + 1e-4;
-  acc += F.mo_spreading / total;
-  if (pick < acc) { p = dir * r0 * 0.04; v = dir * (0.3 + 2.8 * pow(rnd1(i, 4u), 2.0)) * mix(0.6, 1.5, F.s_arousal); return vec4f(p, v); }
-  acc += F.mo_breaking / total;
-  if (pick < acc) { p = dir * r0 * 0.12; let k = floor(rnd1(i, 5u) * 37.0); let fa = (k + rnd1(i, 9u) * 0.35) / 37.0 * TAU; v = vec2f(cos(fa), sin(fa)) * (0.4 + 1.8 * pow(rnd1(i, 6u), 1.5)) + dir * 0.2; return vec4f(p, v); }
-  acc += F.mo_falling / total;
-  if (pick < acc) { p = vec2f((rnd1(i, 7u) * 2.0 - 1.0) * aspect * 1.25, 0.2 + rnd1(i, 8u) * 1.6); return vec4f(p, vec2f(0.0, -0.1)); }
-  acc += F.mo_rising / total;
-  if (pick < acc) { p = vec2f((rnd1(i, 7u) * 2.0 - 1.0) * 0.5 * (1.0 + r0), -1.05 - rnd1(i, 8u) * 0.4); return vec4f(p, vec2f(0.0, 0.1)); }
-  acc += F.mo_circling / total;
-  if (pick < acc) { p = dir * (0.25 + 0.6 * r0); return vec4f(p, vec2f(-dir.y, dir.x) * 0.3); }
-  acc += F.mo_contracting / total;
-  if (pick < acc) { p = vec2f((rnd1(i, 7u) * 2.0 - 1.0) * aspect, rnd1(i, 8u) * 2.0 - 1.0) * 1.3; return vec4f(p, v); }
-  acc += F.mo_drifting / total;
-  if (pick < acc) { p = vec2f((rnd1(i, 7u) * 2.0 - 1.0) * aspect, rnd1(i, 8u) * 2.0 - 1.0) * 1.3; return vec4f(p, v); }
-  acc += F.mo_still / total;
-  if (pick < acc) { p = dir * pow(r0, 0.7) * 0.9; return vec4f(p, v); }
-  return vec4f(p, v); // trembling: the knot
+  let pick = min(rnd1(i, 3u), 0.9999) * total;
+  var acc = F.mo_spreading;
+  if (pick < acc) { let d = coneDir(i); return vec4f(d * 0.02, d * (0.6 + 2.6 * pow(rnd1(i, 4u), 2.0)) * mix(0.6, 1.4, F.s_arousal)); }
+  acc += F.mo_breaking;
+  if (pick < acc) { let d = coneDir(i); return vec4f(d * 0.03, d * (0.5 + 1.8 * pow(rnd1(i, 6u), 1.5))); }
+  acc += F.mo_falling;
+  if (pick < acc) { return vec4f((rnd1(i, 7u) * 2.0 - 1.0) * aspect * 1.25, 1.1 + rnd1(i, 8u) * 0.8, 0.0, -0.1); }
+  acc += F.mo_rising;
+  if (pick < acc) { return vec4f((rnd1(i, 7u) * 2.0 - 1.0) * 0.5 * (1.0 + r0), -1.35 - rnd1(i, 8u) * 0.4, 0.0, 0.15); }
+  acc += F.mo_circling;
+  if (pick < acc) { let p = dir * (0.25 + 0.6 * r0); return vec4f(p, vec2f(-dir.y, dir.x) * 0.3); }
+  acc += F.mo_contracting;
+  if (pick < acc) { return vec4f(vec2f((rnd1(i, 7u) * 2.0 - 1.0) * aspect, rnd1(i, 8u) * 2.0 - 1.0) * 1.3, 0.0, 0.0); }
+  acc += F.mo_drifting;
+  if (pick < acc) { return vec4f(vec2f((rnd1(i, 7u) * 2.0 - 1.0) * aspect, rnd1(i, 8u) * 2.0 - 1.0) * 1.3, 0.0, 0.0); }
+  acc += F.mo_still;
+  if (pick < acc) { return vec4f(dir * pow(r0, 0.7) * 0.9, 0.0, 0.0); }
+  return vec4f(dir * sqrt(r0) * 0.05, 0.0, 0.0); // trembling: a small knot
 }
 
 @compute @workgroup_size(256)
@@ -48,7 +60,9 @@ fn sim(@builtin(global_invocation_id) gid: vec3u) {
   if (F.mode > 0.5) {
     let s = spawn(i);
     G[i * 2u] = s;
-    G[i * 2u + 1u] = vec4f(rnd1(i, 11u), 0.6 + pow(rnd1(i, 12u), 5.0) * 3.0, pow(rnd1(i, 13u), 6.0), 0.0);
+    // B.y carries the size; its sign marks a spark
+    let size = 0.6 + pow(rnd1(i, 12u), 5.0) * 3.0;
+    G[i * 2u + 1u] = vec4f(rnd1(i, 11u), select(size, -size, isSpark(i)), pow(rnd1(i, 13u), 6.0), 0.0);
     return;
   }
   var A = G[i * 2u];
@@ -60,6 +74,10 @@ fn sim(@builtin(global_invocation_id) gid: vec3u) {
   let r = length(p) + 1e-4;
   let rh = p / r;
   let th = vec2f(-rh.y, rh.x);
+  // sparks (burst words): staggered births, gravity, a floor to bounce off, a short hot life
+  let burst = select(0.0, 1.0, B.y < 0.0); // this grain is a spark
+  let born = F.lt >= B.x * min(F.dur * 0.6, 1.5) * burst;
+  if (!born) { B.w = 0.0; G[i * 2u + 1u] = B; return; }
 
   var f = vec2f(0.0);
   var drag = 0.6;
@@ -70,24 +88,30 @@ fn sim(@builtin(global_invocation_id) gid: vec3u) {
   f += -rh * 1.4 * r * F.mo_contracting;
   f += curl(p * 1.3, t * 0.12) * 0.25 * F.mo_drifting;
   f += (vec2f(rnd(i, u32(t * 240.0)), rnd(i, u32(t * 240.0) + 7u)) - 0.5) * 30.0 * F.mo_trembling - p * 6.0 * F.mo_trembling;
-  drag += 1.4 * F.mo_spreading * ss(0.0, 1.2, t) + 2.5 * F.mo_still + 0.8 * F.mo_breaking * ss(0.2, 1.0, t);
+  f += vec2f(0.0, -1.6) * burst;
+  drag += 0.2 * burst + 2.5 * F.mo_still;
   // unease: turbulence rises with tension and low confidence
-  f += curl(p * 3.0, t * 0.5) * (F.s_tension * 0.3 + (1.0 - F.conf) * 0.25);
+  f += curl(p * 3.0, t * 0.5) * (F.s_tension * 0.3 + (1.0 - F.conf) * 0.25) * (1.0 - burst);
 
   v += f * dt;
   v *= exp(-drag * dt);
   p += v * dt;
+  // the floor: sparks bounce and skitter (the kink sells the physics)
+  if (burst > 0.5 && clamp(F.mo_spreading + F.mo_breaking, 0.0, 1.0) > 0.45 && p.y < -0.62 && v.y < 0.0) {
+    p.y = -0.62;
+    v.y = -v.y * 0.35;
+    v.x *= 0.7 + 0.6 * rnd(i, u32(t * 60.0));
+  }
 
-  // brightness: sparks cool as they slow (fire), dust catches the light near the word
-  let spd = length(v);
-  let fire = F.m_fire + F.m_metal * 0.5;
-  let heat = mix(0.55, 1.0, ss(0.0, 1.2, spd)) * mix(1.0, exp(-t * 0.6), fire * 0.7);
+  // light: a spark lives a short lognormal life and cools; dust shines only where it crosses the light
+  let life = 0.35 + 0.9 * exp((B.x - 0.5) * 1.6) * 0.5;
+  let age = (F.lt - B.x * min(F.dur * 0.6, 1.5) * burst) / life;
+  let spark = select(0.0, exp(-age * 2.2), age < 2.5);
+  let dust = mix(0.55, 1.0, ss(0.0, 1.2, length(v)));
   let still = F.mo_still * (0.5 + 0.5 * pow(0.5 + 0.5 * sin(t * 2.0 + B.x * 90.0), 8.0));
-  // grains born together at the word stay dark until they have left it (no white sun)
-  // an outward burst concentrates light at the centre (density ~ 1/r): compensate so the burst reads as sparks, not a sun
-  let g0 = ss(0.1, 0.6, r);
-  let born = mix(1.0, g0 * g0, clamp(F.mo_spreading + F.mo_breaking + F.mo_trembling * 0.6, 0.0, 1.0));
-  B.w = mix(heat, still + 0.3, F.mo_still) * ss(0.0, 0.08, t) * born;
+  // a spark lights up once it has left the nozzle: the source itself is never a white sun
+  B.w = mix(mix(dust, still + 0.3, F.mo_still), spark * ss(0.08, 0.35, length(p)), burst) * ss(0.0, 0.08, t);
+  // B.z keeps the grain's depth; its temperature is B.w itself (a spark cools as it dims)
   G[i * 2u] = vec4f(p, v);
   G[i * 2u + 1u] = B;
 }
