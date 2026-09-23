@@ -148,37 +148,14 @@ fn repose(@builtin(global_invocation_id) gid: vec3u) {
   dst[gid.y * N + gid.x] = h + dh;
 }
 
-/** Hills under the bed, in sim height units: a sum of waves with whole-number frequencies (so the bed stays
- *  periodic), domain-warped; they breathe and travel with the word's motion. Only the glitter, lines and pins
- *  worlds stand on hills; sand keeps its flat bed. */
-fn hills(p: vec2i) -> f32 {
-  let mat = E[1].z;
-  if (mat < 0.5) { return 0.0; }
-  let uv = (vec2f(p) + 0.5) / f32(N) * TAU;
-  let t = F.lt * mix(1.0, 0.3, F.lazy);
-  let drift = t * (0.05 + 0.25 * F.mo_drifting + 0.15 * F.mo_spreading);
-  let w = uv + 0.6 * vec2f(sin(uv.y * 2.0 + drift), sin(uv.x * 3.0 - drift));
-  var h = 0.0;
-  for (var k = 0; k < 6; k++) {
-    let fk = f32(k);
-    let dir = vec2f(f32(2 + (k * 3 + i32(F.seed)) % 5), f32(1 + (k * 2 + i32(F.seed * 0.1)) % 6)) * select(1.0, -1.0, k % 2 == 1);
-    h += sin(dot(w, dir) + fk * 1.7 + drift * (1.0 + fk * 0.3)) / (1.0 + fk * 0.6);
-  }
-  let amp = mix(1.5, 4.5, F.s_scale * 0.5 + F.s_intensity * 0.5) * mix(1.0, 1.0 + 0.2 * sin(t * 1.5), F.mo_trembling + F.mo_circling * 0.5);
-  let grow = mix(1.0, ss(0.0, 0.8, F.u), F.mo_rising);
-  return (h * 0.25 + 0.6) * amp * grow;
-}
-
-fn total(p: vec2i) -> f32 { return at(p) + hills(p); }
-
 /** After the last step: bake height, slope and curvature into a filterable texture for the camera (sand_draw). */
 @compute @workgroup_size(16, 16)
 fn bake(@builtin(global_invocation_id) gid: vec3u) {
   if (gid.x >= N || gid.y >= N) { return; }
   let p = vec2i(gid.xy);
-  let h = total(p);
-  let gx = (total(p + vec2i(1, 0)) - total(p - vec2i(1, 0))) * 0.5;
-  let gy = (total(p + vec2i(0, 1)) - total(p - vec2i(0, 1))) * 0.5;
-  let lap = total(p + vec2i(2, 0)) + total(p - vec2i(2, 0)) + total(p + vec2i(0, 2)) + total(p - vec2i(0, 2)) - 4.0 * h;
+  let h = at(p);
+  let gx = (at(p + vec2i(1, 0)) - at(p - vec2i(1, 0))) * 0.5;
+  let gy = (at(p + vec2i(0, 1)) - at(p - vec2i(0, 1))) * 0.5;
+  let lap = at(p + vec2i(2, 0)) + at(p - vec2i(2, 0)) + at(p + vec2i(0, 2)) + at(p - vec2i(0, 2)) - 4.0 * h;
   textureStore(baked, p, vec4f(h, gx * 16.0, gy * 16.0, lap * 4.0)); // scaled into f16's sweet spot
 }

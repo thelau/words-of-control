@@ -213,7 +213,7 @@ export class Renderer {
     group('sandV', this.c.sandVelocity, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }, { binding: 3, resource: sb(this.sandEv) }, { binding: 4, resource: sb(this.sandVel) }]);
     group('sandT', this.c.sandTransport, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }, { binding: 2, resource: sb(this.sand[1]) }, { binding: 3, resource: sb(this.sandEv) }, { binding: 4, resource: sb(this.sandVel) }]);
     group('sandR', this.c.sandRepose, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[1]) }, { binding: 2, resource: sb(this.sand[0]) }]);
-    group('sandB', this.c.sandBake, [{ binding: 0, resource: uni }, { binding: 1, resource: sb(this.sand[0]) }, { binding: 3, resource: sb(this.sandEv) }, { binding: 5, resource: this.sandTex.createView() }]);
+    group('sandB', this.c.sandBake, [{ binding: 1, resource: sb(this.sand[0]) }, { binding: 5, resource: this.sandTex.createView() }]);
     group('sand', this.p.sand, [{ binding: 0, resource: uni }, { binding: 1, resource: this.sandTex.createView() }, { binding: 2, resource: sb(this.sandEv) }, { binding: 3, resource: this.wrapSampler }]);
     group('grainsSim', this.c.grainsSim, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.grainBuf } }]);
     group('grains', this.p.grains, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.grainBuf } }]);

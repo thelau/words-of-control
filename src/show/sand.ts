@@ -17,13 +17,8 @@ export type SandClip = (typeof SAND_CLIPS)[number];
 export const isSand = (c: string): c is SandClip => (SAND_CLIPS as readonly string[]).includes(c);
 
 export type Impact = { x: number; y: number; t: number; r: number };
-/** What the terrain is made of, as the camera sees it: sand; dark pins (pin-art); a dust of coloured light;
- *  dotted contour lines in colour (references: video-f, video-h, video-i, the pin-art image). */
-export const SAND_MATERIALS = ['sand', 'pins', 'glitter', 'lines'] as const;
-
 export type SandEvents = {
   behaviour: number;
-  material: number;
   /** where the camera looks */
   focus: [number, number];
   wind: { angle: number; strength: number };
@@ -39,7 +34,7 @@ export const MAX_IMPACTS = 6;
 export function sandEvents(A: Appraisal, clip: SandClip, seed: number, dur: number): SandEvents {
   const rand = mulberry32(seed ^ 0x51a7d00d);
   const ev: SandEvents = {
-    behaviour: SAND_CLIPS.indexOf(clip), material: sandMaterial(A, clip, seed), focus: [0.5, 0.5], wind: { angle: rand() * Math.PI * 2, strength: 0 },
+    behaviour: SAND_CLIPS.indexOf(clip), focus: [0.5, 0.5], wind: { angle: rand() * Math.PI * 2, strength: 0 },
     impacts: [], blades: [], drain: null,
   };
   const aro = A.s.arousal;
@@ -86,28 +81,11 @@ export function sandEvents(A: Appraisal, clip: SandClip, seed: number, dur: numb
   return ev;
 }
 
-/** Drawn per shot, weighted by different dimensions of the reading: sand for earth, sand, water, flesh and
- *  idle words; pins for machines, metal, stone, order; glitter for light, night, the mind, wonder, joy;
- *  lines for sound, music, rhythm, flow and time. The Chladni plate is always sand on metal. */
-function sandMaterial(A: Appraisal, clip: SandClip, seed: number): number {
-  if (clip === 'chladni') return 0;
-  const m = A.c.material.p, d = A.c.domain.p, em = A.c.emotion.p, rh = A.c.rhythm.p;
-  const w = [
-    m.sand + m.water * 0.4 + m.flesh * 0.3 + m.wood * 0.3 + A.lazy * 0.7 + em.sadness * 0.3 + 0.3,
-    m.metal + m.stone * 0.6 + d.machine + A.s.order * 0.5 + m.glass * 0.3 + em.fear * 0.3 + 0.15,
-    m.light + m.void * 0.4 + A.c.daytime.p.night + d.mind * 0.5 + em.awe + em.joy * 0.6 + A.c.time.p.future * 0.4 + 0.2,
-    A.c.sense.p.hearing + rh.pulsing * 0.5 + rh.steady * 0.3 + A.c.shape.p.flowing * 0.6 + A.s.duration * 0.4 + em.calm * 0.3 + 0.2,
-  ];
-  let r = mulberry32(seed ^ 0x3a7e)() * w.reduce((x, y) => x + y, 0);
-  for (let k = 0; k < w.length; k++) { r -= w[k]; if (r <= 0) return k; }
-  return 0;
-}
-
-/** The GPU table: [0] behaviour, impact or blade count, wind angle, wind strength; [1] focus, material;
+/** The GPU table: [0] behaviour, impact or blade count, wind angle, wind strength; [1] focus;
  *  [2..7] impacts (x, y, t, r); [8..13] blades as pairs (ends; t0, t1, width); [14] drain x, y, r, rate. */
 export function packSand(ev: SandEvents): Float32Array {
   const d = new Float32Array(SAND_VEC4 * 4);
-  d.set([ev.behaviour, ev.impacts.length || ev.blades.length, ev.wind.angle, ev.wind.strength, ev.focus[0], ev.focus[1], ev.material], 0);
+  d.set([ev.behaviour, ev.impacts.length || ev.blades.length, ev.wind.angle, ev.wind.strength, ev.focus[0], ev.focus[1]], 0);
   ev.impacts.forEach((m, i) => d.set([m.x, m.y, m.t, m.r], (2 + i) * 4));
   ev.blades.forEach((b, i) => d.set([b.x0, b.y0, b.x1, b.y1, b.t0, b.t1, b.width], (8 + i * 2) * 4));
   if (ev.drain) d.set([ev.drain.x, ev.drain.y, ev.drain.r, ev.drain.rate], 14 * 4);
