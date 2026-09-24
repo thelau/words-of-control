@@ -7,7 +7,7 @@
 import type { JevError } from '../proxy/jev.ts';
 
 /** Failures that may pass on their own: the word is kept and Enter asks again. */
-export const TRANSIENT: ReadonlySet<JevError['kind']> = new Set(['timeout', 'network', 'overloaded', 'rate_limit', 'server']);
+export const TRANSIENT: ReadonlySet<JevError['kind']> = new Set(['timeout', 'network', 'offline', 'overloaded', 'rate_limit', 'server']);
 
 const FIX: Partial<Record<JevError['kind'], string>> = {
   no_key: 'no API key · put TYPESAFE_API_KEY in .env.local, restart npm run dev',
@@ -18,7 +18,8 @@ const FIX: Partial<Record<JevError['kind'], string>> = {
   validation: 'request rejected · the question battery needs fixing (src/jev/questions.ts)',
   server: 'Jev server error',
   timeout: 'no answer in time',
-  network: 'cannot reach the proxy · is npm run dev running?',
+  network: 'Jev unreachable · check the internet connection',
+  offline: 'cannot reach the dev server · is npm run dev running (and is this its port)?',
   malformed: 'unexpected answer from Jev',
   bad_input: 'input refused by the proxy',
 };

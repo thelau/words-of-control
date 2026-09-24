@@ -9,7 +9,8 @@ export const UPSTREAM_TIMEOUT_MS = 8000;
 
 export type JevErrorKind =
   | 'no_key' | 'auth' | 'credits' | 'rate_limit' | 'overloaded' | 'validation'
-  | 'server' | 'timeout' | 'network' | 'malformed' | 'bad_input' | 'unknown';
+  // network: the proxy could not reach Jev · offline: the page could not reach the proxy
+  | 'server' | 'timeout' | 'network' | 'offline' | 'malformed' | 'bad_input' | 'unknown';
 
 export type JevError = { kind: JevErrorKind; status?: number; message: string; requestId?: string };
 export type ProxyResult = { ok: true; answers: unknown; model: string } | { ok: false; error: JevError };

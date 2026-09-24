@@ -14,7 +14,7 @@ const ENDPOINT = (import.meta.env.VITE_JEV_PROXY as string | undefined) || '/api
 // generous: a slow connection only lengthens the pause before the appraisal (the proxy gives Jev 8 s)
 const CLIENT_TIMEOUT_MS = 9000;
 /** Temporary failures are asked again once, quietly, before anything is shown. */
-const RETRY: ReadonlySet<string> = new Set(['timeout', 'network', 'overloaded', 'server']);
+const RETRY: ReadonlySet<string> = new Set(['timeout', 'network', 'offline', 'overloaded', 'server']);
 const usingMock = () => new URLSearchParams(location.search).has('mock');
 
 type Fetched = { ok: true; answers: Answers } | { ok: false; error: JevError };
@@ -44,7 +44,7 @@ async function fetchAnswers(text: string): Promise<Fetched> {
     const aborted = (e as Error)?.name === 'AbortError';
     return { ok: false, error: aborted
       ? { kind: 'timeout', message: `No answer within ${CLIENT_TIMEOUT_MS} ms.` }
-      : { kind: 'network', message: `Could not reach the proxy: ${(e as Error)?.message ?? e}` } };
+      : { kind: 'offline', message: `Could not reach the proxy: ${(e as Error)?.message ?? e}` } };
   } finally {
     clearTimeout(timer);
   }
