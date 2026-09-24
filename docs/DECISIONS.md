@@ -2,6 +2,12 @@
 
 Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
+## 2026-09-25
+
+- **The support screen is global** ("if this is launched globally, just remove it"): no single country's helpline
+  (Singapore's removed, overrides SPEC §5.3's example); findahelpline.com, which lists free, confidential support in
+  every country.
+
 ## 2026-09-24 (late)
 
 - **No sound interruption, for every species, at every cut** ("for all, no sound interruption"). The picture cuts;

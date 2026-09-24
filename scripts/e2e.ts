@@ -71,6 +71,7 @@ if (!live) {
   await typeWord('want to die');
   await page.keyboard.press('Enter');
   check('distress shows support', await waitState('support', 3000) && await page.evaluate(() => !document.getElementById('support')!.hidden));
+  check('…with no cursor over it', !(await cursorShown()));
   await page.keyboard.press('Escape');
   check('Esc leaves support', await waitState('idle', 3000));
 

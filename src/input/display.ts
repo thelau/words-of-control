@@ -77,7 +77,10 @@ export class Display {
     this.text.textContent = '';
   }
 
+  /** Hide the line (the support screen). The cursor goes too: its blink sets its own visibility, which would show
+   *  through a hidden parent; the room's return (showCursor) brings it back. */
   hideAll(hidden: boolean) {
     this.line.style.visibility = hidden ? 'hidden' : '';
+    if (hidden) this.hideCursor();
   }
 }
