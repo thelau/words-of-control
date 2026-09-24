@@ -147,7 +147,8 @@ verdict now comes in species that differ at first sight, and two performances in
 
 - **points** — the data formations, the relief, the sand (everything before step 8).
 - **ink** — the reading gone liquid (ink.wgsl): a real fluid (advection, vorticity, pressure projection,
-  256² velocity, 1024² dye). It is poured from the appraisal's last barcode (a question's: its line), then
+  256² velocity, 1024² dye). It is poured from the appraisal's last barcode (a question's: its line) — its bits as strokes of ink, not ruled
+  columns: each bar its own length, height and weight, the whole reading tilted at the word's own angle and bent, then
   fed by the word: one source per byte, laid out in the word's shape (ring, wave, spiral, tree, knot, one
   point, a scatter, a low line), each firing on the word's beat and pushing the way it moves (grief falls,
   joy rises, fear trembles, love circles; a still word's drops just open). Matter is viscosity and weight

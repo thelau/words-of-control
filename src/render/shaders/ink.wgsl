@@ -201,11 +201,22 @@ fn reading(p: vec2f) -> vec4f {
     let on = ss(0.004, 0.0015, abs(p.y - 0.5)) * step(0.12, p.x) * step(p.x, 0.88);
     return vec4f(vec3f(F.baseR, F.baseG, F.baseB), 1.0) * on;
   }
-  // thin bars on a wide pitch (the black must stay), across the middle of the frame
-  let idx = i32(floor(p.x * DN / 7.0));
-  let bit = f32((byteOf(idx / 8) >> u32(idx % 8)) & 1u) * step(fract(p.x * DN / 7.0), 0.35);
-  let band = ss(0.0, 0.05, 0.3 - abs(p.y - 0.5)) * ss(0.0, 0.05, 0.4 - abs(p.x - 0.5));
-  return vec4f(pigment(tv(idx / 8 + 3)), 1.0) * bit * band;
+  // the barcode's bits, but as strokes of ink, not ruled columns: the reading is tilted (each word its own angle), bent by
+  // a slow noise, and each bar is a stroke of its own length, height and weight (from its values) — the black stays
+  let ang = (fract(F.seed * 0.618) - 0.5) * PI; // any angle, the word's own
+  let c0 = p - vec2f(0.5);
+  var c = vec2f(c0.x * cos(ang) - c0.y * sin(ang), c0.x * sin(ang) + c0.y * cos(ang));
+  let sd = vec2f(fract(F.seed * 0.013) * 50.0, fract(F.seed * 0.029) * 50.0);
+  c += vec2f(fbm(c * 2.5 + sd, 3), fbm(c * 2.5 + sd + vec2f(5.2, 1.3), 3)) * 0.09;
+  let r = c + vec2f(0.5);
+  let idx = i32(floor(r.x * DN / 7.0));
+  let fx = fract(r.x * DN / 7.0);
+  let bit = f32((byteOf(idx / 8) >> u32(idx % 8)) & 1u) * step(fx, 0.2 + 0.45 * tv(idx + 17));
+  let y0 = 0.5 + (tv(idx + 11) - 0.5) * 0.35;
+  let half = 0.04 + 0.2 * tv(idx + 13);
+  let stroke = ss(0.0, 0.04, half - abs(r.y - y0));
+  let band = ss(0.0, 0.05, 0.4 - abs(c0.x)) * ss(0.0, 0.05, 0.36 - abs(c0.y));
+  return vec4f(pigment(tv(idx / 8 + 3)), 1.0) * bit * stroke * band;
 }
 
 @compute @workgroup_size(16, 16)
