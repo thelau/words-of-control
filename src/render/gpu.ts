@@ -28,7 +28,7 @@ const BLOOM_LEVELS = 6;
 const TAPE_MAX = 1024;
 const RELIEF_RES = 512;
 /** Points drawn by the data layer. */
-const FIELD_N = 200_000;
+const FIELD_N = 250_000;
 const SAND_N = 512;
 /** The ink's velocity and dye grids (keep in step with ink.wgsl VN, DN), and its pressure iterations. */
 const INK_VEL = 256;
@@ -49,6 +49,8 @@ export class Renderer {
   lowH = 0;
   /** 1, 0.75 or 0.5: the soft layers' resolution and the data layer's point count (lowered on slow devices). */
   quality = 1;
+  /** The share of the data layer's points a formation uses (the dense geometric ones all; the costly soft ones fewer). */
+  dataShare = 1;
   private d!: GPUDevice;
   private ctx!: GPUCanvasContext;
   private format!: GPUTextureFormat;
@@ -379,12 +381,13 @@ export class Renderer {
       // the camera once, then the points into the spare target (cleared: no trails), then onto the scene
       const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
       cp.setPipeline(this.c.dataCamera); cp.setBindGroup(0, this.bg.dataCam); cp.dispatchWorkgroups(1);
-      cp.setPipeline(this.c.dataSim); cp.setBindGroup(0, this.bg.dataSim); cp.dispatchWorkgroups(Math.ceil(FIELD_N / 256));
+      const n = Math.round(FIELD_N * this.dataShare);
+      cp.setPipeline(this.c.dataSim); cp.setBindGroup(0, this.bg.dataSim); cp.dispatchWorkgroups(Math.ceil(n / 256));
       cp.end();
       const tp = enc.beginRenderPass({ colorAttachments: [{ view: this.trail.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       tp.setPipeline(this.p.data);
       tp.setBindGroup(0, this.bg.data);
-      tp.draw(4, Math.round(FIELD_N * this.quality));
+      tp.draw(4, Math.round(n * this.quality));
       tp.end();
       fullPass(this.p.blit, this.bg.blit);
     } else if (layer === 'ink') {

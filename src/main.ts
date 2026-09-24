@@ -302,6 +302,8 @@ async function boot() {
           f('modeM', mm); f('modeN', nn);
         }
         lastKey = m.key;
+        // how many points the formation uses: all for the dense geometric ones, fewer for the costly soft ones
+        renderer.dataShare = m.clip === 'cloud' || m.clip === 'tube' ? 0.85 : m.clip === 'landscape' ? 0.92 : 1;
         // variant2: which data formation; for ink, which reading it is poured from (1: a question's line)
         f('variant2', layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : layer === 'ink' && show.plan.drama === 'question' ? 1 : 0);
       }

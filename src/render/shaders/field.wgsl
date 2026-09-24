@@ -12,6 +12,9 @@
 //   3 cloud     — the scatter's return map, each layer shifted one value: a sheaf of paths
 //   4 tube      — the closing line, each echo turned by the next value: a twisting ribbon
 //   5 drift     — the void: sparse dust drifting, one highlight wandering through it
+//   7 hall      — an installation you walk through: a forest of columns of light to the horizon (one per bit
+//                 that is 1, as tall as its value), laser lines strung between them, a floor of lines; a little
+//                 incoherence (a few columns off the grid, broken segments), like data errors
 // Two kinds of point: most are fine dust (sharp, gone when out of focus); a few
 // carry the lens (true bokeh), thinned and brightened when large so the cost
 // stays flat. Monochrome with a warm/cool depth ramp and the appraisal's accent.
@@ -133,6 +136,7 @@ fn reading(i: u32, t: f32) -> vec4f {
     let p = vec2f(x * cos(ang), x * sin(ang) + (tv(i32(k) + 7) - 0.5) * 0.1);
     return vec4f(p, z, (0.6 + 0.4 * tv(i32(k))) * fade);
   }
+  if (form == 7u) { return hall(i, t); }
   if (form == 6u) {
     // lone: a name — one point of light held at the centre, a few motes far away in a vast dark
     if (i < 400u) { return vec4f((vec3f(a, b, c) - 0.5) * 0.004, 1.0); }
@@ -144,6 +148,45 @@ fn reading(i: u32, t: f32) -> vec4f {
   if (r1(i, 9u) > 0.12) { return vec4f(0.0, 0.0, 0.0, -1.0); }
   let p = (vec3f(a, b, c) - 0.5) * vec3f(8.0, 4.0, 8.0) + vec3f(t * 0.04, sin(t * 0.2 + a * 9.0) * 0.1, 0.0);
   return vec4f(p, 0.15 + 0.2 * r1(i, 10u));
+}
+
+/** The hall (form 7): world positions, y up; the floor at y = −0.6, the camera walks at eye level (camera()). */
+const HALL_S = 0.55;  // column spacing
+const HALL_N = 30.0;  // columns per side
+fn hall(i: u32, t: f32) -> vec4f {
+  let a = r1(i, 1u);
+  let b = r1(i, 2u);
+  let E = HALL_S * HALL_N; // the hall's width
+  let role = i % 100u;
+  if (role < 64u) {
+    // a column: one per bit that is 1 (a 0 leaves a gap in the forest), as tall as its value
+    let col = (i * 7919u) % u32(HALL_N * HALL_N);
+    if (((byteOf(i32(col / 8u)) >> (col % 8u)) & 1u) == 0u) { return vec4f(0.0, 0.0, 0.0, -1.0); }
+    let cx = f32(col % u32(HALL_N)) - HALL_N * 0.5 + 0.5;
+    let cz = f32(col / u32(HALL_N)) - HALL_N * 0.5 + 0.5;
+    // (at least a person's height, up to five; each a slim prism of light, not a dotted line)
+    let h = 0.9 + 2.4 * tv(i32(col) + 11);
+    var x = cx * HALL_S + (r1(i, 73u) - 0.5) * 0.05;
+    var y = -0.6 + a * h;
+    // the incoherence: a few columns stand off the grid, a few carry a broken, displaced segment
+    if (r1(col, 70u) < 0.04) { x += HALL_S * 0.5; }
+    if (r1(col, 71u) < 0.06 && fract(a * 5.0 + r1(col, 72u)) < 0.2) { y += 0.25; x += 0.03; }
+    return vec4f(x, y, cz * HALL_S + (r1(i, 74u) - 0.5) * 0.05, 0.35 + 0.65 * tv(i32(col)));
+  }
+  if (role < 86u) {
+    // a laser line strung across the hall at a height from the tape, along x or z; some broken into dashes
+    let L = i32(i % 120u);
+    let alongX = L % 2 == 0;
+    let off = (f32(L / 2) - 30.0 + 0.5) * HALL_S;
+    let y = -0.6 + 0.08 + 2.2 * tv(L + 29);
+    let s = (a - 0.5) * E;
+    if (tv(L + 31) > 0.6 && fract(s * 3.0) > 0.55) { return vec4f(0.0, 0.0, 0.0, -1.0); }
+    let p = select(vec3f(off, y, s), vec3f(s, y, off), alongX);
+    return vec4f(p, 0.5 + 0.5 * tv(L));
+  }
+  // the floor: rows of fine lines (a test pattern underfoot), fading to the edges
+  let row = floor(b * 150.0);
+  return vec4f((a - 0.5) * E, -0.6, (row / 150.0 - 0.5) * E, 0.22 + 0.2 * tv(i32(row)));
 }
 
 /** A rotation of p about the y axis. */
@@ -242,7 +285,9 @@ fn mw(k: u32, base: f32, u: f32) -> f32 {
 fn behaveAt(p: vec3f, i: u32, t: f32, u: f32, gesture: f32) -> vec3f {
   var q = p;
   let exact = ss(0.45, 0.65, F.moodNeu);
-  let mv0 = (1.0 - exact) * (1.0 - 0.8 * F.mo_still);
+  // (the hall is a world, not an object: its gestures are gentle, and it never turns round you)
+  let world = u32(F.variant2 + 0.5) == 7u;
+  let mv0 = (1.0 - exact) * (1.0 - 0.8 * F.mo_still) * select(1.0, 0.25, world);
   let mv = mv0 * gesture; // (the big gestures; gesture 0 = the reading at rest, for framing)
   let e = ss(0.0, 1.0, u);
   // the big gestures (rising, falling, spreading, contracting, breaking) follow the verdict's own clock, so
@@ -267,9 +312,11 @@ fn behaveAt(p: vec3f, i: u32, t: f32, u: f32, gesture: f32) -> vec3f {
   // spreading opens it out wide; contracting draws it in on itself (to a fifth, ease-in)
   q *= 1.0 + wSpread * 0.9 * ss(0.0, 0.75, vu) * mv;
   q *= 1.0 - min(wContract, 1.0) * 0.8 * ss(0.0, 0.75, vu) * mv; // (visibly shrinking from the first shot on)
-  // breaking: it splits into a dozen pieces that part, leaving gaps
+  // breaking: it splits into pieces that part, leaving gaps — each piece a chunk of space (neighbours break away
+  // together, like shards; a piece per point at random dissolved the matter into ghost copies)
   if (wBreak > 0.03) {
-    let piece = floor(r1(i, 50u) * 12.0);
+    let cell = floor(p * select(1.4, 0.8, world));
+    let piece = floor(fract(sin(dot(cell, vec3f(12.9898, 78.233, 37.719))) * 43758.5453) * 12.0);
     let pd = normalize(vec3f(r1(u32(piece), 51u), r1(u32(piece), 52u), r1(u32(piece), 53u)) - 0.5 + 1e-3);
     q += pd * wBreak * 1.2 * ss(0.05, 0.7, vu) * mv;
   }
@@ -285,7 +332,7 @@ fn behaveAt(p: vec3f, i: u32, t: f32, u: f32, gesture: f32) -> vec3f {
   let fq = 50.0 + 38.0 * r1(i, 21u);
   q += vec3f(sin(t * fq + r1(i, 22u) * TAU), sin(t * fq * 1.31 + r1(i, 23u) * TAU), sin(t * fq * 0.77 + r1(i, 26u) * TAU)) * jit * 0.5;
   // circling: the whole formation turns (never faster than ~0.3 rad/s: a radial structure strobes — the wagon wheel)
-  let ang = t * min(0.03 + 0.6 * wCircle + 0.08 * F.s_arousal, 0.3) * (1.0 - exact) * (1.0 - 0.9 * F.mo_still);
+  let ang = t * min(0.03 + 0.6 * wCircle + 0.08 * F.s_arousal, 0.3) * (1.0 - exact) * (1.0 - 0.9 * F.mo_still) * select(1.0, 0.0, world);
   return vec3f(q.x * cos(ang) - q.z * sin(ang), q.y, q.x * sin(ang) + q.z * cos(ang));
 }
 
@@ -304,6 +351,26 @@ fn camera() {
   let t = clock();
   let t0 = F.angleAt * mix(1.0, 0.35, F.lazy);
   let form = u32(F.variant2 + 0.5);
+  if (form == 7u) {
+    // the hall: you walk through it at eye level, down an aisle between the columns, at the word's pace; each
+    // angle another aisle and heading. "they" (far) — lifted high above the forest, looking down across it;
+    // "I" — close to the columns
+    let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01)) * 0.5 + 0.5;
+    let aisle = (floor(ah.x * 8.0) - 4.0) * HALL_S + HALL_S * 0.5 * (1.0 - 0.6 * F.who_i);
+    let walk = mix(0.2, 0.7, F.s_energy) * mix(1.0, 0.4, F.lazy);
+    let high = F.who_they * ss(0.35, 0.8, F.s_distance);
+    let yaw = (ah.y - 0.5) * 1.0 + sin(t * 0.13) * 0.06 + F.who_we * t * 0.08;
+    let heading = vec3f(-sin(yaw), 0.0, -cos(yaw));
+    let cam = vec3f(aisle, mix(-0.12, 2.2, high), 4.0 - ah.y * 3.0) + heading * t * walk;
+    let fwd = normalize(heading + vec3f(0.0, -0.04 - 0.6 * high, 0.0));
+    let rt = normalize(cross(fwd, vec3f(0.0, 1.0, 0.0)));
+    CAMW[0] = vec4f(cam, 3.0);
+    CAMW[1] = vec4f(fwd, 1.0);
+    CAMW[2] = vec4f(rt, 0.0);
+    CAMW[3] = vec4f(cross(rt, fwd), 0.0);
+    CAMW[4] = vec4f(cam + fwd * 3.0, 0.0);
+    return;
+  }
   let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01)) * 0.5 + 0.5;
   // where you stand is who the word is about: "I" — inside it, among the matter; "we" — in the middle of
   // it, as it turns around you; "you" — facing it; "they" — far away, looking on (camera() below)
@@ -313,9 +380,10 @@ fn camera() {
   let axis = floor(ah.x * 3.0);
   // (a held camera — the word's own gesture is the motion — never drifts)
   // "you": the matter faces you (the camera comes round to the front, level); "we": it turns around you
-  let free = (ah.x * 2.0 - 1.0) * 1.3 * (1.0 - 0.8 * F.who_you) + t * (0.03 * mix(1.0, 0.5, F.moodPos) * (1.0 - F.hold) + 0.12 * F.who_we);
+  // (never side-on to a flat reading: it would shrink to a line in an empty frame)
+  let free = (ah.x * 2.0 - 1.0) * 0.95 * (1.0 - 0.8 * F.who_you) + t * (0.03 * mix(1.0, 0.5, F.moodPos) * (1.0 - F.hold) + 0.12 * F.who_we);
   let yaw = select(free, select(0.0, 1.5708 * sign(ah.y - 0.5), axis == 1.0), exact);
-  let pitch = select((ah.y * 2.0 - 1.0) * 0.5 * (1.0 - 0.8 * F.who_you), select(0.0, 1.45, axis == 2.0), exact);
+  let pitch = select((ah.y * 2.0 - 1.0) * 0.4 * (1.0 - 0.8 * F.who_you), select(0.0, 1.45, axis == 2.0), exact);
   var pts: array<vec3f, 32>;
   var got = 0u;
   var sum = vec3f(0.0);
@@ -339,12 +407,14 @@ fn camera() {
     for (var j = 0u; j < got; j++) { near += exp(-dot(pts[k] - pts[j], pts[k] - pts[j]) / 0.15); }
     if (near > best) { best = near; densest = pts[k]; }
   }
-  // wide angles aim between the densest structure and the centre; inside, at the structure itself
-  let aimPt = mix(densest, centre, select(0.4, 0.0, inside));
+  // wide angles aim at the centre, leaning a little toward the densest structure (aimed at an edge, half the
+  // frame was empty); inside, at the structure itself
+  let aimPt = mix(densest, centre, select(0.75, 0.0, inside));
   // how far you stand: Jev's distance (intimate → public); "they", when also distant — far off, the matter
   // small in the dark (they + intimate, like a mother, stays close)
   let far = mix(0.9, 1.5, F.s_distance) * (1.0 + 2.2 * F.who_they * ss(0.35, 0.8, F.s_distance));
-  let reach = select(spread * mix(1.0, 1.6, ah.y) * far, mix(0.3, 0.6, ah.x), inside && !exact);
+  // (close enough that the matter fills the frame)
+  let reach = select(spread * mix(0.8, 1.2, ah.y) * far, mix(0.3, 0.6, ah.x), inside && !exact);
   let track = select(vec3f(0.0), vec3f(cos(yaw), 0.0, -sin(yaw)) * (t * 0.06 - 0.3), exact);
   let orbit = aimPt + track + vec3f(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * reach * mix(1.0, 0.85, F.u) / F.zoom;
   let reveal = select(select(1.0, ss(0.6, 2.8, F.lt), F.angle < 0.0), 1.0 - ss(0.4, 3.5, F.lt), F.angle < -1.5);
@@ -382,7 +452,8 @@ fn lifeOf(i: u32) -> f32 { return select(mix(1.2, 3.2, r1(i, 42u)), mix(6.0, 10.
 /** Whether particle i detaches, and which way: 0 embers rising (fire) · 1 grains falling (sand) · 2 smoke
  *  drifting away (smoke). Half of a fire's or a sand's particles, 45% of a smoke's. */
 fn detach(i: u32) -> i32 {
-  if (u32(F.variant2 + 0.5) >= 5u) { return -1; }
+  let f = u32(F.variant2 + 0.5);
+  if (f == 5u || f == 6u) { return -1; }
   let m = pmat(i);
   let r = r1(i, 40u) / max(F.matSure, 0.05);
   if (m == FIRE && r < 0.5) { return 0; }
@@ -489,7 +560,9 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   // the lens: circle of confusion (CSS px) from the distance to the focal plane (the aim)
   // (water, stone and crystal are sharp: no lens blur on them)
   let sharp = max(max(isM(i, WATER), isM(i, STONE)), crystalOf(i));
-  let aperture = mix(0.012, 0.035, F.s_intensity) * F.zoom * select(1.0, 1.25, inside) * select(1.0, 0.1, exact) * (1.0 - 0.7 * sharp);
+  // (the hall is walked through: deep focus, or the columns beside you would blur away)
+  let aperture = mix(0.012, 0.035, F.s_intensity) * F.zoom * select(1.0, 1.25, inside) * select(1.0, 0.1, exact) * (1.0 - 0.7 * sharp)
+    * select(1.0, 0.2, form == 7u);
   // (the frame is measured by its short side, so a portrait phone sees the whole formation)
   let side = min(res.x, res.y);
   let coc = min(abs(z - dist) / z * aperture * side * 0.5, 12.0); // (a disc never larger than 12 px: no shot goes to soup)

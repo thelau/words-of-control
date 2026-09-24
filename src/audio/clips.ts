@@ -21,7 +21,7 @@ import { mulberry32 } from '../core/rng.ts';
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
-const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, lone: 8, ink: 4, solids: 4 };
+const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, lone: 8, hall: 5, ink: 4, solids: 4 };
 
 /** One shot's voice: `strike` — it carries the verdict's strike; `pos` — a positive word (its beats sit high, no sub);
  *  `tail` — how long it rings on after its cut (s); `off` — when the shot begins on the verdict clock (s). */
@@ -329,6 +329,17 @@ function data(v: V): number[] {
         for (let i = 0; i < len && s0 + i < n; i++) {
           const x = Math.sin((2 * Math.PI * f * i) / sr) * Math.exp(-i / (sr * 0.004 + val * sr * 0.02)) * 0.3 * val;
           L[s0 + i] += x * (1 - pan); R[s0 + i] += x * (1 + pan);
+        }
+      } else if (form === 7) {
+        // hall: walking past the columns — each a resonant pillar, a low soft ping as tall as its value (the tall
+        // ring lower and longer), passing left and right
+        const f = tune(f0 * 0.5 * Math.pow(2, (1 - val) * 1.5));
+        const len = Math.floor(sr * (0.3 + val * 1.2));
+        const side = k % 2 ? 0.7 : -0.7;
+        for (let i = 0; i < len && s0 + i < n; i++) {
+          const u = i / sr;
+          const x = (Math.sin(2 * Math.PI * f * u) + 0.3 * Math.sin(2 * Math.PI * f * 2.01 * u)) * Math.exp(-u / (0.1 + val * 0.4)) * (1 - Math.exp(-u / 0.004)) * 0.07;
+          L[s0 + i] += x * (1 - side); R[s0 + i] += x * (1 + side);
         }
       } else if (form === 2) {
         // lattice: the bits as gated rectangular pulses (a 1 sounds, a 0 is silence)

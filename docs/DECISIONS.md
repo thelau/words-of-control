@@ -4,6 +4,13 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-25
 
+- **Particles: fuller, straighter, walkable** ("sometimes it's too empty … I prefer straight geometric forms
+  (lines, columns, dense large fields, a bit of incoherence …) an installation you walk through"): a new formation,
+  the hall (a forest of columns of light — one per 1-bit, as tall as its value — laser lines, a floor of lines, a few
+  columns off the grid, walked through at eye level); the organic cloud and tube weigh less; 25% more points
+  (250k; the costly soft formations use fewer); wide shots aim at the formation's centre, never side-on to a flat
+  reading (no more empty corners); breaking splits into spatial shards, not ghost copies.
+
 - **Clear cases pick their species** ("if a visual is more appropriate than others based on some of the scores …
   in specific cases … we still want as much variety as possible"): liquids and smoke → ink; hard objects → solids;
   the machine, nonsense, ordered abstractions → points; a strong feeling with a flowing shape → ink. A clear case

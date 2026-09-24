@@ -14,7 +14,7 @@ import type { Layer } from '../render/gpu.ts';
  *  every mark from the word's data; each family answers to different dimensions of the reading.
  *  Ink and solids are other species (the reading gone liquid, ink.wgsl; made matter, solids.wgsl), each a
  *  whole performance of its own. */
-export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'lone'] as const;
+export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'lone', 'hall'] as const;
 export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink', 'solids'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
@@ -81,18 +81,22 @@ function affinity(A: Appraisal): Record<ClipId, number> {
     // the machine's own matter: bits, codes, the digital, the strange, nonsense, anxiety
     lattice: d.machine * 1.1 + d.mind * 0.4 + s.strangeness * 0.6 + tx.crystalline * 0.4 + A.c.act.p.nonsense * 1.0
       + em.anxiety * 0.5 + rh.stuttering * 0.5 + s.order * 0.3 + em.playful * 0.4,
+    // (straight geometry is preferred — lines, columns, fields — so the organic cloud and tube are weighed down)
     // a cloud of relations: chaos, fear, spreading, smoke and void, the cosmos, wonder
-    cloud: (1 - s.order) * 0.6 + em.fear * 0.7 + em.awe * 0.6 + mo.spreading * 0.6 + mo.breaking * 0.5 + m.smoke * 0.5 + m.void * 0.4
-      + d.cosmos * 0.8 + s.strangeness * 0.3 + (1 - A.c.emotion.confidence) * 0.4 + em.joy * 0.3,
+    cloud: 0.7 * ((1 - s.order) * 0.6 + em.fear * 0.7 + em.awe * 0.6 + mo.spreading * 0.6 + mo.breaking * 0.5 + m.smoke * 0.5 + m.void * 0.4
+      + d.cosmos * 0.8 + s.strangeness * 0.3 + (1 - A.c.emotion.confidence) * 0.4 + em.joy * 0.3),
     // one line closing on itself: the tone, the circle, love, the sacred, the timeless
-    tube: s.tone * 0.5 + mo.circling * 0.7 + sh.round * 0.5 + sh.spiral * 0.6 + A.c.sense.p.hearing * 0.4 + em.tender * 0.7
-      + n.closeness * 0.6 + s.sacred * 0.5 + tm.timeless * 0.3 + d.home * 0.4 + d.body * 0.3,
+    tube: 0.7 * (s.tone * 0.5 + mo.circling * 0.7 + sh.round * 0.5 + sh.spiral * 0.6 + A.c.sense.p.hearing * 0.4 + em.tender * 0.7
+      + n.closeness * 0.6 + s.sacred * 0.5 + tm.timeless * 0.3 + d.home * 0.4 + d.body * 0.3),
     // data made surface: matter, body, weight, stone, flesh, wood, the still
     relief: m.stone * 0.8 + m.flesh * 0.7 + m.wood * 0.6 + m.cloth * 0.5 + tx.cracked * 0.5 + tx.soft * 0.4 + tx.fibrous * 0.5
       + mo.still * 0.5 + mo.contracting * 0.4 + s.weight * 0.5 + d.body * 0.4,
     // the word's bytes as a sound shaping sand: heard, tonal, rhythmic, sand itself
     chladni: A.c.sense.p.hearing * 1.1 + m.sand * 0.8 + tx.grainy * 0.4 + rh.pulsing * 0.6 + mo.trembling * 0.6 + s.order * 0.3
       + s.sacred * 0.3 + em.joy * 0.2,
+    // an installation you walk through: places, order, scale, the city, awe, distance, the shared ("we"), the steady
+    hall: (A.c.kind.p.place ?? 0) * 1.1 + s.order * 0.6 + s.scale * 0.8 + d.city * 0.6 + em.awe * 0.6 + s.distance * 0.4
+      + A.c.who.p.we * 0.5 + rh.steady * 0.4 + tm.timeless * 0.3 + m.stone * 0.3 + m.glass * 0.3 + 0.3,
     // a name: one point held alone (only ever chosen by the name dramaturgy)
     lone: 0,
     // the void, the lazy afternoon: a sparse dust drifting
@@ -232,10 +236,10 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   // slab of matter) only ever answers heavy matter — never love, fire or shame
   const m = A.c.material.p;
   const FAMILY: Record<string, Partial<Record<ClipId, number>>> = {
-    stone: { relief: 3, city: 1.5 }, metal: { relief: 2, city: 2, lattice: 1.3 }, wood: { relief: 2.5, landscape: 1.3 },
+    stone: { relief: 3, city: 1.5, hall: 1.5 }, metal: { relief: 2, city: 2, lattice: 1.3, hall: 1.3 }, wood: { relief: 2.5, landscape: 1.3 },
     flesh: { relief: 1.8, tube: 1.5 }, cloth: { tube: 1.8, landscape: 1.4 }, water: { landscape: 2.5, tube: 1.3 },
     fire: { cloud: 2, tube: 1.5 }, smoke: { cloud: 2, drift: 1.5 }, void: { drift: 2.5, cloud: 1.3 },
-    light: { lattice: 2, tube: 1.5 }, ice: { lattice: 2, city: 1.4 }, glass: { lattice: 2, city: 1.5 }, sand: { chladni: 3, landscape: 1.4 },
+    light: { lattice: 2, hall: 1.8 }, ice: { lattice: 2, city: 1.4 }, glass: { lattice: 2, city: 1.5, hall: 1.4 }, sand: { chladni: 3, landscape: 1.4 },
   };
   const topMat = A.c.material.top;
   for (const [clip, k] of Object.entries(FAMILY[topMat] ?? {})) aff[clip as ClipId] *= 1 + (k - 1) * Math.min(1, m[topMat] * 1.4);

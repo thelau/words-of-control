@@ -70,7 +70,7 @@ const solo = (clip: string, mode: string) => page.evaluate(([a, clip, mode]) => 
   const shots = clip ? [{ clip, start: 0.05, dur: 3.2, seed: 7, aborted: false, angles: [{ at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 }], ops: { echo: 0, warp: 0, flow: 0 } }] : [];
   W.performPlan(A, { cuts, shots, blackAt: 3.3, end: 3.9 });
 }, [fixtures.fuck, clip, mode]);
-for (const clip of ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'relief', 'chladni', 'ink', 'solids']) {
+for (const clip of ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall', 'relief', 'chladni', 'ink', 'solids']) {
   await solo(clip, '');
   await page.waitForTimeout(700);
   layers.push([`clip ${clip}`, stats(await sample(2000))]);
