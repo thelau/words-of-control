@@ -4,6 +4,12 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-25
 
+- **Clear cases pick their species** ("if a visual is more appropriate than others based on some of the scores …
+  in specific cases … we still want as much variety as possible"): liquids and smoke → ink; hard objects → solids;
+  the machine, nonsense, ordered abstractions → points; a strong feeling with a flowing shape → ink. A clear case
+  may repeat the last species, never a third time in a row; the rest (about 60% of the test words) stays a soft
+  choice among the species not just seen.
+
 - **The support screen is global** ("if this is launched globally, just remove it"): no single country's helpline
   (Singapore's removed, overrides SPEC §5.3's example); findahelpline.com, which lists free, confidential support in
   every country.

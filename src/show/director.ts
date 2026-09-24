@@ -109,6 +109,21 @@ const recent: ClipId[] = [];
 const recentOps: string[] = [];
 const openers: ClipId[] = [];
 let lastSpecies: Species | null = null;
+/** How many performances in a row have been lastSpecies. */
+let streak = 0;
+
+/** The clear cases, where one species is plainly the word's material (Laurent: "if a visual is more appropriate
+ *  than others based on some of the scores … in specific cases"): liquids and smoke are ink; hard objects are
+ *  solids; the machine, nonsense and ordered abstractions are points; a strong feeling with a flowing shape is ink.
+ *  Anything else is a soft choice. */
+function signature(A: Appraisal): Species | null {
+  const m = A.c.material.p, k = A.c.kind.p, d = A.c.domain.p;
+  if (m.water + m.smoke >= 0.6 || A.c.texture.p.liquid >= 0.6) return 'ink';
+  if ((k.object ?? 0) >= 0.6 && m.metal + m.stone + m.glass + m.wood + m.ice >= 0.6) return 'solids';
+  if (d.machine >= 0.6 || A.c.act.p.nonsense >= 0.5 || ((k['abstract idea'] ?? 0) >= 0.7 && A.s.order >= 0.7)) return 'points';
+  if (A.c.emotion.confidence >= 0.8 && A.mood.neu < 0.3 && A.c.shape.p.flowing >= 0.4) return 'ink';
+  return null;
+}
 
 /** How much each species suits the reading: ink the liquid (feeling, fluids, flowing, spreading), solids the
  *  material (objects and bodies, hard and heavy matter, round and jagged forms), points the data (the machine,
@@ -148,16 +163,20 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     : md.neu >= md.neg ? 'measure'
     : 'storm';
 
-  // ---- the species: never the last one (a name is points: its one held point is its meaning)
+  // ---- the species (a name is points: its one held point is its meaning)
   // among the others, the reading chooses — mostly the one that suits it best, sometimes the next
+  // a clear case takes its species (even the last one, but never a third time in a row); otherwise the reading
+  // chooses softly among the others — mostly the one that suits it best, sometimes the next
   const fit = suits(A);
   const pool = (['points', 'ink', 'solids'] as Species[]).filter((x) => x !== lastSpecies);
-  // (a soft preference: a word is not locked to one species, even as the first of a session)
   const wsp = pool.map((x) => Math.exp(1.5 * fit[x]));
   let rs = rand() * wsp.reduce((x, y) => x + y, 0);
   let species: Species = pool[pool.length - 1];
   for (let i = 0; i < pool.length; i++) { rs -= wsp[i]; if (rs <= 0) { species = pool[i]; break; } }
+  const sig = signature(A);
+  if (sig && !(sig === lastSpecies && streak >= 2)) species = sig;
   if (drama === 'name') species = 'points';
+  streak = species === lastSpecies ? streak + 1 : 1;
   lastSpecies = species;
 
   // ---- appraisal: rapid cuts, faster when the word is charged
