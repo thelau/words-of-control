@@ -304,13 +304,17 @@ fn camera() {
   let t0 = F.angleAt * mix(1.0, 0.35, F.lazy);
   let form = u32(F.variant2 + 0.5);
   let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01)) * 0.5 + 0.5;
-  let inside = fract(F.angle * 5.17) < 0.25 && form < 5u;
+  // where you stand is who the word is about: "I" — inside it, among the matter; "we" — in the middle of
+  // it, as it turns around you; "you" — facing it; "they" — far away, looking on (camera() below)
+  let inside = fract(F.angle * 5.17) < 0.25 + 0.55 * F.who_i + 0.45 * F.who_we && form < 5u;
   let exact = F.moodNeu > 0.5;
   // neutral: the instrument's views — straight on, side on, from above — tracking at constant speed
   let axis = floor(ah.x * 3.0);
   // (a held camera — the word's own gesture is the motion — never drifts)
-  let yaw = select((ah.x * 2.0 - 1.0) * 1.3 + t * 0.03 * mix(1.0, 0.5, F.moodPos) * (1.0 - F.hold), select(0.0, 1.5708 * sign(ah.y - 0.5), axis == 1.0), exact);
-  let pitch = select((ah.y * 2.0 - 1.0) * 0.5, select(0.0, 1.45, axis == 2.0), exact);
+  // "you": the matter faces you (the camera comes round to the front, level); "we": it turns around you
+  let free = (ah.x * 2.0 - 1.0) * 1.3 * (1.0 - 0.8 * F.who_you) + t * (0.03 * mix(1.0, 0.5, F.moodPos) * (1.0 - F.hold) + 0.12 * F.who_we);
+  let yaw = select(free, select(0.0, 1.5708 * sign(ah.y - 0.5), axis == 1.0), exact);
+  let pitch = select((ah.y * 2.0 - 1.0) * 0.5 * (1.0 - 0.8 * F.who_you), select(0.0, 1.45, axis == 2.0), exact);
   var pts: array<vec3f, 32>;
   var got = 0u;
   var sum = vec3f(0.0);
@@ -336,7 +340,10 @@ fn camera() {
   }
   // wide angles aim between the densest structure and the centre; inside, at the structure itself
   let aimPt = mix(densest, centre, select(0.4, 0.0, inside));
-  let reach = select(spread * mix(1.0, 1.6, ah.y), mix(0.3, 0.6, ah.x), inside && !exact);
+  // how far you stand: Jev's distance (intimate → public); "they", when also distant — far off, the matter
+  // small in the dark (they + intimate, like a mother, stays close)
+  let far = mix(0.9, 1.5, F.s_distance) * (1.0 + 2.2 * F.who_they * ss(0.35, 0.8, F.s_distance));
+  let reach = select(spread * mix(1.0, 1.6, ah.y) * far, mix(0.3, 0.6, ah.x), inside && !exact);
   let track = select(vec3f(0.0), vec3f(cos(yaw), 0.0, -sin(yaw)) * (t * 0.06 - 0.3), exact);
   let orbit = aimPt + track + vec3f(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * reach * mix(1.0, 0.85, F.u) / F.zoom;
   let reveal = select(select(1.0, ss(0.6, 2.8, F.lt), F.angle < 0.0), 1.0 - ss(0.4, 3.5, F.lt), F.angle < -1.5);

@@ -47,6 +47,8 @@ const APPRAISAL = [
   // the matter, per particle: the word's first and second material (index into MATERIALS), the share of the
   // particles that are the second, how sure Jev is (first + second); its main texture (index into TEXTURES)
   'matTop', 'matSec', 'matShare', 'matSure', 'txTop', 'txSure',
+  // who the word is centred on (Jev's distribution): where you stand
+  'who_i', 'who_you', 'who_we', 'who_they',
   'baseR', 'baseG', 'baseB', 'accR', 'accG', 'accB',
   // the colour clips' palette (from Jev's colour distribution): primary, second, contrast
   'p1R', 'p1G', 'p1B', 'p2R', 'p2G', 'p2B', 'p3R', 'p3G', 'p3B',
@@ -98,6 +100,7 @@ export class Frame {
     this.set('matSure', Math.min(1, (mats[0][1] + mats[1][1]) * 1.25));
     const txs = TEXTURES.map((k, i) => [i, A.c.texture.p[k] ?? 0] as const).sort((a, b) => b[1] - a[1]);
     this.set('txTop', txs[0][0]); this.set('txSure', txs[0][1]);
+    for (const k of ['i', 'you', 'we', 'they']) this.set(`who_${k}`, A.c.who.p[k] ?? 0);
     // the motion, sharpened like the material: the main gesture leads
     const mo2 = MOTIONS.map((k) => (A.c.motion.p[k] ?? 0) ** 2);
     const mosum = mo2.reduce((a, b) => a + b, 0) || 1;

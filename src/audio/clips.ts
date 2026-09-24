@@ -39,7 +39,35 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
   gate.gain.linearRampToValueAtTime(level, start + 0.004);
   gate.gain.setValueAtTime(level, end - 0.005);
   gate.gain.linearRampToValueAtTime(0, end);
-  gate.connect(a.perfDry);
+  // the sound of the word itself (Jev hears its letters): a round word ("bouba", mother) is heard round —
+  // dark, soft; a spiky one ("kiki", fire) sharp — bright, a little saturated; a noisy one (war, rain) with
+  // hiss in it, a pure one (bell, om) clean
+  const ph = A.s.phonetics, tn = A.s.tone;
+  const tilt = c.createBiquadFilter();
+  tilt.type = 'lowpass';
+  tilt.frequency.value = lerp(1800, 16000, Math.pow(ph, 1.4));
+  tilt.Q.value = 0.5;
+  const edge = c.createBiquadFilter();
+  edge.type = 'highshelf';
+  edge.frequency.value = 3000;
+  edge.gain.value = lerp(-4, 5, ph);
+  const shaper = c.createWaveShaper();
+  const k = lerp(0, 3, Math.max(0, ph - 0.5) * 2);
+  const curve = new Float32Array(1024);
+  for (let i = 0; i < curve.length; i++) { const x = i / 511.5 - 1; curve[i] = k > 0 ? Math.tanh(x * (1 + k)) / Math.tanh(1 + k) : x; }
+  shaper.curve = curve;
+  // (the word's sound changes the timbre, not the loudness: the brighter and harder, the lower the gain)
+  const makeup = c.createGain();
+  makeup.gain.value = dbToGain(-lerp(0, 7, Math.max(0, ph - 0.4) / 0.6));
+  gate.connect(shaper).connect(tilt).connect(edge).connect(makeup).connect(a.perfDry);
+  if (tn > 0.55) {
+    const hiss = noiseSrc({ a, start, end, rand: mulberry32(shot.seed ^ 0x415) } as V);
+    const hp = c.createBiquadFilter();
+    hp.type = 'bandpass'; hp.frequency.value = lerp(2000, 6000, ph); hp.Q.value = 0.7;
+    const hg = c.createGain();
+    hg.gain.value = 0.03 * (tn - 0.55) / 0.45 * level;
+    hiss.connect(hp).connect(hg).connect(a.perfDry);
+  }
   // the strike's shot lands with one deep blow (the sound never drops out: the holds are the image's only)
   const strike = index === strikeShot(plan) && A.c.rhythm.p.strike > 0.3;
   const send = c.createGain();
