@@ -22,7 +22,7 @@ const s = await openSession({ width: W, height: H, dpr: DPR });
 const errors: string[] = [];
 s.page.on('console', (m) => { if (m.type() === 'error' || /invalid|validation/i.test(m.text())) errors.push(m.text()); });
 await s.page.goto(`${s.url}?mock`);
-await s.page.waitForFunction(() => (window as any).__woc, null, { timeout: 30000 });
+await s.page.waitForFunction(() => (window as any).__woc, null, { timeout: 90000 });
 await s.page.waitForTimeout(1200);
 
 for (const w of words) {
@@ -48,10 +48,10 @@ for (const w of words) {
   for (const f of readdirSync(dir)) if (f.startsWith(`${slug}-`)) rmSync(`${dir}/${f}`);
   let n = 0;
   for (const [label, t] of at) {
-    await s.page.waitForFunction((t) => { const w = (window as any).__woc; const sh = w.show(); return !sh || w.audioClock() - sh.t0 >= t; }, t, { polling: 'raf', timeout: 30000 });
+    await s.page.waitForFunction((t) => { const w = (window as any).__woc; const sh = w.show(); return !sh || w.audioClock() - sh.t0 >= t; }, t, { polling: 'raf', timeout: 90000 });
     await s.page.screenshot({ path: `${dir}/${slug}-${String(n++).padStart(2, '0')}-${label}.png` });
   }
-  await s.page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 100, timeout: 40000 });
+  await s.page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 100, timeout: 90000 });
   await s.page.waitForTimeout(1500);
   await s.page.screenshot({ path: `${dir}/${slug}-${String(n++).padStart(2, '0')}-room.png` });
   try {

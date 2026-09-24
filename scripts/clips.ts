@@ -39,12 +39,12 @@ for (const clip of clips) {
   }, [fixtures[word], word, clip, dur, seed, echo, warp, flow, nAngles] as const);
   let n = 0;
   for (const u of nAngles > 1 ? Array.from({ length: nAngles }, (_, k) => (k + 0.6) / nAngles) : [0.1, 0.3, 0.55, 0.9]) {
-    await s.page.waitForFunction((t) => { const w = (window as any).__woc; const sh = w.show(); return !sh || w.audioClock() - sh.t0 >= t; }, 0.05 + u * dur, { polling: 'raf', timeout: 30000 });
+    await s.page.waitForFunction((t) => { const w = (window as any).__woc; const sh = w.show(); return !sh || w.audioClock() - sh.t0 >= t; }, 0.05 + u * dur, { polling: 'raf', timeout: 90000 });
     await s.page.screenshot({ path: `${dir}/${clip}-${n++}.png` });
   }
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-pattern_type', 'glob', '-i', `${dir}/${clip}-*.png`,
     '-vf', `scale=640:-1,tile=${Math.min(4, Math.max(4, nAngles))}x${Math.ceil(Math.max(4, nAngles) / 4)}:padding=4:color=0x3a3a3a`, '-frames:v', '1', `${dir}/sheet-${tag}.png`]);
   console.log(`${tag} → ${dir}/sheet-${tag}.png`);
-  await s.page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 200, timeout: 20000 });
+  await s.page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 200, timeout: 90000 });
 }
 await s.close();

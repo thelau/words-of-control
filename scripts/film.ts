@@ -24,7 +24,7 @@ for (const w of words) {
   await s.page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [fixtures[w], w]);
   const plan = await s.page.evaluate(() => (window as any).__woc.show().plan);
   const lead = (tPerform - tVideo) / 1000 + 0.3; // video time of the performance's start
-  await s.page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 200, timeout: 60000 });
+  await s.page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 200, timeout: 120000 });
   const video = s.page.video();
   await s.close();
   const slug = w.replace(/[^\p{L}\p{N}]+/gu, '_');

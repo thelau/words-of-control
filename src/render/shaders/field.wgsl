@@ -250,7 +250,8 @@ fn behave(p: vec3f, i: u32, t: f32) -> vec3f {
   let fq = 50.0 + 38.0 * r1(i, 21u);
   q += vec3f(sin(t * fq + r1(i, 22u) * TAU), sin(t * fq * 1.31 + r1(i, 23u) * TAU), sin(t * fq * 0.77 + r1(i, 26u) * TAU)) * jit * 0.5;
   // circling: the whole formation turns
-  let ang = t * (0.03 + 0.6 * F.mo_circling + 0.08 * F.s_arousal) * (1.0 - exact);
+  // (never faster than ~0.3 rad/s: a radial structure turning faster strobes — the wagon-wheel effect)
+  let ang = t * min(0.03 + 0.6 * F.mo_circling + 0.08 * F.s_arousal, 0.3) * (1.0 - exact);
   return vec3f(q.x * cos(ang) - q.z * sin(ang), q.y, q.x * sin(ang) + q.z * cos(ang));
 }
 
