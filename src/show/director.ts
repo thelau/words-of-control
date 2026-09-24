@@ -11,9 +11,10 @@ import type { Layer } from '../render/gpu.ts';
 /** The verdict vocabulary. The appraisal gone 3D — data formations (field.wgsl), each the spatial form of
  *  a 2D reading, and drift, the void — and two matters the data acts on: the relief (data → surface) and
  *  chladni (the word's bytes as sound shaping sand). One language: monochrome, one accent,
- *  every mark from the word's data; each family answers to different dimensions of the reading. */
+ *  every mark from the word's data; each family answers to different dimensions of the reading.
+ *  Ink is another species: the reading gone liquid (ink.wgsl), a whole performance of its own. */
 export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'lone'] as const;
-export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni'] as const;
+export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
 /** Which renderer layer draws a clip. */
@@ -40,11 +41,16 @@ export const STILL: Ops = { echo: 0, warp: 0, flow: 0 };
  *  `flip`: it is played in the opposite mood (a misreading, corrected later). */
 export type Shot = { clip: ClipId; start: number; dur: number; seed: number; aborted: boolean; angles: Angle[]; ops: Ops; flash?: boolean; flip?: boolean; hold?: boolean };
 
+/** What a performance is made of, seen at a glance: the points (the data formations, the relief, the sand) or
+ *  ink. Two performances in a row are never the same species — the second word must not look like the first. */
+export type Species = 'points' | 'ink';
+
 /** The performance's form, chosen from the reading (see direct()). */
 export type Drama = 'storm' | 'barrage' | 'endless' | 'misreading' | 'bloom' | 'measure' | 'shrug' | 'name' | 'greeting' | 'question' | 'void';
 
 export type Plan = {
   drama: Drama;
+  species: Species;
   cuts: Cut[];
   shots: Shot[];
   /** Seconds over which the image fades before the black (0 = a hard cut). */
@@ -88,6 +94,8 @@ function affinity(A: Appraisal): Record<ClipId, number> {
     lone: 0,
     // the void, the lazy afternoon: a sparse dust drifting
     drift: (m.void * 0.9 + m.smoke * 0.4 + mo.drifting * 0.3) * A.lazy,
+    // (its own species: never mixed into a performance of points)
+    ink: 0,
   };
 }
 
@@ -96,6 +104,16 @@ const recent: ClipId[] = [];
 /** The operator combinations of the last performances: never built the same way twice in a row. */
 const recentOps: string[] = [];
 const openers: ClipId[] = [];
+let lastSpecies: Species | null = null;
+
+/** How liquid the reading is: feeling, fluids, flowing, spreading — against the built, the ordered, the machine. */
+function inkiness(A: Appraisal): number {
+  const m = A.c.material.p, sh = A.c.shape.p, tx = A.c.texture.p, mo = A.c.motion.p, d = A.c.domain.p;
+  const liquid = (1 - A.mood.neu) + m.water + m.smoke + m.fire * 0.7 + m.light * 0.5 + sh.flowing + tx.liquid + tx.soft * 0.3
+    + mo.spreading * 0.5 + mo.drifting * 0.5 + mo.circling * 0.4 + A.n.closeness * 0.3;
+  const built = d.machine + d.city + A.s.order + tx.crystalline + m.metal + m.stone + m.glass + A.c.act.p.nonsense;
+  return liquid - built;
+}
 
 /** `salt` makes every performance of the same answers a little different (the room is live, never a replay). */
 export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan {
@@ -119,6 +137,12 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     : md.neu > 0.6 && lazy > 0.5 && (A.c.kind.p['abstract idea'] ?? 0) > 0.4 ? 'shrug'
     : md.neu >= md.neg ? 'measure'
     : 'storm';
+
+  // ---- the species: never the last one (the name and the void are points: their clip is their meaning)
+  const species: Species = drama === 'name' || drama === 'void' ? 'points'
+    : lastSpecies ? (lastSpecies === 'ink' ? 'points' : 'ink')
+    : inkiness(A) > 0 ? 'ink' : 'points';
+  lastSpecies = species;
 
   // ---- appraisal: rapid cuts, faster when the word is charged
   const appraisalDur = lerp(1.7, 2.6, clamp01(A.tape.length / 180)) * lerp(1.1, 0.85, aro);
@@ -153,7 +177,8 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   const READING_OF: Partial<Record<ClipId, CutMode>> = { city: 'barcode', cloud: 'scatter', landscape: 'spectrum', lattice: 'bits' };
   const shown = new Map<ClipId, number>();
   for (const c of cuts) { const k = COUNTERPART[c.mode]; if (k) shown.set(k, (shown.get(k) ?? 0) + c.dur); }
-  const handOff = [...shown.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).find((k) => !openers.includes(k));
+  // (ink opens on the barcode: its bars become the first dye)
+  const handOff = species === 'ink' ? 'city' : [...shown.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).find((k) => !openers.includes(k));
   // (a barcode hand-off ends on the vertical-bar style — appraisal.wgsl style = ⌊fract(variant·13.7)·4⌋ = 0 —
   // the one the echo rebuilds, so the last flat frame and the first 3D frame are the same image)
   let lastVariant = rand();
@@ -211,7 +236,8 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   // clips that suit the word, drawn by affinity with some chance; each clip once per verdict
   const eligible = ranked.filter((c, i) => aff[c] >= aff[ranked[0]] * 0.45 || i < form.count || c === handOff);
   const picks: ClipId[] = [];
-  for (let i = 0; i < form.count; i++) {
+  if (species === 'ink') picks.push(...Array<ClipId>(form.count).fill('ink'));
+  else for (let i = 0; i < form.count; i++) {
     const from = eligible.filter((c) => !picks.includes(c));
     if (!from.length) break;
     let c: ClipId = drama === 'void' ? 'drift' : drama === 'name' ? 'lone' : i === 0 && handOff && from.includes(handOff) ? handOff : from[0];
@@ -276,7 +302,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   const shots: Shot[] = [];
   t += 0.15;
   // low confidence (outside the misreading itself): a false start — a shot begins, is cut off, and the machine starts again
-  if (conf < 0.5 && lazy < 0.7 && drama === 'storm') {
+  if (conf < 0.5 && lazy < 0.7 && drama === 'storm' && species === 'points') {
     const alt = ranked[1 + Math.floor(rand() * 2)];
     const d = lerp(0.35, 0.8, rand());
     shots.push({ clip: alt, start: t, dur: d, seed: (rand() * 2 ** 31) | 0, aborted: true, angles: [WIDE], ops: STILL });
@@ -286,7 +312,10 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     const dur = ((form.dur - form.gap * (picks.length - 1)) * w[i]) / wsum;
     let cover = angles(dur);
     let seed = (rand() * 2 ** 31) | 0;
-    if (i === 0 && clip === handOff && drama !== 'question') {
+    // (the dye is a 1024² field: a closer view than 2.5× would show its grain)
+    // and it opens wide, so its first dye is the barcode just seen
+    if (clip === 'ink') cover = cover.map((x, k) => (i === 0 && k === 0 ? { ...x, zoom: 1, offX: 0, offY: 0 } : { ...x, zoom: Math.min(x.zoom, 2.5) }));
+    else if (i === 0 && clip === handOff && drama !== 'question') {
       // the reveal: the reading itself, frontal (angle seed −1), with the appraisal's last variant, then into its depth
       cover = [{ ...WIDE, seed: -1 }, ...cover.filter((x) => x.at >= 3)];
       seed = seed - (seed % 1000) + Math.round(lastVariant * 999);
@@ -303,14 +332,16 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     t += dur + (i < picks.length - 1 ? form.gap : 0);
   });
 
-  openers.push(picks[0]);
-  openers.splice(0, Math.max(0, openers.length - 3));
-  recent.push(...new Set(picks));
-  recent.splice(0, Math.max(0, recent.length - 6));
+  if (species === 'points') {
+    openers.push(picks[0]);
+    openers.splice(0, Math.max(0, openers.length - 3));
+    recent.push(...new Set(picks));
+    recent.splice(0, Math.max(0, recent.length - 6));
+  }
   // the signature: the word, its bytes and the performance's number, small, before the black (every recording
   // carries its own caption)
   cuts.push({ start: t, dur: 1.1, mode: 'word', variant: 2 });
   t += 1.1;
   const blackAt = t;
-  return { drama, cuts, shots, fade: form.fade, blackAt, end: blackAt + form.tail };
+  return { drama, species, cuts, shots, fade: form.fade, blackAt, end: blackAt + form.tail };
 }

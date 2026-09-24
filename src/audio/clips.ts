@@ -2,7 +2,7 @@
  * Clip voices: the sound of each verdict clip, from the same data its image
  * uses. The data formations are heard the way the appraisal is (sine tones,
  * clicks, pulses — Ikeda's palette), streaming at the rate the points stream;
- * relief is a bowed plate, chladni is the plate ringing
+ * relief is a bowed plate, chladni is the plate ringing, ink is each drop heard blooming under water
  * in the mode that shapes its sand, the drift (the void) barely touches the room. Every voice
  * is hard-cut with its shot and sends only to the short room.
  * Levels: each clip is calibrated to the same loudness, then scaled by how
@@ -21,7 +21,7 @@ import { mulberry32 } from '../core/rng.ts';
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
-const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, lone: 8 };
+const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, lone: 8, ink: 4 };
 
 /** One shot's voice: `strike` — it carries the verdict's strike; `pos` — a positive word (its beats sit high, no sub). */
 type V = { a: AudioEngine; drone: Drone; A: Appraisal; shot: Shot; start: number; end: number; out: AudioNode; rand: () => number; strike: boolean; pos: boolean };
@@ -76,6 +76,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
   const pos = A.mood.pos > A.mood.neg && A.mood.pos > A.mood.neu;
   const v: V = { a, drone, A, shot, start, end, out: gate, rand: mulberry32(shot.seed), strike, pos };
   switch (shot.clip) {
+    case 'ink': return ink(v, plan);
     case 'relief': return relief(v);
     case 'drift': return drift(v);
     case 'lone': return lone(v);
@@ -352,6 +353,81 @@ function data(v: V): number[] {
     for (const f of [fs, fs + 0.9]) { const o = c.createOscillator(); o.frequency.value = f; o.connect(g); o.start(v.start); o.stop(v.end + 0.05); }
   }
   return [f0];
+}
+
+// ------------------------------------------------------------------ ink: each drop heard as it blooms
+/** The same sources and beats as ink.wgsl (sources(), srcPos(), lastBeat(), swell()): on each beat of the verdict
+ *  clock one source fires — a soft tone blooms (its pitch the source's value, tuned by the mood, gliding the way
+ *  the word moves) with the push of water behind it (noise through a slow resonant sweep: dragging through
+ *  water, never a whoosh), panned where the drop falls. Under it the water itself, low and moving. */
+function ink(v: V, plan: Plan): number[] {
+  const { a, A } = v;
+  const c = a.ctx;
+  const tape = A.tape;
+  const tv = (i: number) => tape[((i % tape.length) + tape.length) % tape.length];
+  const n = Math.min(12, Math.max(3, A.bytes.length));
+  const P = beatPeriod(A);
+  const v0 = plan.shots[0].start;
+  const off = v.shot.start - v0, span = Math.max(0.1, plan.blackAt - v0);
+  const rp = A.c.rhythm.p, mo = A.c.motion.p;
+  const f0 = D2 * 4 * Math.pow(2, (A.s.pitch - 0.5) * 0.6) * (A.mood.neg > 0.5 ? 0.5 : 1);
+  const JUST = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3, 2];
+  const tune = (f: number) => {
+    if (v.pos) { const oct = Math.floor(Math.log2(f / D2)); const r = f / (D2 * 2 ** oct); return D2 * 2 ** oct * JUST.reduce((b, x) => (Math.abs(x - r) < Math.abs(b - r) ? x : b), 1); }
+    if (A.mood.neu > A.mood.neg) return 1000 * 2 ** (Math.round(Math.log2(f / 1000) * 2) / 2);
+    return f;
+  };
+  const glide = (mo.rising - mo.falling) * 3; // semitones over a second
+  const quick = mo.breaking + mo.trembling * 0.5;
+  const drops = rendered(v, (L, R, sr) => {
+    const len = L.length;
+    for (let b = Math.ceil(off / P); b * P < off + v.shot.dur; b++) {
+      if (rp.stuttering > 0.35 && (b * 0.618) % 1 > 0.55) continue;
+      const k = b % n;
+      const vu = (b * P) / span;
+      const amp = Math.max(0.05, 1 + 0.6 * rp.swelling * (2 * vu - 1) - 0.85 * rp.dwindling * vu);
+      const ang = (k / n) * Math.PI * 2 + tv(k + 1) * 2;
+      const pan = Math.cos(ang) * 0.3 * (0.35 + 0.65 * tv(k)) * 2.4;
+      const f = tune(f0 * Math.pow(2, tv(k) * 2 - 0.5));
+      const s0 = Math.floor((b * P - off) * sr);
+      const dur = Math.floor(sr * (quick > 0.5 ? 0.8 : 2.2));
+      // the swash: noise through a state-variable bandpass sweeping from low to the tone's region
+      let lo = 0, bp = 0, ph = 0;
+      for (let i = 0; i < dur && s0 + i < len; i++) {
+        const u = i / sr;
+        const fs = Math.min(0.9, 2 * Math.sin((Math.PI * (180 + 700 * (1 - Math.exp(-u / 0.35)))) / sr));
+        const x = v.rand() * 2 - 1;
+        lo += fs * bp; bp += fs * (x - lo - bp * 0.35);
+        const swash = bp * 0.05 * (1 - Math.exp(-u / 0.06)) * Math.exp(-u / lerp(0.45, 0.15, quick));
+        ph += (2 * Math.PI * f * Math.pow(2, (glide * Math.min(u, 1)) / 12)) / sr;
+        const tone = Math.sin(ph) * 0.09 * (1 - Math.exp(-u / 0.05)) * Math.exp(-u / lerp(0.9, 0.25, quick));
+        const y = (tone + swash) * amp;
+        L[s0 + i] += y * (1 - pan * 0.5); R[s0 + i] += y * (1 + pan * 0.5);
+      }
+    }
+  });
+  drops.connect(v.out);
+  // the water: dark noise, a slow resonance moving through it like the fluid turning
+  const lp = c.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = lerp(300, 700, A.s.arousal);
+  const sw = c.createBiquadFilter();
+  sw.type = 'bandpass'; sw.Q.value = 3;
+  const curve = new Float32Array(64).map((_, i) => 200 + 260 * (0.5 + 0.5 * Math.sin(i * 0.37 + v.rand() * 6)));
+  sw.frequency.setValueCurveAtTime(curve, v.start, v.shot.dur);
+  const wg = c.createGain();
+  wg.gain.value = lerp(0.35, 0.8, A.s.arousal);
+  noiseSrc(v).connect(lp).connect(sw).connect(wg).connect(v.out);
+  pulse(v).connect(v.out);
+  if (v.strike) blow(v);
+  if (!v.pos) {
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, v.start);
+    g.gain.linearRampToValueAtTime(0.1, v.start + 0.8);
+    g.connect(v.out);
+    const fs = 36 + A.s.weight * 10;
+    for (const f of [fs, fs + 0.7]) { const o = c.createOscillator(); o.frequency.value = f; o.connect(g); o.start(v.start); o.stop(v.end + 0.05); }
+  }
+  return [tune(f0)];
 }
 
 // ------------------------------------------------------------------ lone: a name — one pure tone, held, alone

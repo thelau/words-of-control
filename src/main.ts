@@ -36,6 +36,7 @@ const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = 
   appraisal: { bloom: 0.02, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
   sand: { bloom: 0.05, halation: 0.03, flat: 0 },
   data: { bloom: 0.05, halation: 0.02, flat: 0 },
+  ink: { bloom: 0.06, halation: 0.03, flat: 1 },
 };
 
 /** White balance from the matter: cold for glass, ice, water; warm for fire, sand, lazy afternoons. */
@@ -234,6 +235,7 @@ async function boot() {
   // ---- frame loop
   let last = performance.now();
   let lastKey = '';
+  let lastLayer: Layer = 'room';
   // quality follows the device: if a performance runs slow (frames over ~20 ms on average), the soft layers
   // and the point count step down (1 → 0.75 → 0.5) — a phone plays the same piece, lighter
   let slow = 0;
@@ -292,13 +294,15 @@ async function boot() {
         f('exposure', fade * fade);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
         if (m.key !== lastKey && (layer === 'sand' || layer === 'data')) f('mode', 1); // a fresh layer of sand; particles placed at once
+        // the ink is one continuous fluid across its shots: poured fresh (from the reading) only as it begins
+        if (layer === 'ink' && lastLayer !== 'ink') f('mode', 1);
         if (m.clip === 'chladni') {
           const [mm, nn] = plateMode(show.A, m.seed, m.lt / m.dur);
           f('modeM', mm); f('modeN', nn);
         }
         lastKey = m.key;
-        // variant2: which data formation
-        f('variant2', layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : 0);
+        // variant2: which data formation; for ink, which reading it is poured from (1: a question's line)
+        f('variant2', layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : layer === 'ink' && show.plan.drama === 'question' ? 1 : 0);
       }
     }
     if (layer === 'room') {
@@ -314,6 +318,7 @@ async function boot() {
     f('hiRes', hi ? 1 : 0);
     f('resX', hi ? renderer.width : renderer.lowW); f('resY', hi ? renderer.height : renderer.lowH); f('dpr', hi ? renderer.dpr : 1);
     renderer.render(layer, frame.f32, hi);
+    lastLayer = layer;
     for (const h of app.frameHooks) h(now);
     requestAnimationFrame(loop);
   };

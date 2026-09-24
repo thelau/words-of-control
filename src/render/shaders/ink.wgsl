@@ -1,0 +1,274 @@
+// INK — the reading gone liquid. A real fluid (stable fluids: advection, vorticity, pressure projection)
+// seeded with the appraisal's last reading — its bars dissolve into dye — then fed by the word itself:
+// one source per byte, each firing on the word's beat (the same beats the sound plays, clips.ts ink()),
+// pushing the way the word moves (grief falls, joy rises, fear trembles, love circles), in its matter's
+// viscosity (stone is thick, water curls, smoke rises and thins, fire rises and darkens).
+// Domain: the unit square, y up; the screen shows it "cover" (the long side spans it).
+
+@group(0) @binding(0) var<uniform> F: FrameU;
+@group(0) @binding(1) var<storage, read> tape: array<f32>;
+@group(0) @binding(2) var velIn: texture_2d<f32>;
+@group(0) @binding(3) var velOut: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(4) var pIn: texture_2d<f32>;
+@group(0) @binding(5) var pOut: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(6) var divIn: texture_2d<f32>;
+@group(0) @binding(7) var divOut: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(8) var dyeIn: texture_2d<f32>;
+@group(0) @binding(9) var dyeOut: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(10) var lin: sampler;
+
+const VN = 256.0;  // velocity grid (keep in step with gpu.ts INK_VEL)
+const DN = 1024.0; // dye grid (gpu.ts INK_DYE)
+
+fn tv(i: i32) -> f32 {
+  let n = max(i32(F.tapeLen), 1);
+  return tape[((i % n) + n) % n];
+}
+fn byteOf(i: i32) -> u32 { return u32(clamp(tv(i), 0.0, 1.0) * 255.0 + 0.5); }
+fn fresh() -> bool { return F.mode > 0.5; }
+fn stepDt() -> f32 { return min(F.dt, 1.0 / 30.0); }
+fn beatP() -> f32 { return 60.0 / mix(56.0, 128.0, F.s_arousal); }
+
+/** One source per byte of the word (3–12). */
+fn sources() -> i32 { return clamp(i32(F.byteLen), 3, 12); }
+
+/** The word's main shape (index into SHAPES of frame.ts). */
+fn shapeTop() -> i32 {
+  let sh = array<f32, 9>(F.sh_round, F.sh_jagged, F.sh_flowing, F.sh_splintered, F.sh_knotted, F.sh_flat, F.sh_spiral, F.sh_branching, F.sh_point);
+  var best = 0;
+  for (var i = 1; i < 9; i++) { if (sh[i] > sh[best]) { best = i; } }
+  return best;
+}
+
+/** Where source k sits: the sources are laid out in the word's shape (a ring for the round, a wave for the
+ *  flowing, a spiral, a tree for the branching, one point, a scatter for the jagged…), each nudged by its value. */
+fn srcPos(k: i32) -> vec2f {
+  let n = sources();
+  let t = f32(k) / f32(max(n - 1, 1));
+  let j = vec2f(tv(k) - 0.5, tv(k + 1) - 0.5);
+  let h = hash22(vec2f(f32(k) * 3.1, F.seed * 0.01));
+  let a = f32(k) / f32(n) * TAU + tv(k + 1) * 2.0;
+  var q: vec2f;
+  switch shapeTop() {
+    case 1: { q = vec2f(0.5) + h * vec2f(0.34, 0.2); }                                         // jagged: a scatter
+    case 2: { q = vec2f(0.15 + 0.7 * t, 0.5 + 0.13 * sin(t * TAU + tv(0) * 3.0)); }             // flowing: a wave across
+    case 3: { q = vec2f(0.5) + vec2f(cos(h.x * PI), sin(h.x * PI) * 0.62) * 0.33 * (0.2 + 0.8 * t); } // splintered: shards out
+    case 4: { q = vec2f(0.5) + h * 0.07; }                                                      // knotted: a tight knot
+    case 5: { q = vec2f(0.12 + 0.76 * t, 0.36); }                                               // flat: a low line
+    case 6: { let r = 0.03 + 0.26 * t; let b = t * 2.5 * TAU; q = vec2f(0.5) + vec2f(cos(b), sin(b) * 0.62) * r; } // spiral
+    case 7: {                                                                                  // branching: a tree
+      let lv = floor(log2(f32(k) + 1.0));
+      let x = (f32(k) + 1.0 - exp2(lv) + 0.5) / exp2(lv);
+      q = vec2f(0.5 + (x - 0.5) * 0.7, 0.3 + lv * 0.12);
+    }
+    case 8: { q = vec2f(0.5) + h * 0.015; }                                                     // point: one source
+    default: { q = vec2f(0.5) + vec2f(cos(a), sin(a) * 0.62) * 0.3 * (0.35 + 0.65 * tv(k)); }  // round: a ring
+  }
+  return q + j * 0.03;
+}
+
+/** How much of motion k plays now: the main gesture throughout, the second turning in during the second half. */
+fn mw(k: f32) -> f32 {
+  return select(0.0, 1.0, F.moTop == k) + select(0.0, F.moSecP * 1.6 * ss(0.35, 0.8, F.vu), F.moSec == k);
+}
+
+/** Which way the word pushes from a source at s (MOTIONS order: rising falling spreading contracting circling
+ *  trembling still breaking drifting); b = the beat (trembling and breaking change with it). */
+fn push(s: vec2f, b: f32) -> vec2f {
+  let out = normalize(s - vec2f(0.5) + vec2f(1e-4));
+  let jig = hash22(vec2f(b, F.seed * 0.001));
+  return vec2f(0.0, 1.0) * mw(0.0) + vec2f(0.0, -1.0) * mw(1.0) + out * mw(2.0) - out * mw(3.0)
+    + vec2f(-out.y, out.x) * mw(4.0) + normalize(jig + vec2f(1e-4)) * mw(5.0) * 0.8
+    + out * mw(7.0) * 1.8 + vec2f(1.0, 0.15) * mw(8.0) * 0.5;
+}
+
+/** The last beat that fired before now (−1 if none), and time since it. A stutter skips some beats
+ *  (show/rhythm.ts skipped, variant 0). */
+fn lastBeat() -> vec2f {
+  let P = beatP();
+  var b = floor(F.vt / P);
+  if (F.rh_stuttering > 0.35 && fract(b * 0.618) > 0.55) { b -= 1.0; }
+  if (b < 0.0) { return vec2f(-1.0, 99.0); }
+  return vec2f(b, F.vt - b * P);
+}
+
+/** The strength of the sources over the verdict: a swelling word grows, a dwindling one fades. */
+fn swell() -> f32 { return max(0.05, 1.0 + 0.6 * F.rh_swelling * (2.0 * F.vu - 1.0) - 0.85 * F.rh_dwindling * F.vu); }
+
+/** The splat of the source now firing, at domain point p: (weight, source index); the source breathes out
+ *  over ~0.45 s after its beat. */
+fn splat(p: vec2f) -> vec2f {
+  let lb = lastBeat();
+  if (lb.x < 0.0) { return vec2f(0.0, -1.0); }
+  let k = i32(lb.x) % sources();
+  // (a still word does not push: its drop opens where it falls, like ink on wet paper)
+  let r = mix(0.012, 0.03, F.s_scale) * mix(1.0, 0.55, F.mo_trembling) * (1.0 + F.mo_still * 2.2 * sqrt(min(lb.y, 1.5)));
+  let d = p - srcPos(k);
+  let env = exp(-lb.y / mix(0.45, 0.15, F.mo_breaking + F.mo_trembling * 0.5) * (1.0 - 0.6 * F.mo_still)) * ss(0.0, 0.03, lb.y);
+  let x = dot(d, d) / (r * r);
+  return vec2f(exp(-x * x) * env * swell(), f32(k)); // a drop with an edge, not a glow
+}
+
+fn velAt(p: vec2f) -> vec2f { return textureSampleLevel(velIn, lin, p, 0.0).xy; }
+fn velLoad(c: vec2i) -> vec2f { return textureLoad(velIn, clamp(c, vec2i(0), vec2i(i32(VN) - 1)), 0).xy; }
+fn curlAt(c: vec2i) -> f32 {
+  return (velLoad(c + vec2i(1, 0)).y - velLoad(c - vec2i(1, 0)).y - velLoad(c + vec2i(0, 1)).x + velLoad(c - vec2i(0, 1)).x) * 0.5 * VN;
+}
+
+// ---------------------------------------------------------------- velocity: advect + forces + vorticity
+@compute @workgroup_size(16, 16)
+fn force(@builtin(global_invocation_id) id: vec3u) {
+  let c = vec2i(id.xy);
+  if (fresh()) { textureStore(velOut, c, vec4f(0.0)); return; }
+  let p = (vec2f(id.xy) + 0.5) / VN;
+  let dt = stepDt();
+  var v = velAt(p - dt * velLoad(c));
+  // the matter's viscosity: heavy matter is thick and slow, water and smoke run free
+  let thick = F.m_stone + F.m_metal + F.m_wood * 0.7 + F.m_sand * 0.6 + F.m_ice * 0.5 + F.m_flesh * 0.4 + F.m_cloth * 0.4;
+  v *= exp(-dt * mix(0.25, 2.2, clamp(thick, 0.0, 1.0)));
+  // vorticity: smoke and fire curl most, water curls, the soft and the still barely (confinement toward |ω| peaks)
+  let curls = mix(3.0, 12.0, clamp(F.m_smoke + F.m_fire + F.m_water * 0.7 + F.s_tension * 0.4 + F.s_arousal * 0.3, 0.0, 1.0))
+    * (1.0 - 0.7 * F.tx_soft) * (1.0 - 0.8 * F.mo_still);
+  let w = curlAt(c);
+  let gw = vec2f(abs(curlAt(c + vec2i(1, 0))) - abs(curlAt(c - vec2i(1, 0))), abs(curlAt(c + vec2i(0, 1))) - abs(curlAt(c - vec2i(0, 1))));
+  let n = gw / (length(gw) + 1e-5);
+  v += vec2f(n.y, -n.x) * w * curls * dt / VN;
+  // buoyancy: the dye's weight — fire, smoke and light rise, water, stone and metal sink (and so do falling words)
+  let dens = textureSampleLevel(dyeIn, lin, p, 0.0).a;
+  let lift = F.m_fire + F.m_smoke + F.m_light * 0.7 + F.mo_rising * 0.8 - F.m_water * 0.6 - F.m_stone - F.m_metal * 0.8 - F.mo_falling;
+  v.y += dens * lift * 0.3 * dt;
+  // the word's own gesture everywhere (weak): a drifting word is carried, a circling one turns, a trembling one shivers,
+  // a contracting one is drawn in
+  let o = p - vec2f(0.5);
+  v += (vec2f(0.04, 0.006) * mw(8.0) + vec2f(-o.y, o.x) * 0.15 * mw(4.0) - o * 0.12 * mw(3.0)) * dt;
+  v += curl(p * 9.0, F.vt * 3.0) * 0.25 * dt * (mw(5.0) + F.s_arousal * 0.3) * mix(1.0, 0.1, F.mo_still);
+  // the source now firing pushes the word's way
+  let sp = splat(p);
+  if (sp.y >= 0.0) {
+    let k = i32(sp.y);
+    let strength = mix(1.5, 5.0, F.s_intensity * 0.5 + F.s_arousal * 0.5) * mix(1.0, 0.08, F.mo_still);
+    v += push(srcPos(k), floor(lastBeat().x)) * sp.x * strength * dt;
+  }
+  // the strike: one shockwave out of the centre at the start of its shot
+  if (F.strike > 0.0) {
+    let r = length(o);
+    v += normalize(o + vec2f(1e-4)) * F.strike * 5.0 * exp(-pow(r - F.lt * 0.9, 2.0) / 0.0015) * ss(0.5, 0.2, F.lt) * dt;
+  }
+  // walls: the fluid stays in its vessel
+  let edge = min(min(p.x, 1.0 - p.x), min(p.y, 1.0 - p.y));
+  v *= ss(0.0, 0.02, edge);
+  textureStore(velOut, c, vec4f(clamp(v, vec2f(-2.0), vec2f(2.0)), 0.0, 0.0));
+}
+
+// ---------------------------------------------------------------- projection (the fluid is incompressible)
+@compute @workgroup_size(16, 16)
+fn divergence(@builtin(global_invocation_id) id: vec3u) {
+  let c = vec2i(id.xy);
+  let d = (velLoad(c + vec2i(1, 0)).x - velLoad(c - vec2i(1, 0)).x + velLoad(c + vec2i(0, 1)).y - velLoad(c - vec2i(0, 1)).y) * 0.5;
+  textureStore(divOut, c, vec4f(d, 0.0, 0.0, 0.0));
+}
+
+fn pLoad(c: vec2i) -> f32 { return textureLoad(pIn, clamp(c, vec2i(0), vec2i(i32(VN) - 1)), 0).x; }
+
+@compute @workgroup_size(16, 16)
+fn jacobi(@builtin(global_invocation_id) id: vec3u) {
+  let c = vec2i(id.xy);
+  if (fresh()) { textureStore(pOut, c, vec4f(0.0)); return; }
+  let s = pLoad(c + vec2i(1, 0)) + pLoad(c - vec2i(1, 0)) + pLoad(c + vec2i(0, 1)) + pLoad(c - vec2i(0, 1));
+  textureStore(pOut, c, vec4f((s - textureLoad(divIn, c, 0).x) * 0.25, 0.0, 0.0, 0.0));
+}
+
+@compute @workgroup_size(16, 16)
+fn project(@builtin(global_invocation_id) id: vec3u) {
+  let c = vec2i(id.xy);
+  let g = vec2f(pLoad(c + vec2i(1, 0)) - pLoad(c - vec2i(1, 0)), pLoad(c + vec2i(0, 1)) - pLoad(c - vec2i(0, 1))) * 0.5;
+  textureStore(velOut, c, vec4f(velLoad(c) - g, 0.0, 0.0));
+}
+
+// ---------------------------------------------------------------- dye: rgb = pigment, a = density
+
+/** A pigment from the word's palette, chosen by a value of its tape (the contrast colour is rare). */
+fn pigment(x: f32) -> vec3f {
+  let p1 = vec3f(F.p1R, F.p1G, F.p1B);
+  let p2 = vec3f(F.p2R, F.p2G, F.p2B);
+  let p3 = vec3f(F.p3R, F.p3G, F.p3B);
+  return select(mix(p1, p2, ss(0.3, 0.7, x)), p3, x > 0.9);
+}
+
+/** The appraisal's last reading, as dye: its bars (the tape's bits, full height), or for a question one line. */
+fn reading(p: vec2f) -> vec4f {
+  if (F.variant2 > 0.5) {
+    let on = ss(0.004, 0.0015, abs(p.y - 0.5)) * step(0.12, p.x) * step(p.x, 0.88);
+    return vec4f(vec3f(F.baseR, F.baseG, F.baseB), 1.0) * on;
+  }
+  // thin bars on a wide pitch (the black must stay), across the middle of the frame
+  let idx = i32(floor(p.x * DN / 7.0));
+  let bit = f32((byteOf(idx / 8) >> u32(idx % 8)) & 1u) * step(fract(p.x * DN / 7.0), 0.35);
+  let band = ss(0.0, 0.05, 0.3 - abs(p.y - 0.5)) * ss(0.0, 0.05, 0.4 - abs(p.x - 0.5));
+  return vec4f(pigment(tv(idx / 8 + 3)), 1.0) * bit * band;
+}
+
+@compute @workgroup_size(16, 16)
+fn dye(@builtin(global_invocation_id) id: vec3u) {
+  let c = vec2i(id.xy);
+  let p = (vec2f(id.xy) + 0.5) / DN;
+  if (fresh()) { textureStore(dyeOut, c, reading(p)); return; }
+  let dt = stepDt();
+  var d = textureSampleLevel(dyeIn, lin, p - dt * velAt(p), 0.0);
+  // the dye thins: smoke and void vanish, fire burns away, a dwindling word empties; the rest stays
+  let fade = 0.09 + F.m_smoke * 0.3 + F.m_void * 0.6 + F.m_fire * 0.2 + F.rh_dwindling * 0.25 * F.vu;
+  d *= exp(-dt * fade);
+  let sp = splat(p);
+  if (sp.y >= 0.0) {
+    let k = i32(sp.y);
+    let add = sp.x * dt * 4.0 * (1.0 - 0.6 * F.mo_still);
+    d += vec4f(pigment(tv(k + 5 + i32(lastBeat().x) * 3)) * add, add);
+  }
+  textureStore(dyeOut, c, min(d, vec4f(4.0)));
+}
+
+// ---------------------------------------------------------------- drawing (the dye lit as a surface)
+@fragment
+fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
+  let res = vec2f(F.resX, F.resY);
+  // cover: the long side spans the domain; each angle is a cut to a closer view of the same fluid
+  var q = (fc.xy - res * 0.5) / max(res.x, res.y) * vec2f(1.0, -1.0);
+  q = q * 0.84 / F.zoom + vec2f(F.offX, F.offY) * 0.25 * select(0.0, 1.0, F.zoom > 1.0) + vec2f(0.5);
+  let e = 1.5 / DN / F.zoom;
+  let a0 = textureSampleLevel(dyeIn, lin, q, 0.0).a;
+  let gx = textureSampleLevel(dyeIn, lin, q + vec2f(e, 0.0), 0.0).a - textureSampleLevel(dyeIn, lin, q - vec2f(e, 0.0), 0.0).a;
+  let gy = textureSampleLevel(dyeIn, lin, q + vec2f(0.0, e), 0.0).a - textureSampleLevel(dyeIn, lin, q - vec2f(0.0, e), 0.0).a;
+  // the dye's surface: its density as height (steeper for heavy matter), refracting what lies under it
+  let relief = mix(6.0, 16.0, F.s_hardness) * F.zoom;
+  let n = normalize(vec3f(-gx * relief, -gy * relief, 1.0));
+  let d = textureSampleLevel(dyeIn, lin, q + n.xy * 0.004 / F.zoom, 0.0);
+  let wall = min(min(q.x, 1.0 - q.x), min(q.y, 1.0 - q.y));
+  let dens = (1.0 - exp(-d.a * 1.6)) * ss(0.02, 0.1, wall);
+  let hue = d.rgb / max(d.a, 1e-3);
+  let L = normalize(vec3f(-0.5, 0.6, 0.65));
+  let diff = max(dot(n, L), 0.0);
+  let spec = pow(max(dot(reflect(-L, n), vec3f(0.0, 0.0, 1.0)), 0.0), mix(18.0, 80.0, F.s_hardness));
+  var col = hue * dens * (0.35 + 0.9 * diff) + vec3f(1.0, 0.97, 0.93) * spec * dens * mix(0.25, 1.0, F.m_water + F.m_glass + F.m_metal + F.m_ice);
+
+  // the mood, in the pigment (never an inversion): negative is colourless and contracted — grey dye, hard
+  // contrast; neutral is clinical — cool, with the density's isolines drawn exact, like a reading; positive keeps
+  // its colours and glows warm, with points of glitter along its folds
+  let lum = dot(col, vec3f(0.2126, 0.7152, 0.0722));
+  let neg = clamp(1.0 - F.moodPos - F.moodNeu, 0.0, 1.0);
+  col = mix(col, vec3f(pow(lum, 1.25) * 1.3), neg);
+  col = mix(col, mix(vec3f(lum), vec3f(0.55, 0.75, 1.0) * lum * 1.6, 0.6), F.moodNeu * 0.7);
+  let iso = abs(fract(d.a * 6.0) - 0.5);
+  let lineW = fwidth(d.a * 6.0) * 1.2;
+  col += vec3f(0.8, 0.9, 1.0) * ss(lineW, 0.0, iso) * ss(0.05, 0.2, d.a) * F.moodNeu * 0.35;
+  let fold = length(vec2f(gx, gy)) * DN * 0.05;
+  let tw = hash41(floor(fc.xy / 2.0), floor(F.time * 3.0));
+  let glitter = step(0.992, tw.x) * ss(0.2, 0.8, fold) * (0.5 + 0.5 * sin(F.time * 5.0 + tw.y * TAU));
+  col += (vec3f(1.0, 0.85, 0.6) * glitter * 1.4 + hue * dens * 0.25) * F.moodPos;
+
+  // the beat as light through the dye (steady and stuttering words), in time with the sound's tick
+  let lb = lastBeat();
+  col *= 1.0 + (F.rh_steady + F.rh_stuttering) * 0.5 * exp(-lb.y / 0.12) * select(1.0, 0.0, lb.x < 0.0);
+  // light glows; void is barely there
+  col *= (1.0 + F.m_light * 0.8) * (1.0 - 0.5 * F.m_void);
+  return vec4f(col * ss(0.0, 0.08, F.lt + F.vt), 1.0);
+}

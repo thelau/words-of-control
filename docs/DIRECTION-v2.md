@@ -137,3 +137,26 @@ One Jev call still (batching barely changes latency). Plus things measured local
 3. Sound: the plate instrument, data sonification, voice chorus prototype; locked to the sequencer.
 4. More shots (per material), the edit grammar (rhythm, confidence), indifference.
 5. Retire the continuous particle reaction (keep rest/typing grain as the "room").
+
+## Species (step 8): the second word must not look like the first
+
+A visitor's second word looked "the same" even when the reading was different: every verdict was one
+species — points of light on black — and people read species at a glance, behaviour only later. So the
+verdict now comes in species that differ at first sight, and two performances in a row never share one
+(director.ts `Species`, `lastSpecies`; the name and the void stay points, their clip is their meaning):
+
+- **points** — the data formations, the relief, the sand (everything before step 8).
+- **ink** — the reading gone liquid (ink.wgsl): a real fluid (advection, vorticity, pressure projection,
+  256² velocity, 1024² dye). It is poured from the appraisal's last barcode (a question's: its line), then
+  fed by the word: one source per byte, laid out in the word's shape (ring, wave, spiral, tree, knot, one
+  point, a scatter, a low line), each firing on the word's beat and pushing the way it moves (grief falls,
+  joy rises, fear trembles, love circles; a still word's drops just open). Matter is viscosity and weight
+  (stone thick, water curls, smoke rises and thins, fire rises and burns away). Mood is pigment, never
+  inversion: negative colourless, neutral cool with the density's isolines drawn exact, positive in its
+  palette with a warm glow and glitter. Heard (clips.ts ink()): each drop a soft tone blooming with the
+  push of water behind it, on the same beats, panned where it falls, over dark moving water.
+  The first choice of a session goes by how liquid the reading is (`inkiness`), then the species alternate.
+
+Next species (one step each): solids (sculpted forms, chrome/porcelain/stone), threads (long glowing
+lines), light (colour fields, almost no objects). With four or more, the reading picks among those not
+just seen, so it stops being a plain alternation.

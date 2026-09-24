@@ -41,6 +41,7 @@ npm run capture -- word …         # contact sheets → docs/captures/ (local)
 node scripts/listen.ts word …     # record the real audio: loudness, true peak, spectrogram (needs ffmpeg)
 node scripts/film.ts word …       # record performances as video; flags jumps inside shots (flicker)
 node scripts/clips.ts clip …      # one clip alone (--word, --ops e,w,f, --angles n) → contact sheet
+node scripts/sequence.ts word …   # one visitor, several words in a row (one session) → docs/captures/sequence.png
 node scripts/appraise.ts word …   # full battery on real words → table (uses the API key)
 node scripts/fixtures.ts          # re-record Jev answers for the test words (mock mode + tests)
 node scripts/probe.ts             # safety calibration probe (see docs/jev-calibration.md)
