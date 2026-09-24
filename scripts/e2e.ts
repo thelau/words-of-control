@@ -76,9 +76,9 @@ if (!live) {
 
   await typeWord('errortest');
   await page.keyboard.press('Enter');
-  check('an error shows the popup', await waitState('error', 3000) && await page.evaluate(() => !!document.getElementById('errpop')));
-  await page.keyboard.press('Enter');
-  check('Enter dismisses it', await waitState('idle', 3000) && await page.evaluate(() => !document.getElementById('errpop')));
+  check('an error shows a quiet note under the word', await waitState('error', 3000) && await page.evaluate(() => !document.getElementById('note')!.hidden && (document.getElementById('text')!.textContent ?? '') !== ''));
+  await page.keyboard.press('Escape');
+  check('Esc lets it go', await waitState('idle', 3000) && await page.evaluate(() => document.getElementById('note')!.hidden));
 
   await typeWord('fuck');
   await page.keyboard.press('Enter');

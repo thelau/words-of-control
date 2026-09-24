@@ -11,7 +11,10 @@ import type { Answers, Route } from './types.ts';
 import type { JevError } from '../../proxy/jev.ts';
 
 const ENDPOINT = (import.meta.env.VITE_JEV_PROXY as string | undefined) || '/api/jev';
-const CLIENT_TIMEOUT_MS = 1500;
+// generous: a slow connection only lengthens the pause before the appraisal (the proxy gives Jev 8 s)
+const CLIENT_TIMEOUT_MS = 9000;
+/** Temporary failures are asked again once, quietly, before anything is shown. */
+const RETRY: ReadonlySet<string> = new Set(['timeout', 'network', 'overloaded', 'server']);
 const usingMock = () => new URLSearchParams(location.search).has('mock');
 
 type Fetched = { ok: true; answers: Answers } | { ok: false; error: JevError };
@@ -49,7 +52,10 @@ async function fetchAnswers(text: string): Promise<Fetched> {
 
 export async function analyze(text: string): Promise<Route> {
   if (isBlocked(text)) return { kind: 'barred' };
-  const r = await fetchAnswers(text);
+  let r = await fetchAnswers(text);
+  // one quiet second try on a temporary failure (the first call returned no answer, so this is still the one
+  // answer this submission gets)
+  if (!r.ok && RETRY.has(r.error.kind)) { await new Promise((ok) => setTimeout(ok, 400)); r = await fetchAnswers(text); }
   if (!r.ok) return { kind: 'error', error: r.error };
   const missing = validate(r.answers);
   if (missing) return { kind: 'error', error: { kind: 'malformed', message: `Answer missing or wrong type: ${missing}` } };

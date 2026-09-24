@@ -21,7 +21,7 @@ to black. Nothing on screen or in the speakers is AI-generated: Jev only judges.
 
 - **Never store or log what visitors type** (browser, proxy, analytics, files). No caching of Jev answers either.
 - **One Jev call per submission.** The API key lives only in `.env.local` (`TYPESAFE_API_KEY`) and the proxy; never in the page, never printed.
-- **Every Jev/proxy error shows the error popup** (test stage). Blocklist runs before any call.
+- **Every Jev/proxy error shows as one quiet line under the word** (src/notice.ts): the word stays, Enter retries. Technical detail only in dev, never to visitors. Blocklist runs before any call.
 - **Sound and image are one thing**, driven by the same parameters and clock.
 - **Performance is checked on every visual/audio change**: `npm run perf` must pass (see `docs/ENGINEERING.md`). Ordinary laptops must hold 60 fps.
 - **No dead code.** Remove what is replaced; don't leave unused exports, params or files.

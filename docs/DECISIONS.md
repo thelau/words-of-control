@@ -4,6 +4,11 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-24
 
+- **Errors live inside the minimal UI** (overrides the test-stage popup): one quiet line under the word — "no answer —
+  press enter to try again" (temporary) or "unavailable — press enter to try again" — the word stays, Enter retries,
+  Esc lets it go. Technical cause and fix only in dev, as a fainter second line. Slow networks are not a blocker:
+  Jev gets 8 s (was 1.4 s) and a temporary failure is retried once, silently.
+
 - **Input limit 60 characters** (was 24, SPEC §3): a short sentence, still one line. The typed line shrinks only
   when it would outgrow the screen; the appraisal's word and byte rows scale to fit.
 

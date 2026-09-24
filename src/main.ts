@@ -20,7 +20,7 @@ import { CUT_MODES, DATA_CLIPS, direct, type Plan } from './show/director.ts';
 import { momentAt, type Moment } from './show/timeline.ts';
 import { seedFromText } from './core/rng.ts';
 import { showSupport, hideSupport } from './support.ts';
-import { showError } from './errorPopup.ts';
+import { showNotice, hideNotice } from './notice.ts';
 import { plateMode } from './show/chladni.ts';
 
 export type State = 'idle' | 'typing' | 'analyzing' | 'performing' | 'barred' | 'support' | 'error';
@@ -159,13 +159,17 @@ async function boot() {
         showSupport();
         break;
       case 'error':
+        // the word stays; a quiet line under it; Enter asks again, typing edits it, Esc lets it go
+        state = 'error';
+        display.showCursor();
+        showNotice(r.error);
+        break;
       case 'fallback':
         state = 'error';
         display.hideCursor();
         void display.fadeText();
         typing.clear();
-        if (r.kind === 'error') showError(r.error, toIdle);
-        else setTimeout(toIdle, 300);
+        setTimeout(toIdle, 300);
         break;
     }
   }
@@ -195,12 +199,16 @@ async function boot() {
     },
     onLimit: () => keys?.limit(),
     onChange: (text) => {
+      if (state === 'error') { hideNotice(); state = text ? 'typing' : 'idle'; }
       display.set(text);
       if (!text && state === 'typing') { state = 'idle'; keysTyped = 0; }
     },
-    onSubmit: (text) => void submit(text),
-    onEscape: () => { if (state === 'support') exitSupport(); },
-    accepting: () => state === 'idle' || state === 'typing',
+    onSubmit: (text) => { hideNotice(); void submit(text); },
+    onEscape: () => {
+      if (state === 'support') exitSupport();
+      if (state === 'error') { hideNotice(); typing.clear(); display.set(''); toIdle(); }
+    },
+    accepting: () => state === 'idle' || state === 'typing' || state === 'error',
     suspended: () => app.harnessOpen,
   });
 

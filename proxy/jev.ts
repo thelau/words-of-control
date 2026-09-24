@@ -5,7 +5,7 @@
 import { buildRequest } from '../src/jev/questions.ts';
 
 export const JEV_URL = 'https://api.typesafe.ai/v1/systemone';
-export const UPSTREAM_TIMEOUT_MS = 1400;
+export const UPSTREAM_TIMEOUT_MS = 8000;
 
 export type JevErrorKind =
   | 'no_key' | 'auth' | 'credits' | 'rate_limit' | 'overloaded' | 'validation'
