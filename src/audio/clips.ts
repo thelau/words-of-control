@@ -10,7 +10,7 @@
  */
 import type { Appraisal } from '../jev/appraisal.ts';
 import type { Plan, Shot } from '../show/director.ts';
-import { beatPeriod, holds, skipped, strikeShot } from '../show/rhythm.ts';
+import { beatPeriod, skipped, strikeShot } from '../show/rhythm.ts';
 import { D2, dbToGain, type AudioEngine } from './audio.ts';
 import type { Drone } from './drone.ts';
 import { plateModes } from '../show/chladni.ts';
@@ -37,27 +37,11 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
   const gate = c.createGain();
   gate.gain.setValueAtTime(0, start - 0.001);
   gate.gain.linearRampToValueAtTime(level, start + 0.004);
-  // where the rhythm holds (a strike's silence, a stutter's skipped beats) the voice falls away with the
-  // image — a quick dip (−24 dB in 60 ms), never a dead cut, which would sound like a dropout
-  const hs = holds(A, plan, index);
-  for (const [h0, h1] of hs) {
-    gate.gain.setValueAtTime(level, start + h0 - 0.06);
-    gate.gain.linearRampToValueAtTime(level * 0.06, start + h0);
-    gate.gain.setValueAtTime(level * 0.06, start + h1);
-    gate.gain.linearRampToValueAtTime(level, start + h1 + 0.08);
-  }
   gate.gain.setValueAtTime(level, end - 0.005);
   gate.gain.linearRampToValueAtTime(0, end);
   gate.connect(a.perfDry);
-  // the strike's quiet is the whole room's: the beds dip too (−18 dB); only the blow rings on into it
+  // the strike's shot lands with one deep blow (the sound never drops out: the holds are the image's only)
   const strike = index === strikeShot(plan) && A.c.rhythm.p.strike > 0.3;
-  if (strike) {
-    const [h0, h1] = hs[0];
-    a.perfDry.gain.setValueAtTime(1, start + h0 - 0.06);
-    a.perfDry.gain.linearRampToValueAtTime(0.12, start + h0);
-    a.perfDry.gain.setValueAtTime(0.12, start + h1);
-    a.perfDry.gain.linearRampToValueAtTime(1, start + h1 + 0.12);
-  }
   const send = c.createGain();
   send.gain.value = shot.aborted ? 0.05 : 0.2;
   gate.connect(send).connect(a.perfSend);
@@ -363,7 +347,7 @@ function lone(v: V): number[] {
 
 /** The rhythm Jev hears in the word — the same beats the image keeps (field.wgsl rhythmLight(), and the
  *  holds of show/rhythm.ts): a precise tick on every beat (steady) — on the beats that are not skipped (a
- *  stutter); a slow tide of a low tone (pulsing). (The strike's blow is blow(), outside the dips.)
+ *  stutter); a slow tide of a low tone (pulsing). (The strike's blow is blow().)
  *  A positive word's beats sit high (no sub: it would sound like grief). Weighted by the rhythm distribution. */
 function pulse(v: V): AudioBufferSourceNode {
   const { A } = v;
@@ -399,8 +383,7 @@ function pulse(v: V): AudioBufferSourceNode {
   });
 }
 
-/** The strike: one deep blow as the shockwave leaves, ringing on into the quiet after it — its own path, past
- *  the dips (the shot's gate and the room's), straight to the output and into the reverb. */
+/** The strike: one deep blow as the shockwave leaves, ringing out into the reverb. */
 function blow(v: V) {
   const { a, A } = v;
   const c = a.ctx;

@@ -1,8 +1,8 @@
 /**
- * The rhythm Jev hears in the word, as time: where it holds. Shared by the image (field.wgsl reads a held
- * clock and a hold flag, set per frame by main.ts) and the sound (clips.ts silences its voices in the same
- * windows), so they stop together.
- *   strike — the verdict's first shot lands with one shockwave (0–0.55 s), then everything holds, silent
+ * The rhythm Jev hears in the word, as time: where the image holds still (field.wgsl reads a held clock and
+ * a hold flag, set per frame by main.ts). The sound never drops out with it (Laurent: no interruptions); it
+ * shares the beat (beatPeriod, skipped) and the strike (strikeShot).
+ *   strike — the verdict's first shot lands with one shockwave (0–0.55 s), then the image holds
  *   stuttering — on the beats that skip (the same rule as the image's pulse), time holds for 60% of a beat
  * Times are seconds into the shot.
  */
