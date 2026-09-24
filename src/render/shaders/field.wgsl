@@ -201,10 +201,9 @@ fn place(i: u32, t: f32) -> vec4f {
   return vec4f(shape(r.xy, r.z, i, t), r.w);
 }
 
-/** The shot's clock: it stands still where the rhythm holds (a strike's silence, a stutter's skipped beats —
- *  show/rhythm.ts); an idle word's time is slow, and a dwindling word slows down as the shot goes on. */
+/** The shot's clock: an idle word's time is slow, and a dwindling word slows down as the shot goes on. */
 fn clock() -> f32 {
-  let lt = F.ft * mix(1.0, 0.35, F.lazy);
+  let lt = F.lt * mix(1.0, 0.35, F.lazy);
   return lt * (1.0 - 0.45 * F.rh_dwindling * ss(0.0, 1.0, F.u));
 }
 
@@ -212,16 +211,17 @@ fn clock() -> f32 {
 fn beatP() -> f32 { return 60.0 / mix(56.0, 128.0, F.s_arousal); }
 
 /** The rhythm as light in the matter at point P (world) — the same beats the sound plays (clips.ts pulse()):
- *  steady — a band of light passing through on every beat, clockwork; pulsing — a slow tide of light rolling
- *  through; strike — a shockwave ring running out from the centre in the first half-second. */
+ *  steady — a band of light passing through on every beat, clockwork; stuttering — the same band, but some
+ *  beats do not come (show/rhythm.ts skipped); pulsing — a slow tide of light rolling through; strike — a
+ *  shockwave ring running out from the centre in the first half-second. */
 fn rhythmLight(P: vec3f) -> f32 {
   let bp = beatP();
-  let ft = F.ft;
-  let band = fract(dot(P, vec3f(0.35, 0.1, 0.2)) * 0.5 - ft / bp);
-  let steady = exp(-pow(band - 0.5, 2.0) / 0.003);
-  let tide = 0.5 + 0.5 * sin(dot(P, vec3f(0.7, 0.25, 0.6)) * 2.2 - ft * PI / bp);
+  let x = dot(P, vec3f(0.35, 0.1, 0.2)) * 0.5 - F.lt / bp;
+  let steady = exp(-pow(fract(x) - 0.5, 2.0) / 0.003);
+  let comes = step(fract(floor(F.lt / bp) * 0.618 + F.variant * 7.3), 0.55);
+  let tide = 0.5 + 0.5 * sin(dot(P, vec3f(0.7, 0.25, 0.6)) * 2.2 - F.lt * PI / bp);
   let ring = F.strike * exp(-pow(length(P - CAM[4].xyz) - F.lt * 4.0, 2.0) / 0.03) * ss(0.6, 0.3, F.lt);
-  return 1.0 + 1.6 * F.rh_steady * steady + 0.9 * F.rh_pulsing * (tide - 0.5) * 2.0 + 5.0 * ring;
+  return 1.0 + 1.6 * (F.rh_steady + F.rh_stuttering * comes) * steady + 0.9 * F.rh_pulsing * (tide - 0.5) * 2.0 + 5.0 * ring;
 }
 
 /** How much of motion k (index into the MOTIONS order of frame.ts) plays at progress u: the main gesture
@@ -415,7 +415,7 @@ fn simulate(@builtin(global_invocation_id) gid: vec3u) {
   var p = PW[i * 2u].xyz;
   var v = PW[i * 2u + 1u].xyz;
   var life = PW[i * 2u + 1u].w;
-  let dt = select(min(F.dt, 1.0 / 30.0), 0.0, F.held > 0.5); // (a hold: the matter stands still)
+  let dt = min(F.dt, 1.0 / 30.0);
   if (kind >= 0) { life += dt; }
   // embers and grains return to their place for another life; smoke is gone for good
   if (kind >= 0 && kind != 2 && life > L) { life -= L + r1(i ^ u32(t * 7.0), 44u) * 0.5; p = goal; v = vec3f(0.0); }

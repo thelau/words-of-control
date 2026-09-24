@@ -18,9 +18,8 @@ const FRAME = [
   'hold',
   // the verdict's own clock (s) and progress (0..1): the word's gesture runs across all its shots, never resets
   'vt', 'vu',
-  // the rhythm (show/rhythm.ts): the shot's clock with its holds taken out, whether it holds now, whether it
-  // carries the strike
-  'ft', 'held', 'strike',
+  // the rhythm (show/rhythm.ts): how strongly this shot carries the verdict's strike
+  'strike',
   // chladni: the mode sounding now
   'modeM', 'modeN',
   'charge', 'kick', 'flash', 'invert', 'exposure', 'bloom', 'grain',

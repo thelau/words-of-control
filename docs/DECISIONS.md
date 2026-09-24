@@ -4,8 +4,8 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-24
 
-- **No sound interruptions.** The rhythm's holds (strike, stutter) freeze the image only; the sound never drops
-  out or dips with them. A strike is heard as one deep blow on top.
+- **No drops, ever** — no sound interruption, no frozen image. A strike is a shockwave and one deep blow; a stutter
+  is a beat that does not come.
 
 - **Errors live inside the minimal UI** (overrides the test-stage popup): one quiet line under the word — "no answer —
   press enter to try again" (temporary) or "unavailable — press enter to try again" — the word stays, Enter retries,
