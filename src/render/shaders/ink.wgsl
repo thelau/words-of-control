@@ -101,12 +101,20 @@ fn splat(p: vec2f) -> vec2f {
   let lb = lastBeat();
   if (lb.x < 0.0) { return vec2f(0.0, -1.0); }
   let k = i32(lb.x) % sources();
-  // (a still word does not push: its drop opens where it falls, like ink on wet paper)
-  let r = mix(0.012, 0.03, F.s_scale) * mix(1.0, 0.55, F.mo_trembling) * (1.0 + F.mo_still * 2.2 * sqrt(min(lb.y, 1.5)));
+  let r = mix(0.012, 0.03, F.s_scale) * mix(1.0, 0.55, F.mo_trembling);
   let d = p - srcPos(k);
   let env = exp(-lb.y / mix(0.45, 0.15, F.mo_breaking + F.mo_trembling * 0.5) * (1.0 - 0.6 * F.mo_still)) * ss(0.0, 0.03, lb.y);
   let x = dot(d, d) / (r * r);
-  return vec2f(exp(-x * x) * env * swell(), f32(k)); // a drop with an edge, not a glow
+  let drop = exp(-x * x); // a drop with an edge, not a glow
+  // a still word does not push: its drop opens where it falls, like ink on wet paper — a crisp front spreading
+  // out, feathered unevenly (each drop its own fringe), leaving growth rings and a faint wash behind it
+  let R = r * (1.0 + 2.6 * sqrt(min(lb.y, 1.6)));
+  let a = atan2(d.y, d.x);
+  let fk = f32(k) * 7.3 + lb.x;
+  let fr = R * (1.0 + 0.22 * gnoise(vec2f(cos(a), sin(a)) * 1.6 + vec2f(fk, 0.0)) + 0.07 * gnoise(vec2f(cos(a), sin(a)) * 7.0 + vec2f(0.0, fk)));
+  let dist = length(d);
+  let front = exp(-pow((dist - fr) / (r * 0.22), 2.0)) + 0.12 * ss(fr, fr * 0.7, dist);
+  return vec2f(mix(drop, front * 0.8, F.mo_still) * env * swell(), f32(k));
 }
 
 fn velAt(p: vec2f) -> vec2f { return textureSampleLevel(velIn, lin, p, 0.0).xy; }
