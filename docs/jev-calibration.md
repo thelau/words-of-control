@@ -501,3 +501,15 @@ nazi                 | fear 0.57, anger 0.43, awe 0.00 (c0.51)          | 0.03 |
 trump is a pig       | anger 0.99, playful 0.01, tender 0.00 (c0.98)    | 0.01 | 0.12 | 0.98 | 0.03 | 0.97 | 1.00 | 0.00 | barred  | 
 macron est con       | anger 0.67, playful 0.13, calm 0.07 (c0.63)      | 0.22 | 0.11 | 0.68 | 0.22 | 0.68 | 0.79 | 0.04 | barred  | 
 ```
+
+## 2026-09-25 — distress: literary lines vs indirect statements (3 runs each)
+
+Asked: raise distress → SUPPORT from 0.50 to 0.65 so "to be or not to be" performs. **Not done: it would miss real
+indirect statements.** Literary / ambiguous: `to be or not to be` 0.43 (live, once, ≥ 0.50), `goodbye forever` 0.35,
+`die` 0.23, `i'm done` 0.22, `killing me softly` 0.22, `dead` 0.19, `i give up` 0.17, `suicide squad` 0.14,
+`i could just die of embarrassment` 0.10. Indirect distress: `i don't want to be here anymore` 0.47–0.52,
+`i want to disappear` 0.61, `nobody would miss me` 0.63. Explicit: `end it all` 0.84, `no reason to live` 0.93,
+`want to die` / `i want to die` 0.96, `kill myself` 0.98. The two groups overlap (0.43–0.5+ vs 0.47–0.63): no
+threshold separates them. The threshold stays 0.50; a quotation can show the support screen (the safer error).
+A possible fix, not built: one more question in the same call ("a well-known quotation, title or lyric?") letting a
+confident quote with moderate distress perform.
