@@ -107,7 +107,13 @@ fn splat(p: vec2f) -> vec2f {
   let env = exp(-lb.y / mix(0.45, 0.15, F.mo_breaking + F.mo_trembling * 0.5) * (1.0 - 0.6 * F.mo_still)) * ss(0.0, 0.03, lb.y);
   let x = dot(d, d) / (r * r);
   if (x > 100.0) { return vec2f(0.0, f32(k)); } // far from the drop (and from a still drop's widest front)
-  let drop = exp(-x * x); // a drop with an edge, not a glow
+  // a jet, not a ball: the drop is drawn out along its push, a short streak trailing behind the source (a round
+  // blob of fresh dye read as a glowing bokeh light)
+  let pd = normalize(push(srcPos(k), lb.x) + vec2f(1e-4, 0.0));
+  let along = dot(d, pd) + r * 1.2;
+  let across = dot(d, vec2f(-pd.y, pd.x));
+  let xj = (across * across * 2.2 + along * along / 4.0) / (r * r);
+  let drop = exp(-xj * xj);
   // a still word does not push: its drop opens where it falls, like ink on wet paper — a crisp front spreading
   // out, feathered unevenly (each drop its own fringe), leaving growth rings and a faint wash behind it
   let R = r * (1.0 + 2.6 * sqrt(min(lb.y, 1.6)));
@@ -325,7 +331,12 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   dens = mix(dens, ss(0.2, 0.32, dens), clamp(F.m_stone * 0.8 + fz * 0.9, 0.0, 1.0));
   let gr = clamp(F.tx_grainy + F.tx_powdery * 0.6 + F.m_sand, 0.0, 1.0);
   dens *= mix(1.0, 0.45 + 1.1 * (0.5 + 0.5 * gnoise(q * DN * 0.8)), gr * 0.8);
-  let hue = d.rgb / max(d.a, 1e-3);
+  // pigment: where the dye is thin it is pale and luminous, where it is dense its colour deepens and saturates
+  // (absorption through its depth), with a fine light along its folds — the depth of real ink (video-b)
+  let raw = clamp(d.rgb / max(d.a, 1e-3), vec3f(0.0), vec3f(1.5));
+  let depthK = 1.0 + 1.6 * ss(0.2, 2.0, d.a);
+  let hue = pow(raw / max(max(raw.r, max(raw.g, raw.b)), 1e-3), vec3f(depthK)) * max(raw.r, max(raw.g, raw.b))
+    * mix(1.25, 0.8, ss(0.2, 2.0, d.a)) + raw * 0.25 * ss(0.5, 0.0, d.a);
   // the shot's light (director.ts inkOps): a key from above, a light behind (thin dye glows), a raking light
   // (every fold a ridge), or dark-field (only the edges)
   let lo = i32(F.warpOp) % 4;
@@ -334,6 +345,7 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let spec = pow(max(dot(reflect(-L, n), vec3f(0.0, 0.0, 1.0)), 0.0), mix(18.0, 80.0, F.s_hardness)) * (1.0 - 0.8 * F.tx_soft);
   var col = hue * dens * (0.35 + 0.9 * diff) + vec3f(1.0, 0.97, 0.93) * spec * dens * mix(0.25, 1.0, F.m_water + F.m_glass + F.m_metal + F.m_ice);
   let fold = length(vec2f(gx, gy)) * DN * 0.05;
+  col += hue * ss(0.3, 1.2, fold) * dens * 0.35; // the folds catch a thread of light
   if (lo == 1) { col = hue * (dens * (1.0 - dens) * 3.2 + 0.15 * dens) + vec3f(1.0, 0.97, 0.93) * spec * dens * 0.5; }
   if (lo == 2) { col = hue * dens * (0.08 + 1.5 * diff * diff) + vec3f(1.0) * spec * dens * 0.6; }
   if (lo == 3) { col = hue * ss(0.05, 0.6, fold) * 1.4 + hue * dens * 0.05; }

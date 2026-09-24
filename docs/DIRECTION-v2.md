@@ -161,7 +161,9 @@ verdict now comes in species that differ at first sight, and two performances in
 - **solids** — the reading made matter (solids.wgsl, after video-g): every 1-bit of the word's bytes is a
   sphere, sized by its value, packed into a cluster shaped by the word (ball, pile, wave, helix, outliers,
   knot, one great sphere), each of the word's matter (chrome, glass, matte, embers, black gloss, a share of
-  white porcelain), traced exactly (true reflections, refraction, soft shadows) with a macro lens. It opens
+  white porcelain), traced exactly (true reflections, refraction, soft shadows, smooth edges) with a macro
+  lens and no glow haze. The spheres are a small physical system carried from frame to frame: each follows the
+  word's gesture on a spring, collisions keep them touching, never inside each other (no jitter). It opens
   on the bits reading: each bit becomes a sphere. On each beat one letter is struck: its spheres glint and
   ring as a chord of their matter. (A first version of sculpted primitives — cubes, discs, rings — read as a
   CG demo and was replaced.)

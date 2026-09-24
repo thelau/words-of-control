@@ -15,9 +15,11 @@
 @group(0) @binding(3) var<storage, read> S: array<vec4f>;        // fs() reads (the same buffer)
 // layout: 0..3 camera (pos + focus distance, fwd, right, up); 4 the cluster's bounding sphere; 5.x how many
 // spheres; then the spheres only (the 1-bits, compacted), 2 vec4 each from 6 + 2i: centre.xyz + radius | matter
-// (MATERIALS index; 13 = white porcelain), glow (its letter struck), byte, unused
+// (MATERIALS index; 13 = white porcelain), glow (its letter struck), byte, unused. From STATE, per slot, the
+// physics that carries over from frame to frame: position + alive | velocity.
 
 const SLOTS = 96; // 12 bytes × 8 bits (keep in step with gpu.ts)
+const STATE = 198; // 6 + 2 · SLOTS
 const PORCELAIN = 13.0;
 
 fn tv(i: i32) -> f32 {
@@ -129,14 +131,30 @@ fn setup(@builtin(local_invocation_index) li: u32) {
     c += normalize(c + vec3f(1e-4)) * F.strike * 0.35 * ss(0.0, 0.2, F.lt) * exp(-F.lt / 0.6);
     // the beat: one letter struck, all its spheres swell and glint together
     let lb = lastBeat();
-    glow = select(0.0, exp(-lb.y / 0.3), lb.x >= 0.0 && i32(lb.x) % letters() == s / 8);
+    glow = select(0.0, exp(-lb.y / 0.3) * ss(0.0, 0.08, lb.y), lb.x >= 0.0 && i32(lb.x) % letters() == s / 8); // (swells in: a glint, not a pop)
     r *= (1.0 + 0.12 * glow) * swell() * (1.0 + 0.05 * F.rh_pulsing * sin(F.vt * PI / beatP()));
   }
-  P[li] = vec4f(c, r);
+  // the physics: each sphere follows where the word wants it on a spring (it carries its velocity from frame to
+  // frame), and the packing below keeps them touching, never inside each other — a cluster that jostles and
+  // breathes, never jitters (a fresh performance places them at once)
+  let dt = min(F.dt, 1.0 / 30.0);
+  var pos = c;
+  var vel = vec3f(0.0);
+  if (s < SLOTS) {
+    let st = SW[STATE + s * 2];
+    if (F.mode < 0.5 && st.w > 0.5) {
+      pos = st.xyz;
+      vel = SW[STATE + s * 2 + 1].xyz;
+      let w0 = mix(9.0, 20.0, F.s_energy) * (1.0 + 1.5 * mw(7.0) + 1.5 * F.strike);
+      vel += ((c - pos) * w0 * w0 - 1.6 * w0 * vel) * dt;
+      pos += vel * dt;
+    }
+  }
+  P[li] = vec4f(pos, r);
   if (li == 0u) { atomicStore(&count, 0u); }
   workgroupBarrier();
-  // packing: spheres never pass through each other (a few relaxation passes, from scratch each frame)
-  for (var it = 0; it < 6; it++) {
+  // packing: spheres never pass through each other
+  for (var it = 0; it < 14; it++) {
     var me = P[li];
     if (me.w > 0.0) {
       var push = vec3f(0.0);
@@ -145,7 +163,7 @@ fn setup(@builtin(local_invocation_index) li: u32) {
         if (j == s || o.w <= 0.0) { continue; }
         let d = me.xyz - o.xyz;
         let l = length(d);
-        let ov = me.w + o.w + 0.003 - l;
+        let ov = me.w + o.w + 0.006 - l;
         if (ov > 0.0) { push += d / max(l, 1e-4) * ov * 0.5; }
       }
       me = vec4f(me.xyz + push, me.w);
@@ -153,6 +171,11 @@ fn setup(@builtin(local_invocation_index) li: u32) {
     workgroupBarrier();
     P[li] = me;
     workgroupBarrier();
+  }
+  if (s < SLOTS) {
+    // the packing's push is felt a little as velocity (they settle, never bounce)
+    SW[STATE + s * 2] = vec4f(P[li].xyz, select(0.0, 1.0, r > 0.0));
+    SW[STATE + s * 2 + 1] = vec4f(vel + (P[li].xyz - pos) / max(dt, 1e-3) * 0.2, 0.0);
   }
   // only the real spheres are kept (the drawing never looks at a 0-bit)
   if (s < SLOTS && r > 0.0) {
@@ -171,25 +194,24 @@ fn setup(@builtin(local_invocation_index) li: u32) {
     for (var j = 0; j < SLOTS; j++) { if (P[j].w > 0.0) { br = max(br, length(P[j].xyz - bc) + P[j].w); } }
     SW[4] = vec4f(bc, br);
     SW[5] = vec4f(f32(atomicLoad(&count)), 0.0, 0.0, 0.0);
-  }
-  if (s == 0) {
     // the camera: each angle a new setup around the cluster (seed −1: the hand-off, dead frontal); who the word is
     // about places you — "I" close among them, "you" facing them level, "we" circling with them, "they" far off
     let front = F.angle < 0.0;
     let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01)) * 0.5 + 0.5;
     var yaw = select((ah.x - 0.5) * 2.4, 0.0, front) + F.who_we * F.vt * 0.12;
     var el = select(mix(-0.1, 0.5, ah.y), 0.05, front) * (1.0 - F.who_you) * (1.0 - F.moodNeu * 0.7);
-    var dist = 1.45 * mix(1.0, 0.55, F.who_i) * mix(1.0, 2.0, F.who_they * ss(0.35, 0.8, F.s_distance)) / F.zoom;
+    var dist = 1.25 * mix(1.0, 0.6, F.who_i) * mix(1.0, 2.0, F.who_they * ss(0.35, 0.8, F.s_distance)) / F.zoom;
     // the shot's move (director.ts solidsOps): a slow push in, an orbit, a crane down, locked
     let mv = i32(F.flowOp);
     if (mv == 0) { dist *= 1.0 - 0.18 * F.u; }
     if (mv == 1) { yaw += (F.lt - F.angleAt) * 0.12; }
     if (mv == 2) { el = mix(el + 0.5, el, ss(0.0, 1.0, F.u)); }
-    let tgt = vec3f(F.offX, F.offY, 0.0) * 0.35 * select(0.0, 1.0, F.zoom > 1.0);
-    let pos = tgt + vec3f(sin(yaw) * cos(el), sin(el), cos(yaw) * cos(el)) * dist;
-    let fwd = normalize(tgt - pos);
+    // aimed at the cluster itself (it may rise, fall or drift), and focused on it
+    let tgt = bc + vec3f(F.offX, F.offY, 0.0) * 0.35 * br * 2.0 * select(0.0, 1.0, F.zoom > 1.0);
+    let cp = tgt + vec3f(sin(yaw) * cos(el), sin(el), cos(yaw) * cos(el)) * dist;
+    let fwd = normalize(tgt - cp);
     let rt = normalize(cross(fwd, vec3f(0.0, 1.0, 0.0)));
-    SW[0] = vec4f(pos, length(tgt - pos));
+    SW[0] = vec4f(cp, length(bc - cp));
     SW[1] = vec4f(fwd, 0.0);
     SW[2] = vec4f(rt, 0.0);
     SW[3] = vec4f(cross(rt, fwd), 0.0);
@@ -300,10 +322,12 @@ fn emission(m: f32, s: i32, n: vec3f, V: vec3f) -> vec3f {
   let pal = mix(vec3f(F.p1R, F.p1G, F.p1B), vec3f(F.p2R, F.p2G, F.p2B), step(0.5, hv(s, 7)));
   let face = pow(max(dot(n, V), 0.0), 0.7);
   if (i32(m) == 7) {
-    // an ember: a dark crust, light through its cracks (the cracks close as it cools over the verdict)
-    let q = n * 4.0 + vec3f(f32(s));
-    let seam = 1.0 - ss(0.0, mix(0.35, 0.12, ss(0.2, 1.0, F.vu)), abs(gnoise(q.xy + q.z * 0.7) + 0.5 * gnoise(q.yz * 2.1)));
-    return vec3f(1.0, 0.33, 0.07) * (seam * 2.6 * (0.5 + face) + 0.06 * face) + vec3f(0.03, 0.025, 0.02) * face;
+    // an ember: a dark crust, light only through thin cracks (they narrow as it cools over the verdict), a faint
+    // red heat under the crust
+    let q = n * 3.2 + vec3f(f32(s) * 3.1);
+    let vein = abs(gnoise(q.xy + q.z * 0.7) + 0.35 * gnoise(q.yz * 2.1 + 1.7));
+    let seam = 1.0 - ss(0.0, mix(0.06, 0.025, ss(0.2, 1.0, F.vu)), vein);
+    return vec3f(1.0, 0.34, 0.06) * seam * 3.5 + vec3f(0.3, 0.04, 0.01) * face * 0.12 + vec3f(0.012) * face;
   }
   return (pal * 0.6 + 0.5) * (1.4 * face + 0.3);
 }
@@ -315,7 +339,7 @@ fn seen(s: i32, p: vec3f, rd: vec3f) -> vec3f {
   let n = normalize(p - cr.xyz);
   let k = kindOf(m);
   if (k == 0) { return studio(reflect(rd, n)) * chrome(); }
-  if (k == 1) { return studio(reflect(rd, n)) * 0.25 + vec3f(0.02); }
+  if (k == 1) { return studio(reflect(rd, n)) * 0.12 * pow(1.0 - max(dot(n, -rd), 0.0), 2.0); }
   if (k == 3) { return emission(m, s, n, -rd); }
   if (k == 4) { return studio(reflect(rd, n)) * 0.08; }
   return albedo(m, s) * (max(dot(n, keyLight()), 0.0) * 1.1 + 0.04) * warm();
@@ -366,7 +390,9 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
     let fr = chrome() + (1.0 - chrome()) * pow(1.0 - NdV, 5.0);
     col = beyond(p + n * 1e-3, R, s) * fr;
   } else if (kind == 1) {
-    // glass: a thin reflection (Fresnel) over what the sphere refracts — the cluster behind it, inverted
+    // glass on black: what it refracts (the cluster behind it, turned upside down — black where nothing is),
+    // a crisp reflection on its rim (Fresnel), a dark ring where the light is trapped inside, and hard pinpoints of
+    // the softbox; tinted for water and ice, milky for ice and smoke
     let fr = 0.04 + 0.96 * pow(1.0 - NdV, 5.0);
     let r1 = refract(rd, n, 1.0 / 1.5);
     let pc = p - cr.xyz;
@@ -377,10 +403,11 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
     var r2 = refract(r1, -ne, 1.5);
     if (dot(r2, r2) < 0.5) { r2 = reflect(r1, -ne); }
     let i = i32(m);
-    let tint = select(select(vec3f(1.0), vec3f(0.8, 0.92, 1.0), i == 5), vec3f(0.75, 0.88, 1.0), i == 4);
-    var through = beyond(pe + r2 * 1e-3, r2, s) * tint * 0.92;
-    through = mix(through, vec3f(dot(through, vec3f(0.33))) * 0.6 + 0.04, select(0.0, 0.5, i == 5 || i == 6)); // frosted ice, smoke
-    col = mix(through, beyond(p + n * 1e-3, R, s), fr) + warm() * pow(max(dot(R, L), 0.0), 200.0) * 3.0;
+    let tint = select(select(vec3f(1.0), vec3f(0.82, 0.93, 1.0), i == 5), vec3f(0.7, 0.86, 1.0), i == 4);
+    var through = beyond(pe + r2 * 1e-3, r2, s) * tint * ss(0.05, 0.45, NdV);
+    through = mix(through, vec3f(dot(through, vec3f(0.33))) * 0.7 + 0.025, select(0.0, 0.45, i == 5 || i == 6));
+    col = mix(through, beyond(p + n * 1e-3, R, s), fr)
+      + warm() * (pow(max(dot(R, L), 0.0), 400.0) * 6.0 + pow(max(dot(reflect(r1, -ne), L), 0.0), 60.0) * 0.4);
   } else if (kind == 3) {
     col = emission(m, s, n, V);
   } else if (kind == 4) {
@@ -388,12 +415,27 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
     col = beyond(p + n * 1e-3, R, s) * fr;
   } else {
     // matte: the softbox (soft shadow from the others), the sky, the neighbours' occlusion, a clean sheen
+    // matte: a soft key that wraps round the form into a real shadow side (soft shadows from the others), a
+    // little sky, contact shadows where spheres touch, a rim to part it from the dark; porcelain is glazed (the
+    // studio mirrored faintly in it)
     let sh = select(shadow(p, L, s), 0.9, i32(F.warpOp) % 4 == 3);
     let ao = occlusion(p, n, s);
-    let dif = max(dot(n, L), 0.0) * sh;
-    let sky = 0.12 * (n.y * 0.5 + 0.5);
-    let sheen = pow(max(dot(R, L), 0.0), mix(12.0, 40.0, F.s_hardness)) * sh * mix(0.35, 0.08, F.tx_soft);
-    col = (albedo(m, s) * (dif * 1.25 + sky) * ao + sheen) * warm() * crack;
+    let wrap = pow(clamp((dot(n, L) + 0.25) / 1.25, 0.0, 1.0), 1.6) * sh;
+    let sky = 0.035 * (n.y * 0.5 + 0.5);
+    let sheen = pow(max(dot(R, L), 0.0), mix(24.0, 80.0, F.s_hardness)) * sh * mix(0.5, 0.1, F.tx_soft);
+    let glaze = select(0.0, 1.0, i32(m) == 13) * (0.04 + 0.5 * pow(1.0 - NdV, 4.0));
+    col = (albedo(m, s) * (wrap * 1.3 + sky) * ao + sheen + studio(R) * glaze * 0.35 + pow(1.0 - NdV, 3.0) * 0.06) * warm() * crack;
+  }
+  // smooth silhouettes: how far inside the sphere's disc this pixel's ray passes, in pixels; at the edge the
+  // pixel is shared with whatever lies behind
+  let oc0 = ro - cr.xyz;
+  let bq = dot(oc0, rd);
+  let dperp = sqrt(max(dot(oc0, oc0) - bq * bq, 0.0));
+  let cov = clamp((cr.w - dperp) / (t / F.resY) + 0.5, 0.0, 1.0);
+  if (cov < 1.0) {
+    let hb = trace(ro, rd, s);
+    let behind = select(vec3f(0.0), seen(i32(hb.y), ro + rd * hb.x, rd), hb.y >= 0.0);
+    col = mix(behind, col, cov);
   }
   // the beat: the struck letter's spheres glint (a rim of light) — the chord the sound strikes
   let rim = pow(1.0 - NdV, 2.0);
@@ -401,7 +443,8 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   // positive: points of glitter on the highlights; the dark: colourless
   let gl = step(0.994, hash41(floor(fc.xy / 2.0), floor(F.time * 3.0)).x) * ss(0.6, 1.2, dot(col, vec3f(0.33)));
   col += vec3f(1.0, 0.85, 0.6) * gl * F.moodPos;
-  let neg = clamp(1.0 - F.moodPos - F.moodNeu, 0.0, 1.0);
+  // (an ember keeps its fire even in the dark: it is the one accent)
+  let neg = clamp(1.0 - F.moodPos - F.moodNeu, 0.0, 1.0) * select(1.0, 0.2, kind == 3 && i32(m) == 7);
   col = mix(col, vec3f(dot(col, vec3f(0.2126, 0.7152, 0.0722))), neg * 0.85);
   // the lens: focused where the camera aims; near and far spheres dissolve (circle of confusion, px, in alpha)
   let coc = clamp(abs(t - S[0].w) / t * mix(16.0, 34.0, ss(1.0, 3.0, F.zoom)), 0.0, 16.0);

@@ -2,6 +2,7 @@
  * Film performances (Playwright's video recorder) and check their motion: every frame is compared with the
  * one before; a jump inside a shot (not on a planned cut) is flicker, and is reported with its time.
  *   node scripts/film.ts word …   → docs/captures/film/<word>.webm (+ report)
+ *   FILM_SPECIES=solids node scripts/film.ts word …   (re-asks the director until it picks that species)
  */
 import { mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -22,7 +23,11 @@ for (const w of words) {
   await s.page.waitForFunction(() => (window as any).__woc, null, { timeout: 30000 });
   const tPerform = Date.now();
   await s.page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [fixtures[w], w]);
-  const plan = await s.page.evaluate(() => (window as any).__woc.show().plan);
+  let plan = await s.page.evaluate(() => (window as any).__woc.show().plan);
+  for (let k = 0; process.env.FILM_SPECIES && plan.species !== process.env.FILM_SPECIES && k < 12; k++) {
+    await s.page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [fixtures[w], w]);
+    plan = await s.page.evaluate(() => (window as any).__woc.show().plan);
+  }
   const lead = (tPerform - tVideo) / 1000 + 0.3; // video time of the performance's start
   await s.page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 200, timeout: 120000 });
   const video = s.page.video();
@@ -70,7 +75,7 @@ for (const w of words) {
   }
   if (process.env.FILM_FRAMES) {
     // a strip of the flagged moments, for looking
-    for (const [k, j] of flicker.slice(0, 4).entries()) {
+    for (const [k, j] of flicker.slice(Number(process.env.FILM_FROM ?? 0), Number(process.env.FILM_FROM ?? 0) + 4).entries()) {
       const t = Number(j.split('s')[0]) + lead2;
       execFileSync('ffmpeg', ['-v', 'error', '-y', '-ss', String(Math.max(0, t - 0.08)), '-i', out, '-vf', 'scale=320:-1,tile=5x1', '-frames:v', '1', `${dir}/${slug}-jump${k}.png`]);
     }

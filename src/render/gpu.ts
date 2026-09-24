@@ -128,7 +128,7 @@ export class Renderer {
     this.inkP = [inkTex(INK_VEL), inkTex(INK_VEL)];
     this.inkDiv = inkTex(INK_VEL);
     this.inkDye = [inkTex(INK_DYE), inkTex(INK_DYE)];
-    this.solidsBuf = d.createBuffer({ size: (6 + 2 * 96) * 16, usage: GPUBufferUsage.STORAGE }); // camera, bound, count + 96 spheres (solids.wgsl)
+    this.solidsBuf = d.createBuffer({ size: (6 + 4 * 96) * 16, usage: GPUBufferUsage.STORAGE }); // camera, bound, count, 96 spheres + their physics (solids.wgsl)
     this.heightTex = d.createTexture({
       size: [RELIEF_RES, RELIEF_RES], format: HDR,
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,

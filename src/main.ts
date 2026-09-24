@@ -37,7 +37,7 @@ const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = 
   sand: { bloom: 0.05, halation: 0.03, flat: 0 },
   data: { bloom: 0.05, halation: 0.02, flat: 0 },
   ink: { bloom: 0.06, halation: 0.03, flat: 1 },
-  solids: { bloom: 0.07, halation: 0.03, flat: 1 },
+  solids: { bloom: 0.015, halation: 0, flat: 1 }, // (crisp: a glow round the spheres read as fog)
 };
 
 /** White balance from the matter: cold for glass, ice, water; warm for fire, sand, lazy afternoons. */
@@ -294,9 +294,9 @@ async function boot() {
         f('exposure', fade * fade);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
         if (m.key !== lastKey && (layer === 'sand' || layer === 'data')) f('mode', 1); // a fresh layer of sand; particles placed at once
-        // the ink is one continuous fluid across its shots (and the black between them): poured fresh (from
-        // the reading) only as its first shot begins
-        if (layer === 'ink' && m.key !== lastKey && si === show.plan.shots.findIndex((x) => x.clip === 'ink')) f('mode', 1);
+        // ink (one continuous fluid) and solids (spheres with momentum) carry across their shots (and the black
+        // between them): fresh only as their first shot begins
+        if ((layer === 'ink' || layer === 'solids') && m.key !== lastKey && si === show.plan.shots.findIndex((x) => x.clip === m.clip)) f('mode', 1);
         if (m.clip === 'chladni') {
           const [mm, nn] = plateMode(show.A, m.seed, m.lt / m.dur);
           f('modeM', mm); f('modeN', nn);

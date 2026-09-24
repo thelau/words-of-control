@@ -495,7 +495,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let coc = min(abs(z - dist) / z * aperture * side * 0.5, 12.0); // (a disc never larger than 12 px: no shot goes to soup)
   // dust (85%): fine and sharp, and gone when out of focus; carriers (15%): the lens's discs
   // (drifting smoke is always soft)
-  let carrier = (r1(i, 16u) < mix(0.06, 0.1, F.moodPos) + 0.15 * isM(i, LIGHT) + 0.12 * isT(T_SOFT) && isM(i, STONE) < 0.5) || (kind == 2 && lifeU > 0.0); // the positive glitters (never a haze of discs)
+  let carrier = (r1(i, 16u) < mix(0.035, 0.06, F.moodPos) + 0.1 * isM(i, LIGHT) + 0.08 * isT(T_SOFT) && isM(i, STONE) < 0.5) || (kind == 2 && lifeU > 0.0); // the positive glitters (never a haze of discs)
   // never smaller than a pixel (a sub-pixel point sparkles as the camera moves): a finer point is drawn
   // at 1 px and dimmer instead
   let fine = select(mix(0.55, 0.85, r1(i, 9u)), mix(0.8, 1.4, r1(i, 9u)), carrier) * (1.0 - 0.25 * max(isT(T_GRAINY), isT(T_POWDER)));
@@ -524,7 +524,9 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   // the mood's colour: the positive's glitter takes the word's palette and a warm light glows inside it;
   // the neutral is cold instrument white; the negative drains to colourless
   let neg = max(1.0 - F.moodPos - F.moodNeu, 0.0);
-  let glitter = pal(u32(r1(i, 18u) * 2.99)) * 1.3;
+  // (two-tone, as in the references: the word's two colours; its contrast colour only on a rare few — a random
+  // third colour per disc read as confetti)
+  let glitter = pal(select(u32(r1(i, 18u) * 1.99), 2u, r1(i, 19u) > 0.94)) * 1.3;
   tone = mix(tone, glitter, F.moodPos * select(0.5, 0.95, carrier));
   tone = mix(tone, vec3f(0.85, 0.92, 1.05), ss(0.5, 0.7, F.moodNeu));
   tone = mix(tone, vec3f(dot(tone, vec3f(0.33))), neg * 0.8);
@@ -570,9 +572,11 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
 
 @fragment
 fn fs(i: VOut) -> @location(0) vec4f {
-  // a disc with a soft edge and a faint bright rim (the look of a real lens)
+  // a disc with a soft edge, a brighter rim and a faint colour fringe (a real lens: warm at the outer edge, cool
+  // just inside it — only visible on the large, out-of-focus discs)
   let d = length(i.q);
-  let disc = 1.0 - ss(0.85, 1.0, d);
-  let rim = 1.0 + 0.35 * ss(0.6, 0.95, d) * disc;
-  return vec4f(i.col * disc * rim, 0.0);
+  let disc = 1.0 - ss(0.8, 1.0, d);
+  let rim = 1.0 + 0.5 * ss(0.55, 0.92, d) * disc;
+  let fringe = vec3f(1.0 + 0.18 * ss(0.8, 0.98, d), 1.0, 1.0 + 0.15 * ss(0.5, 0.75, d) * (1.0 - ss(0.8, 0.95, d)));
+  return vec4f(i.col * disc * rim * fringe, 0.0);
 }
