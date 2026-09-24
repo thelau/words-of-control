@@ -201,25 +201,27 @@ fn place(i: u32, t: f32) -> vec4f {
   return vec4f(shape(r.xy, r.z, i, t), r.w);
 }
 
-/** The shot's clock: an idle word's time is slow, and a dwindling word slows down as the shot goes on. */
+/** The shot's clock: it stands still where the rhythm holds (a strike's silence, a stutter's skipped beats —
+ *  show/rhythm.ts); an idle word's time is slow, and a dwindling word slows down as the shot goes on. */
 fn clock() -> f32 {
-  let lt = F.lt * mix(1.0, 0.35, F.lazy);
+  let lt = F.ft * mix(1.0, 0.35, F.lazy);
   return lt * (1.0 - 0.45 * F.rh_dwindling * ss(0.0, 1.0, F.u));
 }
 
-/** The rhythm Jev hears in the word, as one pulse shared by image and sound (clips.ts pulse() plays the same
- *  beats): steady — a beat; pulsing — a slow wave; stuttering — beats that skip; strike — one blow at the
- *  shot's start. Tempo from arousal. 0..~1.5. */
-fn beat() -> f32 {
-  let P = 60.0 / mix(56.0, 128.0, F.s_arousal);
-  let x = F.lt / P;
-  let ph = fract(x);
-  let k = floor(x);
-  let steady = exp(-ph * 7.0);
-  let pulsing = 0.5 - 0.5 * cos(x * PI);
-  let stutter = exp(-ph * 9.0) * step(fract(k * 0.618 + F.variant * 7.3), 0.55);
-  let strike = exp(-F.lt * 3.0);
-  return F.rh_steady * steady + F.rh_pulsing * pulsing * 0.8 + F.rh_stuttering * stutter + F.rh_strike * strike * 1.5;
+/** One beat (s), the same tempo the sound keeps (show/rhythm.ts beatPeriod). */
+fn beatP() -> f32 { return 60.0 / mix(56.0, 128.0, F.s_arousal); }
+
+/** The rhythm as light in the matter at point P (world) — the same beats the sound plays (clips.ts pulse()):
+ *  steady — a band of light passing through on every beat, clockwork; pulsing — a slow tide of light rolling
+ *  through; strike — a shockwave ring running out from the centre in the first half-second. */
+fn rhythmLight(P: vec3f) -> f32 {
+  let bp = beatP();
+  let ft = F.ft;
+  let band = fract(dot(P, vec3f(0.35, 0.1, 0.2)) * 0.5 - ft / bp);
+  let steady = exp(-pow(band - 0.5, 2.0) / 0.003);
+  let tide = 0.5 + 0.5 * sin(dot(P, vec3f(0.7, 0.25, 0.6)) * 2.2 - ft * PI / bp);
+  let ring = F.strike * exp(-pow(length(P - CAM[4].xyz) - F.lt * 4.0, 2.0) / 0.03) * ss(0.6, 0.3, F.lt);
+  return 1.0 + 1.6 * F.rh_steady * steady + 0.9 * F.rh_pulsing * (tide - 0.5) * 2.0 + 5.0 * ring;
 }
 
 /** How much of motion k (index into the MOTIONS order of frame.ts) plays at progress u: the main gesture
@@ -272,8 +274,11 @@ fn behaveAt(p: vec3f, i: u32, t: f32, u: f32, gesture: f32) -> vec3f {
   }
   // drifting: carried on a current
   if (wDrift > 0.03) { q += vec3f(curl(q.xz * 0.6 + 3.0, t * 0.12), 0.0).xzy * 0.7 * wDrift * mv; }
-  // the pulse: a throb through the matter; a strike, one shockwave at the start
-  q *= 1.0 + 0.05 * beat() + 0.22 * F.rh_strike * exp(-F.lt * 3.5) * (1.0 - exact);
+  // a strike: the shockwave pushes the matter out as it passes (the first half-second of the strike shot)
+  if (F.strike > 0.0) {
+    let dr = length(q) - F.lt * 4.0;
+    q += normalize(q + 1e-4) * F.strike * 0.25 * exp(-dr * dr / 0.03) * ss(0.6, 0.3, F.lt);
+  }
   // trembling: smooth (8–14 Hz, each point its own phase) — never a per-frame random jump
   let jit = (wTremble * 0.09 + F.s_tension * 0.015 * F.s_arousal) * (1.0 - exact);
   let fq = 50.0 + 38.0 * r1(i, 21u);
@@ -341,7 +346,7 @@ fn camera() {
   let rt = normalize(cross(fwd, select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, -1.0), abs(fwd.y) > 0.98)));
   CAMW[0] = vec4f(cam, length(aim - cam));
   CAMW[1] = vec4f(fwd, select(0.0, 1.0, inside));
-  CAMW[2] = vec4f(rt, beat()); // (the pulse, once per frame, for the points)
+  CAMW[2] = vec4f(rt, 0.0);
   CAMW[3] = vec4f(cross(rt, fwd), 0.0);
   CAMW[4] = vec4f(aimPt, 0.0);
 }
@@ -390,7 +395,7 @@ fn simulate(@builtin(global_invocation_id) gid: vec3u) {
   var p = PW[i * 2u].xyz;
   var v = PW[i * 2u + 1u].xyz;
   var life = PW[i * 2u + 1u].w;
-  let dt = min(F.dt, 1.0 / 30.0);
+  let dt = select(min(F.dt, 1.0 / 30.0), 0.0, F.held > 0.5); // (a hold: the matter stands still)
   if (kind >= 0) { life += dt; }
   if (kind >= 0 && life > L) { life -= L + r1(i ^ u32(t * 7.0), 44u) * 0.5; p = goal; v = vec3f(0.0); }
   if (kind >= 0 && life >= 0.0) {
@@ -465,6 +470,11 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let keep = select(exp(-coc / 7.0), min(1.0, pow(3.0 / rad, 2.0)), carrier);
   let fadeIn = clamp((keep - r1(i, 10u)) / 0.2 + 0.5, 0.0, 1.0);
   if (fadeIn <= 0.0) { return o; }
+  // swelling: more and more of the matter lights up across the verdict; dwindling: it goes out, grain by
+  // grain, to a last few (a smooth band per point: nothing pops)
+  let vis = mix(1.0, mix(0.3, 1.0, F.vu), F.rh_swelling) * mix(1.0, mix(1.0, 0.06, pow(F.vu, 0.8)), F.rh_dwindling);
+  let present = clamp((vis - r1(i, 60u)) / 0.08, 0.0, 1.0);
+  if (present <= 0.0) { return o; }
   let energy = select(1.0, (point * point) / (rad * rad) / keep, carrier) * select(0.7, 1.8, carrier)
              * (fine * fine) / (point * point) * fadeIn;
 
@@ -501,7 +511,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   // contracting: denser, brighter as it draws in
   lamp *= 1.0 + 1.5 * F.mo_contracting * ss(0.0, 1.0, F.vu);
   // the pulse lights the matter; a swelling word brightens as the shot goes on, a dwindling one fades
-  lamp *= (1.0 + 0.6 * CAM[2].w) * (1.0 + 0.8 * F.rh_swelling * F.u - 0.6 * F.rh_dwindling * F.u);
+  lamp *= rhythmLight(P) * present;
   // detached: embers cool from hot to dark as they rise; grains fade as they fall; smoke thins
   var ember = vec3f(1.0);
   if (lifeU > 0.0) {

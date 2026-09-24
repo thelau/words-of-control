@@ -22,6 +22,7 @@ import { seedFromText } from './core/rng.ts';
 import { showSupport, hideSupport } from './support.ts';
 import { showNotice, hideNotice } from './notice.ts';
 import { plateMode } from './show/chladni.ts';
+import { heldTime, holds, isHeld, strikeShot } from './show/rhythm.ts';
 
 export type State = 'idle' | 'typing' | 'analyzing' | 'performing' | 'barred' | 'support' | 'error';
 
@@ -280,6 +281,10 @@ async function boot() {
         const v0 = show.plan.shots[0]?.start ?? 0;
         const vt = Math.max(0, clock() - show.t0 - v0);
         f('vt', vt); f('vu', Math.min(1, vt / Math.max(0.1, show.plan.blackAt - v0)));
+        const si = m.key.startsWith('shot') ? Number(m.key.slice(4)) : -1;
+        const hs = si >= 0 ? holds(show.A, show.plan, si) : [];
+        f('ft', heldTime(m.lt, hs)); f('held', isHeld(m.lt, hs) ? 1 : 0);
+        f('strike', si >= 0 && si === strikeShot(show.plan) ? show.A.c.rhythm.p.strike : 0);
         f('echoOp', m.ops.echo); f('warpOp', m.ops.warp); f('flowOp', m.ops.flow);
         // a misreading plays its first shots in the opposite mood, then corrects itself
         f('moodPos', m.flip ? show.A.mood.neg : show.A.mood.pos);

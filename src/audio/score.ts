@@ -41,7 +41,7 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, plan
 
   voices(a, A, plan.cuts, t0);
   const residue: number[] = [];
-  for (const shot of plan.shots) residue.push(...playShot(a, drone, A, shot, t0));
+  plan.shots.forEach((_, i) => residue.push(...playShot(a, drone, A, plan, i, t0)));
   playBeds(a, A, plan, t0);
   a.cutAt(t0 + plan.blackAt, t0 + plan.end);
   drone.duck(t0 + plan.blackAt);

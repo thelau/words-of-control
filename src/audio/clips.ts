@@ -9,7 +9,8 @@
  * loud and intense Jev heard the word (a dB curve).
  */
 import type { Appraisal } from '../jev/appraisal.ts';
-import type { Shot } from '../show/director.ts';
+import type { Plan, Shot } from '../show/director.ts';
+import { beatPeriod, holds, skipped, strikeShot } from '../show/rhythm.ts';
 import { D2, dbToGain, type AudioEngine } from './audio.ts';
 import type { Drone } from './drone.ts';
 import { plateModes } from '../show/chladni.ts';
@@ -22,10 +23,12 @@ const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
 const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, lone: 8 };
 
-type V = { a: AudioEngine; drone: Drone; A: Appraisal; shot: Shot; start: number; end: number; out: AudioNode; rand: () => number };
+/** One shot's voice: `strike` — it carries the verdict's strike; `pos` — a positive word (its beats sit high, no sub). */
+type V = { a: AudioEngine; drone: Drone; A: Appraisal; shot: Shot; start: number; end: number; out: AudioNode; rand: () => number; strike: boolean; pos: boolean };
 
 /** Schedules one shot's voice. Returns pitches worth remembering (drone residue). */
-export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, shot: Shot, t0: number): number[] {
+export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan, index: number, t0: number): number[] {
+  const shot = plan.shots[index];
   const c = a.ctx;
   const start = t0 + shot.start;
   const end = start + shot.dur;
@@ -34,13 +37,31 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, shot: Shot,
   const gate = c.createGain();
   gate.gain.setValueAtTime(0, start - 0.001);
   gate.gain.linearRampToValueAtTime(level, start + 0.004);
+  // where the rhythm holds (a strike's silence, a stutter's skipped beats) the voice stops, with the image
+  const hs = holds(A, plan, index);
+  for (const [h0, h1] of hs) {
+    gate.gain.setValueAtTime(level, start + h0 - 0.004);
+    gate.gain.linearRampToValueAtTime(0, start + h0);
+    gate.gain.setValueAtTime(0, start + h1);
+    gate.gain.linearRampToValueAtTime(level, start + h1 + 0.02);
+  }
   gate.gain.setValueAtTime(level, end - 0.005);
   gate.gain.linearRampToValueAtTime(0, end);
   gate.connect(a.perfDry);
+  // the strike's silence is the whole room's: the beds stop too, and only the reverb rings on
+  const strike = index === strikeShot(plan) && A.c.rhythm.p.strike > 0.3;
+  if (strike) {
+    const [h0, h1] = hs[0];
+    a.perfDry.gain.setValueAtTime(1, start + h0 - 0.004);
+    a.perfDry.gain.linearRampToValueAtTime(0, start + h0);
+    a.perfDry.gain.setValueAtTime(0, start + h1);
+    a.perfDry.gain.linearRampToValueAtTime(1, start + h1 + 0.02);
+  }
   const send = c.createGain();
   send.gain.value = shot.aborted ? 0.05 : 0.2;
   gate.connect(send).connect(a.perfSend);
-  const v: V = { a, drone, A, shot, start, end, out: gate, rand: mulberry32(shot.seed) };
+  const pos = A.mood.pos > A.mood.neg && A.mood.pos > A.mood.neu;
+  const v: V = { a, drone, A, shot, start, end, out: gate, rand: mulberry32(shot.seed), strike, pos };
   switch (shot.clip) {
     case 'relief': return relief(v);
     case 'drift': return drift(v);
@@ -288,8 +309,8 @@ function data(v: V): number[] {
   // a swelling word grows across the shot, a dwindling one fades
   const env = v.a.ctx.createGain();
   const rp = A.c.rhythm.p;
-  env.gain.setValueAtTime(1 - 0.4 * rp.swelling, v.start);
-  env.gain.linearRampToValueAtTime(1 + 0.4 * rp.swelling - 0.6 * rp.dwindling, v.end);
+  env.gain.setValueAtTime(1 - 0.6 * rp.swelling, v.start);
+  env.gain.linearRampToValueAtTime(1 + 0.6 * rp.swelling - 0.85 * rp.dwindling, v.end);
   src.connect(env).connect(v.out);
   pulse(v).connect(v.out);
   // the points heard as points: a fine grain of 6–15 kHz blips and single-sample clicks, panned wide
@@ -307,7 +328,7 @@ function data(v: V): number[] {
   });
   dust.connect(v.out);
   // under the landscape and the city: a floor of sub (two sines beating slowly)
-  if (form <= 1) {
+  if (form <= 1 && !v.pos) {
     const c = v.a.ctx;
     const g = c.createGain();
     g.gain.setValueAtTime(0, v.start);
@@ -338,51 +359,48 @@ function lone(v: V): number[] {
   return [f];
 }
 
-/** The rhythm Jev hears in the word — the same beats the image throbs to (field.wgsl beat()): a low tick on
- *  each beat (steady), a slow swell (pulsing), clicks on the beats that are not skipped (stuttering), one
- *  deep blow at the start (strike). Tempo from arousal; weighted by the rhythm distribution. */
+/** The rhythm Jev hears in the word — the same beats the image keeps (field.wgsl rhythmLight(), and the
+ *  holds of show/rhythm.ts): a precise tick on every beat (steady) — on the beats that are not skipped (a
+ *  stutter); a slow tide of a low tone (pulsing); the strike shot's one deep blow, then the room's silence.
+ *  A positive word's beats sit high (no sub: it would sound like grief). Weighted by the rhythm distribution. */
 function pulse(v: V): AudioBufferSourceNode {
   const { A } = v;
   const rp = A.c.rhythm.p;
-  const P = 60 / lerp(56, 128, A.s.arousal);
+  const P = beatPeriod(A);
   const variant = (v.shot.seed % 1000) / 1000;
+  const [f1, f2] = v.pos ? [D2 * 8, D2 * 16] : [58, 290];
   return rendered(v, (L, R, sr) => {
     const n = L.length;
-    // steady and stuttering: a tick on each beat (a stutter skips some, by the same rule as the image)
     for (let k = 0; k * P < v.shot.dur; k++) {
-      const skipped = ((k * 0.618 + variant * 7.3) % 1) > 0.55;
-      const amp = rp.steady * 0.5 + (skipped ? 0 : rp.stuttering * 0.6);
+      const skip = skipped(k, variant);
+      const amp = rp.steady * 0.55 + (skip ? 0 : rp.stuttering * 0.6);
       if (amp < 0.02) continue;
       const s0 = Math.floor(k * P * sr);
-      for (let i = 0; i < sr * 0.12 && s0 + i < n; i++) {
+      for (let i = 0; i < sr * 0.1 && s0 + i < n; i++) {
         const u = i / sr;
-        // a low tick with its 5th partial, so small speakers hear it too
-        const x = (Math.sin(2 * Math.PI * 58 * u) + 0.4 * Math.sin(2 * Math.PI * 290 * u)) * Math.exp(-u / 0.03) * amp * 0.5;
+        // a tick with a partial small speakers carry
+        const x = (Math.sin(2 * Math.PI * f1 * u) + 0.4 * Math.sin(2 * Math.PI * f2 * u)) * Math.exp(-u / (v.pos ? 0.015 : 0.03)) * amp * 0.5;
         L[s0 + i] += x; R[s0 + i] += x;
       }
-      if (rp.stuttering > 0.2 && !skipped) {
-        const x = 0.3 * rp.stuttering;
-        if (s0 < n) { L[s0] += x; R[s0] -= x; }
-      }
     }
-    // pulsing: a slow swell of a low tone, in phase with the image's wave
+    // pulsing: a tide — a tone rising and ebbing over two beats, in phase with the image's tide
     if (rp.pulsing > 0.05) {
       let ph = 0;
-      const f = D2 * 1.5;
+      const f = v.pos ? D2 * 6 : D2 * 1.5;
       for (let i = 0; i < n; i++) {
         const u = i / sr;
         ph += (2 * Math.PI * f) / sr;
-        const x = Math.sin(ph) * (0.5 - 0.5 * Math.cos((u / P) * Math.PI)) * 0.12 * rp.pulsing;
+        const x = Math.sin(ph) * (0.5 - 0.5 * Math.cos((u / P) * Math.PI)) * 0.2 * rp.pulsing;
         L[i] += x; R[i] += x;
       }
     }
-    // strike: one blow, a falling sine with its partials, ringing out
-    if (rp.strike > 0.15) {
+    // the strike: one blow as the shockwave leaves (the silence after it is the gate's)
+    if (v.strike) {
       let ph = 0;
-      for (let i = 0; i < sr * 1.6 && i < n; i++) {
+      for (let i = 0; i < sr * 0.6 && i < n; i++) {
         const u = i / sr;
         ph += (2 * Math.PI * (46 + 50 * Math.exp(-u / 0.03))) / sr;
-        const x = (Math.sin(ph) + 0.35 * Math.sin(ph * 4)) * Math.exp(-u / 0.45) * (1 - Math.exp(-u / 0.002)) * 0.7 * rp.strike;
+        const x = (Math.sin(ph) + 0.4 * Math.sin(ph * 4)) * Math.exp(-u / 0.3) * (1 - Math.exp(-u / 0.002)) * 0.9 * rp.strike;
         L[i] += x; R[i] += x;
       }
     }
