@@ -268,6 +268,10 @@ async function boot() {
         f('zoom', m.zoom); f('offX', m.offX); f('offY', m.offY);
         f('angle', m.angle); f('angleAt', m.angleAt);
         f('engineOld', engineOld);
+        f('hold', m.hold ? 1 : 0);
+        const v0 = show.plan.shots[0]?.start ?? 0;
+        const vt = Math.max(0, clock() - show.t0 - v0);
+        f('vt', vt); f('vu', Math.min(1, vt / Math.max(0.1, show.plan.blackAt - v0)));
         f('echoOp', m.ops.echo); f('warpOp', m.ops.warp); f('flowOp', m.ops.flow);
         // a misreading plays its first shots in the opposite mood, then corrects itself
         f('moodPos', m.flip ? show.A.mood.neg : show.A.mood.pos);

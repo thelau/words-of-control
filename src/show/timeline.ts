@@ -29,13 +29,15 @@ export type Moment = {
   ops: Ops;
   /** Played in the opposite mood (a misreading). */
   flip: boolean;
+  /** The camera holds (the word's gesture is the motion). */
+  hold: boolean;
   flash: number;
   invert: boolean;
   done: boolean;
 };
 
 const BLACK = (key: string, done = false): Moment =>
-  ({ layer: 'black', clip: null, key, lt: 0, dur: 1, mode: 0, variant: 0, aborted: false, seed: 0, zoom: 1, offX: 0, offY: 0, angle: 0, angleAt: 0, ops: STILL, flip: false, flash: 0, invert: false, done });
+  ({ layer: 'black', clip: null, key, lt: 0, dur: 1, mode: 0, variant: 0, aborted: false, seed: 0, zoom: 1, offX: 0, offY: 0, angle: 0, angleAt: 0, ops: STILL, flip: false, hold: false, flash: 0, invert: false, done });
 
 export function momentAt(plan: Plan, t: number, arousal: number): Moment {
   if (t >= plan.end) return BLACK('end', true);
@@ -46,7 +48,7 @@ export function momentAt(plan: Plan, t: number, arousal: number): Moment {
       const lt = t - c.start;
       return {
         layer: 'appraisal', clip: null, key: `cut${i}`, lt, dur: c.dur, mode: CUT_MODES.indexOf(c.mode), variant: c.variant,
-        aborted: false, seed: 0, zoom: 1, offX: 0, offY: 0, angle: 0, angleAt: 0, ops: STILL, flip: false, flash: 0, invert: arousal > 0.6 && c.variant > 0.86 && c.mode !== 'line' && c.mode !== 'word', done: false,
+        aborted: false, seed: 0, zoom: 1, offX: 0, offY: 0, angle: 0, angleAt: 0, ops: STILL, flip: false, hold: false, flash: 0, invert: arousal > 0.6 && c.variant > 0.86 && c.mode !== 'line' && c.mode !== 'word', done: false,
       };
     }
   }
@@ -61,7 +63,7 @@ export function momentAt(plan: Plan, t: number, arousal: number): Moment {
       for (const x of s.angles) if (x.at <= lt) a = x;
       return {
         layer: layerOf(s.clip), clip: s.clip, key: `shot${i}`, lt, dur: s.dur, mode: 0, variant: (s.seed % 1000) / 1000,
-        aborted: s.aborted, seed: s.seed, zoom: a.zoom, offX: a.offX, offY: a.offY, angle: a.seed, angleAt: a.at, ops: s.ops, flip: !!s.flip,
+        aborted: s.aborted, seed: s.seed, zoom: a.zoom, offX: a.offX, offY: a.offY, angle: a.seed, angleAt: a.at, ops: s.ops, flip: !!s.flip, hold: !!s.hold,
         flash: strike, invert: false, done: false,
       };
     }

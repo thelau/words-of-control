@@ -38,7 +38,7 @@ export const STILL: Ops = { echo: 0, warp: 0, flow: 0 };
 
 /** One verdict clip, its operators and its coverage (angles, in order). `flash`: it lands with a white beat;
  *  `flip`: it is played in the opposite mood (a misreading, corrected later). */
-export type Shot = { clip: ClipId; start: number; dur: number; seed: number; aborted: boolean; angles: Angle[]; ops: Ops; flash?: boolean; flip?: boolean };
+export type Shot = { clip: ClipId; start: number; dur: number; seed: number; aborted: boolean; angles: Angle[]; ops: Ops; flash?: boolean; flip?: boolean; hold?: boolean };
 
 /** The performance's form, chosen from the reading (see direct()). */
 export type Drama = 'storm' | 'barrage' | 'endless' | 'misreading' | 'bloom' | 'measure' | 'shrug' | 'name' | 'greeting' | 'question' | 'void';
@@ -168,6 +168,18 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
 
   // ---- verdict
   const aff = affinity(A);
+  // the reading chooses the form: the word's main material leads to its family of forms, and the relief (a
+  // slab of matter) only ever answers heavy matter — never love, fire or shame
+  const m = A.c.material.p;
+  const FAMILY: Record<string, Partial<Record<ClipId, number>>> = {
+    stone: { relief: 3, city: 1.5 }, metal: { relief: 2, city: 2, lattice: 1.3 }, wood: { relief: 2.5, landscape: 1.3 },
+    flesh: { relief: 1.8, tube: 1.5 }, cloth: { tube: 1.8, landscape: 1.4 }, water: { landscape: 2.5, tube: 1.3 },
+    fire: { cloud: 2, tube: 1.5 }, smoke: { cloud: 2, drift: 1.5 }, void: { drift: 2.5, cloud: 1.3 },
+    light: { lattice: 2, tube: 1.5 }, ice: { lattice: 2, city: 1.4 }, glass: { lattice: 2, city: 1.5 }, sand: { chladni: 3, landscape: 1.4 },
+  };
+  const topMat = A.c.material.top;
+  for (const [clip, k] of Object.entries(FAMILY[topMat] ?? {})) aff[clip as ClipId] *= 1 + (k - 1) * Math.min(1, m[topMat] * 1.4);
+  if (m.stone + m.metal + m.wood + m.flesh < 0.3) aff.relief *= 0.05;
   // the room remembers its last performances and avoids them — except for the idle words, whose clip is their meaning
   if (lazy < 0.6) for (const c of CLIPS) aff[c] *= Math.pow(0.7, recent.filter((r) => r === c).length);
   // rare clips are rationed across the session: the relief and the sand are treats, not staples
@@ -215,8 +227,13 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   const wsum = w.reduce((a, b) => a + b, 0);
 
   // coverage: a shot is cut between camera angles on the same continuous scene; the measure cuts on a strict tempo
+  // the word's gesture is the motion: when one motion dominates (or the word is still), the camera holds —
+  // one or two long takes — so the gesture is seen whole, not chased
+  const mTop = Math.max(...Object.values(A.c.motion.p));
+  const hold = drama !== 'barrage' && (mTop > 0.55 || A.c.motion.p.still > 0.45);
   const angles = (dur: number): Angle[] => {
     if (form.angle >= 99) return [WIDE];
+    if (hold) return dur > 6 ? [{ ...WIDE, seed: rand() }, { ...WIDE, at: dur * 0.55, seed: rand() }] : [{ ...WIDE, seed: rand() }];
     const len = form.angle * lerp(0.8, 1.25, rand());
     const out: Angle[] = [];
     for (let at = 0; at < dur - 0.6; at += drama === 'measure' ? form.angle : Math.max(0.75, len * lerp(0.7, 1.3, rand()))) {
@@ -232,6 +249,14 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   // chance, never a combination this performance or the last ones already used
   const mo = A.c.motion.p;
   const draw = (wt: number[]) => { let q = rand() * wt.reduce((x, y) => x + y, 0); for (let k = 0; k < wt.length; k++) { q -= wt[k]; if (q <= 0) return k; } return 0; };
+  // operators that would contradict the word's gesture are never drawn: nothing opens out (a fan, a burst)
+  // for a contracting or still word, nothing turns or streams for a still one, nothing rigid for a drifting one
+  const mp = A.c.motion.p;
+  const fits = (o: Ops) =>
+    !((mp.contracting > 0.4 || mp.still > 0.45) && (o.echo === 4 || o.echo === 5)) &&
+    !(mp.still > 0.45 && (o.flow === 1 || o.flow === 2 || o.warp === 1 || o.warp === 2 || o.warp === 6)) &&
+    !(mp.drifting > 0.45 && o.flow === 0 && o.warp === 0) &&
+    !(mp.breaking > 0.4 && o.echo === 0 && o.warp === 0);
   const chooseOps = (): Ops => {
     for (let tries = 0; tries < 12; tries++) {
       const ops: Ops = {
@@ -241,6 +266,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
           md.neg * 0.6 + mo.falling + 0.05, md.pos * 1.2 + 0.1, md.neg * 0.8 + em.sadness + 0.05]),
         flow: draw([md.neu + mo.still + 0.2, md.neu * 0.8 + md.neg * 0.6 + 0.2, md.pos + mo.circling + 0.2, md.neg * 0.5 + A.c.rhythm.p.pulsing + 0.1]),
       };
+      if (!fits(ops)) continue;
       const key = `${ops.echo}${ops.warp}${ops.flow}`;
       if (!recentOps.includes(key)) { recentOps.push(key); recentOps.splice(0, Math.max(0, recentOps.length - 24)); return ops; }
     }
@@ -272,6 +298,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
       // the barrage opens on a white beat (one, not a strobe); the misreading's correction lands with one too
       flash: (drama === 'barrage' && i === 0) || (drama === 'misreading' && i === Math.ceil(picks.length / 2)),
       flip: drama === 'misreading' && i < Math.ceil(picks.length / 2),
+      hold,
     });
     t += dur + (i < picks.length - 1 ? form.gap : 0);
   });

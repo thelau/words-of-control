@@ -222,38 +222,68 @@ fn beat() -> f32 {
   return F.rh_steady * steady + F.rh_pulsing * pulsing * 0.8 + F.rh_stuttering * stutter + F.rh_strike * strike * 1.5;
 }
 
-/** The motion Jev reads in the word, played literally on the whole formation (the neutral mood holds it
- *  exactly where the data puts it; a still word barely moves): rising, falling, spreading, contracting,
- *  circling, trembling, breaking (the matter splits into pieces that part), drifting. And the rhythm's pulse
+/** How much of motion k (index into the MOTIONS order of frame.ts) plays at progress u: the main gesture
+ *  holds throughout; the second one turns in during the second half (grief falls, then contracts). */
+fn mw(k: u32, base: f32, u: f32) -> f32 {
+  var w = base;
+  if (k == u32(F.moSec + 0.5)) { w += F.moSecP * 1.4 * ss(0.4, 0.85, u); }
+  return w;
+}
+
+/** The motion Jev reads in the word, played by the whole formation, big enough to read from across a room,
+ *  with a shape in time (u = progress through the shot): rising lifts off; falling accelerates, the lowest
+ *  points first; spreading opens wide; contracting draws in to a fifth, ease-in; breaking splits into pieces
+ *  with gaps; drifting is carried on a current; trembling shivers; circling turns (never fast enough to
+ *  strobe); still barely moves. The neutral mood holds it exactly where the data puts it. The rhythm's pulse
  *  throbs through it; a strike is a shockwave. */
-fn behave(p: vec3f, i: u32, t: f32) -> vec3f {
+fn behaveAt(p: vec3f, i: u32, t: f32, u: f32, gesture: f32) -> vec3f {
   var q = p;
   let exact = ss(0.45, 0.65, F.moodNeu);
-  let mv = (1.0 - exact) * (1.0 - 0.7 * F.mo_still);
-  let u = ss(0.0, 1.0, F.u);
-  // rising and falling: the whole formation, and each point a little more on its own
-  q.y += (F.mo_rising * (0.12 + 0.14 * r1(i, 24u)) - F.mo_falling * (0.08 + 0.1 * r1(i, 20u))) * t * mv; // (sinks low in the frame, never out of it)
-  // spreading opens it out; contracting draws it in on itself
-  q *= 1.0 + (F.mo_spreading * 0.45 - F.mo_contracting * 0.45) * u * mv;
-  // breaking: it splits into a dozen pieces that part
-  if (F.mo_breaking > 0.03) {
+  let mv0 = (1.0 - exact) * (1.0 - 0.8 * F.mo_still);
+  let mv = mv0 * gesture; // (the big gestures; gesture 0 = the reading at rest, for framing)
+  let e = ss(0.0, 1.0, u);
+  // the big gestures (rising, falling, spreading, contracting, breaking) follow the verdict's own clock, so
+  // they carry across the cuts: shame is still shrunk in its last shot, grief is still falling
+  let vu = select(u, max(F.vu, u * 0.35), F.vu > 0.0);
+  let ev = ss(0.0, 1.0, vu);
+  let vt = select(t, F.vt * mix(1.0, 0.35, F.lazy), F.vu > 0.0);
+  let wRise = mw(0u, F.mo_rising, u);
+  let wFall = mw(1u, F.mo_falling, u);
+  let wSpread = mw(2u, F.mo_spreading, u);
+  let wContract = mw(3u, F.mo_contracting, u);
+  let wCircle = mw(4u, F.mo_circling, u);
+  let wTremble = mw(5u, F.mo_trembling, u);
+  let wBreak = mw(7u, F.mo_breaking, u);
+  let wDrift = mw(8u, F.mo_drifting, u);
+  // rising: lifts off, gently accelerating
+  q.y += wRise * (0.1 * vt + 0.012 * vt * vt) * (0.7 + 0.6 * r1(i, 24u)) * mv;
+  // falling: under gravity, the lowest points go first
+  let late = clamp((p.y + 1.0) * 0.35, 0.0, 1.0);
+  let tf = max(vt - late * 1.5, 0.0);
+  q.y -= wFall * (0.03 * tf + 0.012 * tf * tf) * (0.8 + 0.4 * r1(i, 20u)) * mv; // (reaches ~−1.5 over a long verdict)
+  // spreading opens it out wide; contracting draws it in on itself (to a fifth, ease-in)
+  q *= 1.0 + wSpread * 0.9 * ss(0.0, 0.75, vu) * mv;
+  q *= 1.0 - min(wContract, 1.0) * 0.8 * ss(0.0, 0.75, vu) * mv; // (visibly shrinking from the first shot on)
+  // breaking: it splits into a dozen pieces that part, leaving gaps
+  if (wBreak > 0.03) {
     let piece = floor(r1(i, 50u) * 12.0);
     let pd = normalize(vec3f(r1(u32(piece), 51u), r1(u32(piece), 52u), r1(u32(piece), 53u)) - 0.5 + 1e-3);
-    q += pd * F.mo_breaking * 0.55 * ss(0.1, 1.0, F.u) * mv;
+    q += pd * wBreak * 1.2 * ss(0.05, 0.7, vu) * mv;
   }
-  // drifting: carried slowly on a current
-  if (F.mo_drifting > 0.03) { q += vec3f(curl(q.xz * 0.6 + 3.0, t * 0.12), 0.0).xzy * 0.35 * F.mo_drifting * mv; }
+  // drifting: carried on a current
+  if (wDrift > 0.03) { q += vec3f(curl(q.xz * 0.6 + 3.0, t * 0.12), 0.0).xzy * 0.7 * wDrift * mv; }
   // the pulse: a throb through the matter; a strike, one shockwave at the start
   q *= 1.0 + 0.05 * beat() + 0.22 * F.rh_strike * exp(-F.lt * 3.5) * (1.0 - exact);
   // trembling: smooth (8–14 Hz, each point its own phase) — never a per-frame random jump
-  let jit = (F.mo_trembling * 0.045 + F.s_tension * 0.015 * F.s_arousal) * (1.0 - exact);
+  let jit = (wTremble * 0.09 + F.s_tension * 0.015 * F.s_arousal) * (1.0 - exact);
   let fq = 50.0 + 38.0 * r1(i, 21u);
   q += vec3f(sin(t * fq + r1(i, 22u) * TAU), sin(t * fq * 1.31 + r1(i, 23u) * TAU), sin(t * fq * 0.77 + r1(i, 26u) * TAU)) * jit * 0.5;
-  // circling: the whole formation turns
-  // (never faster than ~0.3 rad/s: a radial structure turning faster strobes — the wagon-wheel effect)
-  let ang = t * min(0.03 + 0.6 * F.mo_circling + 0.08 * F.s_arousal, 0.3) * (1.0 - exact);
+  // circling: the whole formation turns (never faster than ~0.3 rad/s: a radial structure strobes — the wagon wheel)
+  let ang = t * min(0.03 + 0.6 * wCircle + 0.08 * F.s_arousal, 0.3) * (1.0 - exact) * (1.0 - 0.9 * F.mo_still);
   return vec3f(q.x * cos(ang) - q.z * sin(ang), q.y, q.x * sin(ang) + q.z * cos(ang));
 }
+
+fn behave(p: vec3f, i: u32, t: f32) -> vec3f { return behaveAt(p, i, t, F.u, 1.0); }
 
 /** Once per frame: the camera. The echo is a stack of screens facing +z. Each angle looks at it from its own
  *  side and height (never straight on), 1 in 4 from inside it (macro). Where it stands is decided from the
@@ -273,15 +303,21 @@ fn camera() {
   let exact = F.moodNeu > 0.5;
   // neutral: the instrument's views — straight on, side on, from above — tracking at constant speed
   let axis = floor(ah.x * 3.0);
-  let yaw = select((ah.x * 2.0 - 1.0) * 1.3 + t * 0.03 * mix(1.0, 0.5, F.moodPos), select(0.0, 1.5708 * sign(ah.y - 0.5), axis == 1.0), exact);
+  // (a held camera — the word's own gesture is the motion — never drifts)
+  let yaw = select((ah.x * 2.0 - 1.0) * 1.3 + t * 0.03 * mix(1.0, 0.5, F.moodPos) * (1.0 - F.hold), select(0.0, 1.5708 * sign(ah.y - 0.5), axis == 1.0), exact);
   let pitch = select((ah.y * 2.0 - 1.0) * 0.5, select(0.0, 1.45, axis == 2.0), exact);
   var pts: array<vec3f, 32>;
   var got = 0u;
   var sum = vec3f(0.0);
   for (var k = 0u; k < 64u; k++) {
     if (got == 32u) { break; }
-    let cand = place(u32(fract(abs(F.angle) * 7.71 + f32(k) * 0.07373) * 159000.0) + 1u, t0);
-    if (cand.w >= 0.0) { let q = behave(cand.xyz, 0u, t0); pts[got] = q; sum += q; got += 1u; }
+    // held: half the samples on the reading at rest, half where the gesture ends — the whole gesture is seen
+    let atEnd = F.hold > 0.5 && (k & 1u) == 1u;
+    let tk = select(t0, F.dur * mix(1.0, 0.35, F.lazy), atEnd);
+    let cand = place(u32(fract(abs(F.angle) * 7.71 + f32(k / select(1u, 2u, F.hold > 0.5)) * 0.07373) * 159000.0) + 1u, tk);
+    // (unless it holds on the gesture, the camera frames the reading at rest: then the word's gesture — a
+    // contraction, a fall, a spreading — is seen against the frame, never zoomed back to its old size)
+    if (cand.w >= 0.0) { let q = behaveAt(cand.xyz, 0u, tk, select(F.angleAt / max(F.dur, 0.1), 1.0, atEnd), select(0.0, 1.0, atEnd)); pts[got] = q; sum += q; got += 1u; }
   }
   let centre = select(vec3f(0.0, 0.0, -1.2), sum / f32(max(got, 1u)), got > 0u);
   var spread = 0.8;
@@ -416,10 +452,10 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let aperture = mix(0.012, 0.035, F.s_intensity) * F.zoom * select(1.0, 1.25, inside) * select(1.0, 0.1, exact);
   // (the frame is measured by its short side, so a portrait phone sees the whole formation)
   let side = min(res.x, res.y);
-  let coc = min(abs(z - dist) / z * aperture * side * 0.5, 22.0);
+  let coc = min(abs(z - dist) / z * aperture * side * 0.5, 12.0); // (a disc never larger than 12 px: no shot goes to soup)
   // dust (85%): fine and sharp, and gone when out of focus; carriers (15%): the lens's discs
   // (drifting smoke is always soft)
-  let carrier = r1(i, 16u) < mix(0.15, 0.22, F.moodPos) || (kind == 2 && lifeU > 0.0); // the positive glitters (never a haze of discs)
+  let carrier = r1(i, 16u) < mix(0.06, 0.1, F.moodPos) || (kind == 2 && lifeU > 0.0); // the positive glitters (never a haze of discs)
   // never smaller than a pixel (a sub-pixel point sparkles as the camera moves): a finer point is drawn
   // at 1 px and dimmer instead
   let fine = select(mix(0.55, 0.85, r1(i, 9u)), mix(0.8, 1.4, r1(i, 9u)), carrier);
@@ -462,6 +498,8 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   lamp *= 1.0 + 10.0 * hard * pow(max(sin(F.time * (1.5 + 2.0 * r1(i, 46u)) + r1(i, 47u) * TAU), 0.0), 60.0);
   lamp *= 1.0 + 1.0 * F.m_water * sin(P.x * 7.0 + P.z * 3.0 - F.time * 2.2);
   lamp *= 1.0 + 1.2 * F.m_light;
+  // contracting: denser, brighter as it draws in
+  lamp *= 1.0 + 1.5 * F.mo_contracting * ss(0.0, 1.0, F.vu);
   // the pulse lights the matter; a swelling word brightens as the shot goes on, a dwindling one fades
   lamp *= (1.0 + 0.6 * CAM[2].w) * (1.0 + 0.8 * F.rh_swelling * F.u - 0.6 * F.rh_dwindling * F.u);
   // detached: embers cool from hot to dark as they rise; grains fade as they fall; smoke thins

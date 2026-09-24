@@ -14,6 +14,10 @@ const FRAME = [
   'angle', 'angleAt',
   // data: the shot's operators (field.wgsl shape()): echo, warp, flow; engineOld = ?engine=old (comparison)
   'echoOp', 'warpOp', 'flowOp', 'engineOld',
+  // 1: the camera holds still (the word's own gesture is the motion) and frames the whole gesture
+  'hold',
+  // the verdict's own clock (s) and progress (0..1): the word's gesture runs across all its shots, never resets
+  'vt', 'vu',
   // chladni: the mode sounding now
   'modeM', 'modeN',
   'charge', 'kick', 'flash', 'invert', 'exposure', 'bloom', 'grain',
@@ -36,6 +40,8 @@ const RHYTHMS = ['steady', 'pulsing', 'stuttering', 'strike', 'dwindling', 'swel
 const APPRAISAL = [
   ...SCORES.map((k) => `s_${k}`), 'lazy', 'conf', 'tapeLen', 'byteLen', 'moodPos', 'moodNeu',
   ...MATERIALS.map((k) => `m_${k}`), ...MOTIONS.map((k) => `mo_${k}`), ...SHAPES.map((k) => `sh_${k}`), ...TEXTURES.map((k) => `tx_${k}`), ...RHYTHMS.map((k) => `rh_${k}`),
+  // the word's gesture: its main motion (index into MOTIONS) and the second one, which turns in later
+  'moTop', 'moSec', 'moSecP',
   'baseR', 'baseG', 'baseB', 'accR', 'accG', 'accB',
   // the colour clips' palette (from Jev's colour distribution): primary, second, contrast
   'p1R', 'p1G', 'p1B', 'p2R', 'p2G', 'p2B', 'p3R', 'p3G', 'p3B',
@@ -81,7 +87,12 @@ export class Frame {
     const msum = m2.reduce((a, b) => a + b, 0) || 1;
     MATERIALS.forEach((k, i) => this.set(`m_${k}`, m2[i] / msum));
     for (const k of RHYTHMS) this.set(`rh_${k}`, A.c.rhythm.p[k] ?? 0);
-    for (const k of MOTIONS) this.set(`mo_${k}`, A.c.motion.p[k] ?? 0);
+    // the motion, sharpened like the material: the main gesture leads
+    const mo2 = MOTIONS.map((k) => (A.c.motion.p[k] ?? 0) ** 2);
+    const mosum = mo2.reduce((a, b) => a + b, 0) || 1;
+    MOTIONS.forEach((k, i) => this.set(`mo_${k}`, mo2[i] / mosum));
+    const order = MOTIONS.map((k, i) => [i, A.c.motion.p[k] ?? 0] as const).sort((a, b) => b[1] - a[1]);
+    this.set('moTop', order[0][0]); this.set('moSec', order[1][0]); this.set('moSecP', order[1][1]);
     for (const k of SHAPES) this.set(`sh_${k}`, A.c.shape.p[k] ?? 0);
     for (const k of TEXTURES) this.set(`tx_${k}`, A.c.texture.p[k] ?? 0);
     // palette: monochrome base warmed/cooled by temperature; one accent from the colour answer
