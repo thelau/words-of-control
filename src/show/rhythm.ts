@@ -11,8 +11,9 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 /** One beat (s): tempo from arousal (field.wgsl beatP()). */
 export const beatPeriod = (A: Appraisal) => 60 / lerp(56, 128, A.s.arousal);
 
-/** Whether beat k of a shot skips (a stutter): the same rule as field.wgsl rhythmLight(). */
-export const skipped = (k: number, variant: number) => ((k * 0.618 + variant * 7.3) % 1) > 0.55;
+/** Whether beat k of the verdict skips (a stutter): the same rule as field.wgsl rhythmLight() and ink.wgsl
+ *  lastBeat(). Beats count on the verdict clock, so a cut never restarts them. */
+export const skipped = (k: number) => ((k * 0.618) % 1) > 0.55;
 
 /** The shot that carries a strike: the verdict's first real shot. */
 export const strikeShot = (plan: Plan) => plan.shots.findIndex((s) => !s.aborted);

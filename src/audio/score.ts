@@ -8,7 +8,7 @@
  *   dry buffer, so sound and image cut together. The first cut replays how the
  *   word was typed.
  * - Voices: robot voices read the digits on screen (voice.ts, in a worker).
- * - Verdict: one voice per clip (clips.ts), hard-cut with the image, over one to
+ * - Verdict: one voice per clip (clips.ts), cut in with the image and ringing on under the next, over one to
  *   three beds drawn from the judgement, with every camera cut heard (beds.ts).
  * - Release: the hall blooms once at the cut to black; the drone ducks.
  */

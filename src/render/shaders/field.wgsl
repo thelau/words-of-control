@@ -216,10 +216,11 @@ fn beatP() -> f32 { return 60.0 / mix(56.0, 128.0, F.s_arousal); }
  *  shockwave ring running out from the centre in the first half-second. */
 fn rhythmLight(P: vec3f) -> f32 {
   let bp = beatP();
-  let x = dot(P, vec3f(0.35, 0.1, 0.2)) * 0.5 - F.lt / bp;
+  // (on the verdict clock: a cut never restarts the beat)
+  let x = dot(P, vec3f(0.35, 0.1, 0.2)) * 0.5 - F.vt / bp;
   let steady = exp(-pow(fract(x) - 0.5, 2.0) / 0.003);
-  let comes = step(fract(floor(F.lt / bp) * 0.618 + F.variant * 7.3), 0.55);
-  let tide = 0.5 + 0.5 * sin(dot(P, vec3f(0.7, 0.25, 0.6)) * 2.2 - F.lt * PI / bp);
+  let comes = step(fract(floor(F.vt / bp) * 0.618), 0.55);
+  let tide = 0.5 + 0.5 * sin(dot(P, vec3f(0.7, 0.25, 0.6)) * 2.2 - F.vt * PI / bp);
   let ring = F.strike * exp(-pow(length(P - CAM[4].xyz) - F.lt * 4.0, 2.0) / 0.03) * ss(0.6, 0.3, F.lt);
   return 1.0 + 1.6 * (F.rh_steady + F.rh_stuttering * comes) * steady + 0.9 * F.rh_pulsing * (tide - 0.5) * 2.0 + 5.0 * ring;
 }

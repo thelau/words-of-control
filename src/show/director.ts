@@ -33,7 +33,9 @@ export type Cut = { start: number; dur: number; mode: CutMode; variant: number }
 export type Angle = { at: number; seed: number; zoom: number; offX: number; offY: number };
 export const WIDE: Angle = { at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 };
 
-/** How a data shot is built (field.wgsl shape()): echo 0–5, warp 0–6, flow 0–3. */
+/** How a data shot is built (field.wgsl shape()): echo 0–5, warp 0–6, flow 0–3.
+ *  An ink shot (ink.wgsl) uses flow as its current (none, shear, one turn, two cells) and warp as its light
+ *  (key, behind, raking, dark-field); echo is unused. */
 export type Ops = { echo: number; warp: number; flow: number };
 export const STILL: Ops = { echo: 0, warp: 0, flow: 0 };
 
@@ -299,6 +301,20 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     return { echo: Math.floor(rand() * 6), warp: Math.floor(rand() * 7), flow: Math.floor(rand() * 4) };
   };
 
+  // an ink shot's construction: its current and its light, from the reading, never one just used
+  const inkOps = (): Ops => {
+    for (let tries = 0; tries < 12; tries++) {
+      const ops: Ops = {
+        echo: 0,
+        flow: draw([0.4 + mo.still + md.neu * 0.6, md.neu * 0.8 + mo.drifting + A.lazy * 0.5 + 0.2, mo.circling + md.pos * 0.6 + 0.2, md.neg * 0.6 + A.s.tension * 0.5 + 0.1]),
+        warp: draw([0.5 + md.neu * 0.3, md.pos * 0.8 + A.c.material.p.light + A.c.material.p.glass * 0.5 + 0.2, A.s.hardness + md.neg * 0.6 + 0.1, md.neu + A.c.domain.p.machine * 0.5 + 0.1]),
+      };
+      const key = `ink${ops.warp}${ops.flow}`;
+      if (!recentOps.includes(key)) { recentOps.push(key); recentOps.splice(0, Math.max(0, recentOps.length - 24)); return ops; }
+    }
+    return { echo: 0, warp: Math.floor(rand() * 4), flow: Math.floor(rand() * 4) };
+  };
+
   const shots: Shot[] = [];
   t += 0.15;
   // low confidence (outside the misreading itself): a false start — a shot begins, is cut off, and the machine starts again
@@ -323,7 +339,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     // a greeting: the field turns to face you (the reveal, reversed)
     if (drama === 'greeting' && i === picks.length - 1) cover = [{ ...WIDE, seed: -2 }];
     shots.push({
-      clip, start: t, dur, seed, aborted: false, angles: cover, ops: chooseOps(),
+      clip, start: t, dur, seed, aborted: false, angles: cover, ops: clip === 'ink' ? inkOps() : chooseOps(),
       // the barrage opens on a white beat (one, not a strobe); the misreading's correction lands with one too
       flash: (drama === 'barrage' && i === 0) || (drama === 'misreading' && i === Math.ceil(picks.length / 2)),
       flip: drama === 'misreading' && i < Math.ceil(picks.length / 2),

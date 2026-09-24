@@ -2,9 +2,9 @@
  * Clip voices: the sound of each verdict clip, from the same data its image
  * uses. The data formations are heard the way the appraisal is (sine tones,
  * clicks, pulses — Ikeda's palette), streaming at the rate the points stream;
- * relief is a bowed plate, chladni is the plate ringing, ink is each drop heard blooming under water
- * in the mode that shapes its sand, the drift (the void) barely touches the room. Every voice
- * is hard-cut with its shot and sends only to the short room.
+ * relief is a bowed plate, chladni is the plate ringing in the mode that shapes its sand, ink is each
+ * drop heard blooming under water, the drift (the void) barely touches the room. Every voice
+ * cuts in with its shot, rings on under the next (TAIL), and sends only to the short room.
  * Levels: each clip is calibrated to the same loudness, then scaled by how
  * loud and intense Jev heard the word (a dB curve).
  */
@@ -23,22 +23,37 @@ const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
 const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, lone: 8, ink: 4 };
 
-/** One shot's voice: `strike` — it carries the verdict's strike; `pos` — a positive word (its beats sit high, no sub). */
-type V = { a: AudioEngine; drone: Drone; A: Appraisal; shot: Shot; start: number; end: number; out: AudioNode; rand: () => number; strike: boolean; pos: boolean };
+/** One shot's voice: `strike` — it carries the verdict's strike; `pos` — a positive word (its beats sit high, no sub);
+ *  `tail` — how long it rings on after its cut (s); `off` — when the shot begins on the verdict clock (s). */
+type V = { a: AudioEngine; drone: Drone; A: Appraisal; shot: Shot; start: number; end: number; tail: number; off: number; out: AudioNode; rand: () => number; strike: boolean; pos: boolean };
+
+/** The sound never drops out: the picture cuts, but each voice rings on under the next shot (and across the
+ *  black between shots) as it fades — a false start's only briefly. */
+const TAIL = 0.8;
 
 /** Schedules one shot's voice. Returns pitches worth remembering (drone residue). */
 export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan, index: number, t0: number): number[] {
-  const shot = plan.shots[index];
+  let shot = plan.shots[index];
+  // ink is one continuous fluid across its shots, so it is one continuous voice: the first ink shot plays the
+  // whole span (the picture cuts, the water carries across — each cut heard as the water changing course)
+  if (shot.clip === 'ink') {
+    const inks = plan.shots.filter((x) => x.clip === 'ink');
+    if (inks[0] !== shot) return [];
+    const last = inks[inks.length - 1];
+    shot = { ...shot, dur: last.start + last.dur - shot.start };
+  }
   const c = a.ctx;
   const start = t0 + shot.start;
   const end = start + shot.dur;
   // how loud the word is, as Jev heard it: −20 dB for an indifferent word, 0 for a scream
   const level = dbToGain(lerp(-7, 0, loud(A)) + CAL[shot.clip]); // a narrow range: intensity is density and sub, not volume
+  const tail = shot.aborted ? 0.25 : TAIL;
+  const off = shot.start - plan.shots[0].start;
   const gate = c.createGain();
   gate.gain.setValueAtTime(0, start - 0.001);
   gate.gain.linearRampToValueAtTime(level, start + 0.004);
-  gate.gain.setValueAtTime(level, end - 0.005);
-  gate.gain.linearRampToValueAtTime(0, end);
+  gate.gain.setValueAtTime(level, end);
+  gate.gain.linearRampToValueAtTime(0, end + tail);
   // the sound of the word itself (Jev hears its letters): a round word ("bouba", mother) is heard round —
   // dark, soft; a spiky one ("kiki", fire) sharp — bright, a little saturated; a noisy one (war, rain) with
   // hiss in it, a pure one (bell, om) clean
@@ -61,7 +76,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
   makeup.gain.value = dbToGain(-lerp(0, 7, Math.max(0, ph - 0.4) / 0.6));
   gate.connect(shaper).connect(tilt).connect(edge).connect(makeup).connect(a.perfDry);
   if (tn > 0.55) {
-    const hiss = noiseSrc({ a, start, end, rand: mulberry32(shot.seed ^ 0x415) } as V);
+    const hiss = noiseSrc({ a, start, end, tail, rand: mulberry32(shot.seed ^ 0x415) } as V);
     const hp = c.createBiquadFilter();
     hp.type = 'bandpass'; hp.frequency.value = lerp(2000, 6000, ph); hp.Q.value = 0.7;
     const hg = c.createGain();
@@ -74,7 +89,8 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
   send.gain.value = shot.aborted ? 0.05 : 0.2;
   gate.connect(send).connect(a.perfSend);
   const pos = A.mood.pos > A.mood.neg && A.mood.pos > A.mood.neu;
-  const v: V = { a, drone, A, shot, start, end, out: gate, rand: mulberry32(shot.seed), strike, pos };
+  const v: V = { a, drone, A, shot, start, end, tail, off, out: gate, rand: mulberry32(shot.seed), strike, pos };
+  // (strike: the ink's voice is scheduled from its first shot, which is the strike's shot)
   switch (shot.clip) {
     case 'ink': return ink(v, plan);
     case 'relief': return relief(v);
@@ -98,20 +114,34 @@ function modes(v: V, input: AudioNode, freqs: number[], q: number, gains: number
   });
 }
 
+/** A floor of two sines a fraction of a hertz apart: it breathes. The second is softer, so their beating
+ *  never cancels to silence (equal sines null once a beat: a dropout). */
+function sines(v: V, freqs: [number, number], out: AudioNode) {
+  const c = v.a.ctx;
+  freqs.forEach((f, i) => {
+    const o = c.createOscillator();
+    o.frequency.value = f;
+    const g = c.createGain();
+    g.gain.value = i ? 0.4 : 1;
+    o.connect(g).connect(out);
+    o.start(v.start); o.stop(v.end + v.tail);
+  });
+}
+
 function noiseSrc(v: V): AudioBufferSourceNode {
   const n = v.a.ctx.createBufferSource();
   n.buffer = v.a.noise;
   n.loop = true;
   n.loopStart = v.rand() * 2;
   n.start(v.start, n.loopStart);
-  n.stop(v.end + 0.05);
+  n.stop(v.end + v.tail);
   return n;
 }
 
-/** A stereo buffer the length of the shot, filled by `fill(L, R, sr)`. */
+/** A stereo buffer the length of the shot and its tail, filled by `fill(L, R, sr)`. */
 function rendered(v: V, fill: (L: Float32Array, R: Float32Array, sr: number) => void): AudioBufferSourceNode {
   const c = v.a.ctx;
-  const b = c.createBuffer(2, Math.ceil(v.shot.dur * c.sampleRate), c.sampleRate);
+  const b = c.createBuffer(2, Math.ceil((v.shot.dur + v.tail) * c.sampleRate), c.sampleRate);
   fill(b.getChannelData(0), b.getChannelData(1), c.sampleRate);
   const s = c.createBufferSource();
   s.buffer = b;
@@ -215,7 +245,7 @@ function chladni(v: V): number[] {
     tone.frequency.setValueAtTime(f, t);
   });
   tone.start(v.start);
-  tone.stop(v.end + 0.02);
+  tone.stop(v.end + v.tail);
   // the sand migrating: grains knocking like tiny stones (resonant clicks, 700–2600 Hz), densest just
   // after each change of mode, then settling — never a hiss
   const grains = rendered(v, (L, R, sr) => {
@@ -350,7 +380,7 @@ function data(v: V): number[] {
     g.gain.linearRampToValueAtTime(0.12, v.start + 0.8);
     g.connect(v.out);
     const fs = 38 + A.s.weight * 10;
-    for (const f of [fs, fs + 0.9]) { const o = c.createOscillator(); o.frequency.value = f; o.connect(g); o.start(v.start); o.stop(v.end + 0.05); }
+    sines(v, [fs, fs + 0.9], g);
   }
   return [f0];
 }
@@ -367,8 +397,7 @@ function ink(v: V, plan: Plan): number[] {
   const tv = (i: number) => tape[((i % tape.length) + tape.length) % tape.length];
   const n = Math.min(12, Math.max(3, A.bytes.length));
   const P = beatPeriod(A);
-  const v0 = plan.shots[0].start;
-  const off = v.shot.start - v0, span = Math.max(0.1, plan.blackAt - v0);
+  const off = v.off, span = Math.max(0.1, plan.blackAt - plan.shots[0].start);
   const rp = A.c.rhythm.p, mo = A.c.motion.p;
   const f0 = D2 * 4 * Math.pow(2, (A.s.pitch - 0.5) * 0.6) * (A.mood.neg > 0.5 ? 0.5 : 1);
   const JUST = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3, 2];
@@ -379,10 +408,17 @@ function ink(v: V, plan: Plan): number[] {
   };
   const glide = (mo.rising - mo.falling) * 3; // semitones over a second
   const quick = mo.breaking + mo.trembling * 0.5;
+  // the drop rings as its matter: metal long and inharmonic, glass and ice bright, stone short and dull,
+  // cloth and flesh muted (the ring's ratio, level and length)
+  const m = A.c.material.p;
+  const ring = { ratio: m.metal > m.glass + m.ice ? 2.76 : 4.2, amp: Math.min(0.8, m.metal * 1.2 + (m.glass + m.ice) * 0.9), len: lerp(0.3, 1.6, m.metal) };
+  const dull = Math.min(1, m.stone + m.cloth + m.flesh + m.wood * 0.5);
+  // ice and glass freeze over the verdict (ink.wgsl frozen()): the water under the drops goes still
+  const freeze = Math.min(1, m.ice + m.glass + A.c.texture.p.crystalline * 0.7);
   const drops = rendered(v, (L, R, sr) => {
     const len = L.length;
     for (let b = Math.ceil(off / P); b * P < off + v.shot.dur; b++) {
-      if (rp.stuttering > 0.35 && (b * 0.618) % 1 > 0.55) continue;
+      if (rp.stuttering > 0.35 && skipped(b)) continue;
       const k = b % n;
       const vu = (b * P) / span;
       const amp = Math.max(0.05, 1 + 0.6 * rp.swelling * (2 * vu - 1) - 0.85 * rp.dwindling * vu);
@@ -400,7 +436,8 @@ function ink(v: V, plan: Plan): number[] {
         lo += fs * bp; bp += fs * (x - lo - bp * 0.35);
         const swash = bp * 0.05 * (1 - Math.exp(-u / 0.06)) * Math.exp(-u / lerp(0.45, 0.15, quick));
         ph += (2 * Math.PI * f * Math.pow(2, (glide * Math.min(u, 1)) / 12)) / sr;
-        const tone = Math.sin(ph) * 0.09 * (1 - Math.exp(-u / 0.05)) * Math.exp(-u / lerp(0.9, 0.25, quick));
+        const body = Math.exp(-u / (lerp(0.9, 0.25, quick) * lerp(1, 0.35, dull)));
+        const tone = (Math.sin(ph) + ring.amp * Math.sin(ph * ring.ratio) * Math.exp(-u / ring.len)) * 0.09 * (1 - Math.exp(-u / 0.05)) * body;
         const y = (tone + swash) * amp;
         L[s0 + i] += y * (1 - pan * 0.5); R[s0 + i] += y * (1 + pan * 0.5);
       }
@@ -412,10 +449,24 @@ function ink(v: V, plan: Plan): number[] {
   lp.type = 'lowpass'; lp.frequency.value = lerp(300, 700, A.s.arousal);
   const sw = c.createBiquadFilter();
   sw.type = 'bandpass'; sw.Q.value = 3;
-  const curve = new Float32Array(64).map((_, i) => 200 + 260 * (0.5 + 0.5 * Math.sin(i * 0.37 + v.rand() * 6)));
+  // the water follows each shot's current (director.ts inkOps, ink.wgsl): a slow drift, a shear rising steadily,
+  // one great turn (a slow circling sweep), two cells (swaying between two places) — the cut changes its course
+  const ph0 = v.rand() * 6;
+  const curve = new Float32Array(Math.max(64, Math.ceil(v.shot.dur * 20))).map((_, i, arr) => {
+    const t = v.shot.start + (i / (arr.length - 1)) * v.shot.dur;
+    const sh = plan.shots.find((x) => x.clip === 'ink' && t >= x.start && t < x.start + x.dur + 0.4) ?? v.shot;
+    const lt = t - sh.start;
+    const course = [0.5 + 0.5 * Math.sin(t * 0.37 + ph0), Math.min(1, (lt / sh.dur) * 1.1), 0.5 + 0.5 * Math.sin(lt * 1.3 + ph0), 0.5 + 0.5 * Math.sign(Math.sin(lt * 0.9)) * 0.7];
+    return 200 + 300 * course[sh.ops.flow];
+  });
+  // (smoothed: a change of course glides, it never jumps)
+  for (let i = 1; i < curve.length; i++) curve[i] = curve[i - 1] + (curve[i] - curve[i - 1]) * 0.12;
   sw.frequency.setValueCurveAtTime(curve, v.start, v.shot.dur);
   const wg = c.createGain();
-  wg.gain.value = lerp(0.35, 0.8, A.s.arousal);
+  const wl = lerp(0.35, 0.8, A.s.arousal);
+  const vu = (x: number) => (off + x) / span;
+  wg.gain.setValueAtTime(wl * (1 - freeze * Math.min(1, Math.max(0, (vu(0) - 0.25) / 0.6))), v.start);
+  wg.gain.linearRampToValueAtTime(wl * (1 - freeze * Math.min(1, Math.max(0, (vu(v.shot.dur) - 0.25) / 0.6))), v.end);
   noiseSrc(v).connect(lp).connect(sw).connect(wg).connect(v.out);
   pulse(v).connect(v.out);
   if (v.strike) blow(v);
@@ -425,7 +476,7 @@ function ink(v: V, plan: Plan): number[] {
     g.gain.linearRampToValueAtTime(0.1, v.start + 0.8);
     g.connect(v.out);
     const fs = 36 + A.s.weight * 10;
-    for (const f of [fs, fs + 0.7]) { const o = c.createOscillator(); o.frequency.value = f; o.connect(g); o.start(v.start); o.stop(v.end + 0.05); }
+    sines(v, [fs, fs + 0.7], g);
   }
   return [tune(f0)];
 }
@@ -457,15 +508,14 @@ function pulse(v: V): AudioBufferSourceNode {
   const { A } = v;
   const rp = A.c.rhythm.p;
   const P = beatPeriod(A);
-  const variant = (v.shot.seed % 1000) / 1000;
   const [f1, f2] = v.pos ? [D2 * 8, D2 * 16] : [58, 290];
   return rendered(v, (L, R, sr) => {
     const n = L.length;
-    for (let k = 0; k * P < v.shot.dur; k++) {
-      const skip = skipped(k, variant);
-      const amp = rp.steady * 0.55 + (skip ? 0 : rp.stuttering * 0.6);
+    // the beats of the verdict clock (never restarted by a cut)
+    for (let k = Math.ceil(v.off / P); k * P < v.off + v.shot.dur; k++) {
+      const amp = rp.steady * 0.55 + (skipped(k) ? 0 : rp.stuttering * 0.6);
       if (amp < 0.02) continue;
-      const s0 = Math.floor(k * P * sr);
+      const s0 = Math.floor((k * P - v.off) * sr);
       for (let i = 0; i < sr * 0.1 && s0 + i < n; i++) {
         const u = i / sr;
         // a tick with a partial small speakers carry
@@ -478,9 +528,10 @@ function pulse(v: V): AudioBufferSourceNode {
       let ph = 0;
       const f = v.pos ? D2 * 6 : D2 * 1.5;
       for (let i = 0; i < n; i++) {
-        const u = i / sr;
+        const u = v.off + i / sr;
         ph += (2 * Math.PI * f) / sr;
-        const x = Math.sin(ph) * (0.5 - 0.5 * Math.cos((u / P) * Math.PI)) * 0.2 * rp.pulsing;
+        // (it swells and ebbs, never to nothing: a tide, not a pumping dropout)
+        const x = Math.sin(ph) * (0.35 + 0.65 * (0.5 - 0.5 * Math.cos((u / P) * Math.PI))) * 0.2 * rp.pulsing;
         L[i] += x; R[i] += x;
       }
     }

@@ -244,12 +244,15 @@ const BEDS = {
     }
     g.connect(b.out);
     const f0 = 36 + b.rand() * 5;
-    for (const f of [f0, f0 + 0.7]) { // two sines 0.7 Hz apart: the floor breathes
+    // two sines 0.7 Hz apart: the floor breathes (the second softer: their beating never cancels to silence)
+    [f0, f0 + 0.7].forEach((f, i) => {
       const o = c.createOscillator();
       o.frequency.value = f;
-      o.connect(g);
+      const og = c.createGain();
+      og.gain.value = i ? 0.4 : 1;
+      o.connect(og).connect(g);
       o.start(b.start); o.stop(b.end + 0.05);
-    }
+    });
     // its 5th partial, faint: small speakers carry the floor through it (the missing fundamental)
     const hg = c.createGain();
     hg.gain.value = 0.08;

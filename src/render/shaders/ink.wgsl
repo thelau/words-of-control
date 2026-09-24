@@ -26,7 +26,8 @@ fn tv(i: i32) -> f32 {
 }
 fn byteOf(i: i32) -> u32 { return u32(clamp(tv(i), 0.0, 1.0) * 255.0 + 0.5); }
 fn fresh() -> bool { return F.mode > 0.5; }
-fn stepDt() -> f32 { return min(F.dt, 1.0 / 30.0); }
+/** The fluid's time step: an idle word's fluid moves slower (its beats stay on the sound's clock). */
+fn stepDt() -> f32 { return min(F.dt, 1.0 / 30.0) * mix(1.0, 0.35, F.lazy); }
 fn beatP() -> f32 { return 60.0 / mix(56.0, 128.0, F.s_arousal); }
 
 /** One source per byte of the word (3–12). */
@@ -83,7 +84,7 @@ fn push(s: vec2f, b: f32) -> vec2f {
 }
 
 /** The last beat that fired before now (−1 if none), and time since it. A stutter skips some beats
- *  (show/rhythm.ts skipped, variant 0). */
+ *  (show/rhythm.ts skipped). */
 fn lastBeat() -> vec2f {
   let P = beatP();
   var b = floor(F.vt / P);
@@ -105,6 +106,7 @@ fn splat(p: vec2f) -> vec2f {
   let d = p - srcPos(k);
   let env = exp(-lb.y / mix(0.45, 0.15, F.mo_breaking + F.mo_trembling * 0.5) * (1.0 - 0.6 * F.mo_still)) * ss(0.0, 0.03, lb.y);
   let x = dot(d, d) / (r * r);
+  if (x > 100.0) { return vec2f(0.0, f32(k)); } // far from the drop (and from a still drop's widest front)
   let drop = exp(-x * x); // a drop with an edge, not a glow
   // a still word does not push: its drop opens where it falls, like ink on wet paper — a crisp front spreading
   // out, feathered unevenly (each drop its own fringe), leaving growth rings and a faint wash behind it
@@ -115,6 +117,40 @@ fn splat(p: vec2f) -> vec2f {
   let dist = length(d);
   let front = exp(-pow((dist - fr) / (r * 0.22), 2.0)) + 0.12 * ss(fr, fr * 0.7, dist);
   return vec2f(mix(drop, front * 0.8, F.mo_still) * env * swell(), f32(k));
+}
+
+/** The source's matter: the word's first material, or for a share of the sources its second
+ *  (MATERIALS order of frame.ts) — shame is embers among waves. */
+fn srcMat(k: i32) -> f32 { return select(F.matTop, F.matSec, fract(f32(k) * 0.618 + 0.3) < F.matShare); }
+/** How a matter moves on its own: heavy matter sinks, fire, smoke and light rise. */
+fn matLift(m: f32) -> f32 {
+  let i = i32(m);
+  if (i == 0 || i == 2 || i == 3 || i == 5) { return -1.0; }
+  if (i == 4 || i == 8 || i == 10) { return -0.5; }
+  if (i == 6 || i == 7 || i == 11) { return 1.0; }
+  return 0.0;
+}
+/** Ice and glass (and crystalline words) freeze over the verdict. */
+fn frozen() -> f32 { return clamp(F.m_ice + F.m_glass + F.tx_crystalline * 0.7, 0.0, 1.0) * ss(0.25, 0.85, F.vu); }
+
+/** Distance to the nearest cell edge (the cracks of a cracked word). */
+fn cellEdge(p: vec2f) -> f32 {
+  let i = floor(p);
+  var d1 = 9.0; var d2 = 9.0;
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let c = i + vec2f(f32(x), f32(y));
+      let d = length(p - (c + hash22(c) * 0.45 + 0.5));
+      if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) { d2 = d; }
+    }
+  }
+  return d2 - d1;
+}
+/** A cracked word's dye is laid down already broken. */
+fn cracks(p: vec2f) -> f32 {
+  if (F.tx_cracked < 0.05) { return 1.0; }
+  let e = cellEdge(p * 22.0 + vec2f(F.seed % 37.0));
+  return mix(1.0, ss(0.03, 0.1, e), clamp(F.tx_cracked * 1.5, 0.0, 1.0));
 }
 
 fn velAt(p: vec2f) -> vec2f { return textureSampleLevel(velIn, lin, p, 0.0).xy; }
@@ -134,6 +170,8 @@ fn force(@builtin(global_invocation_id) id: vec3u) {
   // the matter's viscosity: heavy matter is thick and slow, water and smoke run free
   let thick = F.m_stone + F.m_metal + F.m_wood * 0.7 + F.m_sand * 0.6 + F.m_ice * 0.5 + F.m_flesh * 0.4 + F.m_cloth * 0.4;
   v *= exp(-dt * mix(0.25, 2.2, clamp(thick, 0.0, 1.0)));
+  // ice and glass freeze: the flow stops as the verdict goes on
+  v *= exp(-dt * frozen() * 6.0);
   // vorticity: smoke and fire curl most, water curls, the soft and the still barely (confinement toward |ω| peaks)
   let curls = mix(3.0, 12.0, clamp(F.m_smoke + F.m_fire + F.m_water * 0.7 + F.s_tension * 0.4 + F.s_arousal * 0.3, 0.0, 1.0))
     * (1.0 - 0.7 * F.tx_soft) * (1.0 - 0.8 * F.mo_still);
@@ -150,12 +188,22 @@ fn force(@builtin(global_invocation_id) id: vec3u) {
   let o = p - vec2f(0.5);
   v += (vec2f(0.04, 0.006) * mw(8.0) + vec2f(-o.y, o.x) * 0.15 * mw(4.0) - o * 0.12 * mw(3.0)) * dt;
   v += curl(p * 9.0, F.vt * 3.0) * 0.25 * dt * (mw(5.0) + F.s_arousal * 0.3) * mix(1.0, 0.1, F.mo_still);
+  // a pulsing word: the whole fluid rocks back and forth on the tide (two beats), as the sound's tide swells
+  v += vec2f(-o.y, o.x) * F.rh_pulsing * 0.5 * sin(F.vt * PI / beatP()) * dt;
+  // the shot's current (its construction, director.ts inkOps): none, a shear, one great turn, two cells
+  let calm = mix(1.0, 0.15, F.mo_still);
+  let fo = i32(F.flowOp);
+  if (fo == 1) { v.x += (p.y - 0.5) * 0.35 * dt * calm; }
+  if (fo == 2) { v += vec2f(-o.y, o.x) * 0.35 * dt * calm; }
+  if (fo == 3) { v += vec2f(PI * sin(TAU * p.x) * cos(PI * p.y), -TAU * cos(TAU * p.x) * sin(PI * p.y)) * 0.012 * dt * calm; }
   // the source now firing pushes the word's way
   let sp = splat(p);
   if (sp.y >= 0.0) {
     let k = i32(sp.y);
     let strength = mix(1.5, 5.0, F.s_intensity * 0.5 + F.s_arousal * 0.5) * mix(1.0, 0.08, F.mo_still);
     v += push(srcPos(k), floor(lastBeat().x)) * sp.x * strength * dt;
+    // and its matter moves its own way (the second material's sources are another substance)
+    v.y += matLift(srcMat(k)) * sp.x * 1.2 * dt;
   }
   // the strike: one shockwave out of the centre at the start of its shot
   if (F.strike > 0.0) {
@@ -224,7 +272,7 @@ fn reading(p: vec2f) -> vec4f {
   let half = 0.04 + 0.2 * tv(idx + 13);
   let stroke = ss(0.0, 0.04, half - abs(r.y - y0));
   let band = ss(0.0, 0.05, 0.4 - abs(c0.x)) * ss(0.0, 0.05, 0.36 - abs(c0.y));
-  return vec4f(pigment(tv(idx / 8 + 3)), 1.0) * bit * stroke * band;
+  return vec4f(pigment(tv(idx / 8 + 3)), 1.0) * bit * stroke * band * cracks(p);
 }
 
 @compute @workgroup_size(16, 16)
@@ -237,10 +285,12 @@ fn dye(@builtin(global_invocation_id) id: vec3u) {
   // the dye thins: smoke and void vanish, fire burns away, a dwindling word empties; the rest stays
   let fade = 0.09 + F.m_smoke * 0.3 + F.m_void * 0.6 + F.m_fire * 0.2 + F.rh_dwindling * 0.25 * F.vu;
   d *= exp(-dt * fade);
+  // fire burns to soot: the colour goes before the matter does
+  d = vec4f(d.rgb * exp(-dt * F.m_fire * 0.7), d.a);
   let sp = splat(p);
   if (sp.y >= 0.0) {
     let k = i32(sp.y);
-    let add = sp.x * dt * 4.0 * (1.0 - 0.6 * F.mo_still);
+    let add = sp.x * dt * 4.0 * (1.0 - 0.6 * F.mo_still) * cracks(p);
     d += vec4f(pigment(tv(k + 5 + i32(lastBeat().x) * 3)) * add, add);
   }
   textureStore(dyeOut, c, min(d, vec4f(4.0)));
@@ -251,8 +301,14 @@ fn dye(@builtin(global_invocation_id) id: vec3u) {
 fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let res = vec2f(F.resX, F.resY);
   // cover: the long side spans the domain; each angle is a cut to a closer view of the same fluid
+  // where you stand (who the word is about): "I" close, inside it; "you" facing it; "we" turning around in it;
+  // "they", far off — the fluid small in the dark
   var q = (fc.xy - res * 0.5) / max(res.x, res.y) * vec2f(1.0, -1.0);
-  q = q * 0.84 / F.zoom + vec2f(F.offX, F.offY) * 0.25 * select(0.0, 1.0, F.zoom > 1.0) + vec2f(0.5);
+  let near = mix(1.0, 1.6, F.who_i) * mix(1.0, 0.7, F.who_they * ss(0.35, 0.8, F.s_distance));
+  let turn = F.who_we * F.vt * 0.06;
+  q = vec2f(q.x * cos(turn) - q.y * sin(turn), q.x * sin(turn) + q.y * cos(turn));
+  q = q * 0.84 / (F.zoom * near) + vec2f(F.offX, F.offY) * 0.25 * select(0.0, 1.0, F.zoom > 1.0) + vec2f(0.5);
+
   let e = 1.5 / DN / F.zoom;
   let a0 = textureSampleLevel(dyeIn, lin, q, 0.0).a;
   let gx = textureSampleLevel(dyeIn, lin, q + vec2f(e, 0.0), 0.0).a - textureSampleLevel(dyeIn, lin, q - vec2f(e, 0.0), 0.0).a;
@@ -262,12 +318,32 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let n = normalize(vec3f(-gx * relief, -gy * relief, 1.0));
   let d = textureSampleLevel(dyeIn, lin, q + n.xy * 0.004 / F.zoom, 0.0);
   let wall = min(min(q.x, 1.0 - q.x), min(q.y, 1.0 - q.y));
-  let dens = (1.0 - exp(-d.a * 1.6)) * ss(0.02, 0.1, wall);
+  var dens = (1.0 - exp(-d.a * 1.6)) * ss(0.02, 0.1, wall) * ss(0.0, 0.08, 0.72 - length(q - 0.5) * F.who_they);
+  // stone is crisp-edged; a grainy word (or sand) granulates, its pigment settling into the grain
+  // ice and glass freeze: the edges set hard, and catch cold points of light
+  let fz = frozen();
+  dens = mix(dens, ss(0.2, 0.32, dens), clamp(F.m_stone * 0.8 + fz * 0.9, 0.0, 1.0));
+  let gr = clamp(F.tx_grainy + F.tx_powdery * 0.6 + F.m_sand, 0.0, 1.0);
+  dens *= mix(1.0, 0.45 + 1.1 * (0.5 + 0.5 * gnoise(q * DN * 0.8)), gr * 0.8);
   let hue = d.rgb / max(d.a, 1e-3);
-  let L = normalize(vec3f(-0.5, 0.6, 0.65));
+  // the shot's light (director.ts inkOps): a key from above, a light behind (thin dye glows), a raking light
+  // (every fold a ridge), or dark-field (only the edges)
+  let lo = i32(F.warpOp) % 4;
+  let L = normalize(select(vec3f(-0.5, 0.6, 0.65), vec3f(-0.9, 0.15, 0.25), lo == 2));
   let diff = max(dot(n, L), 0.0);
-  let spec = pow(max(dot(reflect(-L, n), vec3f(0.0, 0.0, 1.0)), 0.0), mix(18.0, 80.0, F.s_hardness));
+  let spec = pow(max(dot(reflect(-L, n), vec3f(0.0, 0.0, 1.0)), 0.0), mix(18.0, 80.0, F.s_hardness)) * (1.0 - 0.8 * F.tx_soft);
   var col = hue * dens * (0.35 + 0.9 * diff) + vec3f(1.0, 0.97, 0.93) * spec * dens * mix(0.25, 1.0, F.m_water + F.m_glass + F.m_metal + F.m_ice);
+  let fold = length(vec2f(gx, gy)) * DN * 0.05;
+  if (lo == 1) { col = hue * (dens * (1.0 - dens) * 3.2 + 0.15 * dens) + vec3f(1.0, 0.97, 0.93) * spec * dens * 0.5; }
+  if (lo == 2) { col = hue * dens * (0.08 + 1.5 * diff * diff) + vec3f(1.0) * spec * dens * 0.6; }
+  if (lo == 3) { col = hue * ss(0.05, 0.6, fold) * 1.4 + hue * dens * 0.05; }
+  // metal: a mercury skin, the room's light sliding over it; fire and light glow from within (fire's glow
+  // dies with its colour: the soot stays dark)
+  let env = mix(0.08, 0.9, pow(1.0 - n.z, 0.6)) * (0.6 + 0.4 * n.y);
+  col = mix(col, (vec3f(0.78, 0.8, 0.84) * env + vec3f(1.0) * spec * 2.0) * dens, F.m_metal * 0.85);
+  col += hue * dens * (F.m_fire * 0.7 + F.m_light * 0.6);
+  let ice = hash41(floor(fc.xy / 2.0), 7.0 + floor(F.vt * 1.5));
+  col += vec3f(0.8, 0.9, 1.0) * step(0.985, ice.x) * ss(0.2, 0.8, length(vec2f(gx, gy)) * DN * 0.05) * fz * 1.2;
 
   // the mood, in the pigment (never an inversion): negative is colourless and contracted — grey dye, hard
   // contrast; neutral is clinical — cool, with the density's isolines drawn exact, like a reading; positive keeps
@@ -279,7 +355,6 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let iso = abs(fract(d.a * 6.0) - 0.5);
   let lineW = fwidth(d.a * 6.0) * 1.2;
   col += vec3f(0.8, 0.9, 1.0) * ss(lineW, 0.0, iso) * ss(0.05, 0.2, d.a) * F.moodNeu * 0.35;
-  let fold = length(vec2f(gx, gy)) * DN * 0.05;
   let tw = hash41(floor(fc.xy / 2.0), floor(F.time * 3.0));
   let glitter = step(0.992, tw.x) * ss(0.2, 0.8, fold) * (0.5 + 0.5 * sin(F.time * 5.0 + tw.y * TAU));
   col += (vec3f(1.0, 0.85, 0.6) * glitter * 1.4 + hue * dens * 0.25) * F.moodPos;
@@ -287,6 +362,8 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   // the beat as light through the dye (steady and stuttering words), in time with the sound's tick
   let lb = lastBeat();
   col *= 1.0 + (F.rh_steady + F.rh_stuttering) * 0.5 * exp(-lb.y / 0.12) * select(1.0, 0.0, lb.x < 0.0);
+  // and the tide of a pulsing word (the sound's slow tone, clips.ts pulse())
+  col *= 1.0 + 0.45 * F.rh_pulsing * (0.5 - 0.5 * cos(F.vt * PI / beatP()));
   // light glows; void is barely there
   col *= (1.0 + F.m_light * 0.8) * (1.0 - 0.5 * F.m_void);
   return vec4f(col * ss(0.0, 0.08, F.lt + F.vt), 1.0);

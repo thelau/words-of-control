@@ -2,6 +2,18 @@
 
 Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
+## 2026-09-24 (late)
+
+- **No sound interruption, for every species, at every cut** ("for all, no sound interruption"). The picture cuts;
+  the sound carries across: each shot's voice rings on under the next and across the black between shots; ink
+  is one continuous voice over all its shots (a cut is heard as the water changing course); the beat counts on
+  the verdict clock and never restarts at a cut; floors of beating sines never cancel to silence; the pulsing
+  tide never ebbs to nothing. Only the cut to black cuts the sound (into the reverb).
+- **Species: the second word must not look like the first** (the daughter's test: "it's the same second time").
+  Two performances in a row never share a species; ink is the second species (points being the first). The ink
+  must not look like ruled columns. **Every species reacts to the whole reading as the particles do**
+  (docs/SPECIES.md is the checklist).
+
 ## 2026-09-24
 
 - **No drops, ever** — no sound interruption, no frozen image. A strike is a shockwave and one deep blow; a stutter

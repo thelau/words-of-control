@@ -235,7 +235,6 @@ async function boot() {
   // ---- frame loop
   let last = performance.now();
   let lastKey = '';
-  let lastLayer: Layer = 'room';
   // quality follows the device: if a performance runs slow (frames over ~20 ms on average), the soft layers
   // and the point count step down (1 → 0.75 → 0.5) — a phone plays the same piece, lighter
   let slow = 0;
@@ -294,8 +293,9 @@ async function boot() {
         f('exposure', fade * fade);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
         if (m.key !== lastKey && (layer === 'sand' || layer === 'data')) f('mode', 1); // a fresh layer of sand; particles placed at once
-        // the ink is one continuous fluid across its shots: poured fresh (from the reading) only as it begins
-        if (layer === 'ink' && lastLayer !== 'ink') f('mode', 1);
+        // the ink is one continuous fluid across its shots (and the black between them): poured fresh (from
+        // the reading) only as its first shot begins
+        if (layer === 'ink' && m.key !== lastKey && si === show.plan.shots.findIndex((x) => x.clip === 'ink')) f('mode', 1);
         if (m.clip === 'chladni') {
           const [mm, nn] = plateMode(show.A, m.seed, m.lt / m.dur);
           f('modeM', mm); f('modeN', nn);
@@ -318,7 +318,6 @@ async function boot() {
     f('hiRes', hi ? 1 : 0);
     f('resX', hi ? renderer.width : renderer.lowW); f('resY', hi ? renderer.height : renderer.lowH); f('dpr', hi ? renderer.dpr : 1);
     renderer.render(layer, frame.f32, hi);
-    lastLayer = layer;
     for (const h of app.frameHooks) h(now);
     requestAnimationFrame(loop);
   };
