@@ -45,6 +45,9 @@ const APPRAISAL = [
   ...MATERIALS.map((k) => `m_${k}`), ...MOTIONS.map((k) => `mo_${k}`), ...SHAPES.map((k) => `sh_${k}`), ...TEXTURES.map((k) => `tx_${k}`), ...RHYTHMS.map((k) => `rh_${k}`),
   // the word's gesture: its main motion (index into MOTIONS) and the second one, which turns in later
   'moTop', 'moSec', 'moSecP',
+  // the matter, per particle: the word's first and second material (index into MATERIALS), the share of the
+  // particles that are the second, how sure Jev is (first + second); its main texture (index into TEXTURES)
+  'matTop', 'matSec', 'matShare', 'matSure', 'txTop', 'txSure',
   'baseR', 'baseG', 'baseB', 'accR', 'accG', 'accB',
   // the colour clips' palette (from Jev's colour distribution): primary, second, contrast
   'p1R', 'p1G', 'p1B', 'p2R', 'p2G', 'p2B', 'p3R', 'p3G', 'p3B',
@@ -90,6 +93,12 @@ export class Frame {
     const msum = m2.reduce((a, b) => a + b, 0) || 1;
     MATERIALS.forEach((k, i) => this.set(`m_${k}`, m2[i] / msum));
     for (const k of RHYTHMS) this.set(`rh_${k}`, A.c.rhythm.p[k] ?? 0);
+    const mats = MATERIALS.map((k, i) => [i, A.c.material.p[k] ?? 0] as const).sort((a, b) => b[1] - a[1]);
+    this.set('matTop', mats[0][0]); this.set('matSec', mats[1][0]);
+    this.set('matShare', mats[1][1] / Math.max(1e-6, mats[0][1] + mats[1][1]));
+    this.set('matSure', Math.min(1, (mats[0][1] + mats[1][1]) * 1.25));
+    const txs = TEXTURES.map((k, i) => [i, A.c.texture.p[k] ?? 0] as const).sort((a, b) => b[1] - a[1]);
+    this.set('txTop', txs[0][0]); this.set('txSure', txs[0][1]);
     // the motion, sharpened like the material: the main gesture leads
     const mo2 = MOTIONS.map((k) => (A.c.motion.p[k] ?? 0) ** 2);
     const mosum = mo2.reduce((a, b) => a + b, 0) || 1;

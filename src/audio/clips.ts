@@ -37,25 +37,26 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
   const gate = c.createGain();
   gate.gain.setValueAtTime(0, start - 0.001);
   gate.gain.linearRampToValueAtTime(level, start + 0.004);
-  // where the rhythm holds (a strike's silence, a stutter's skipped beats) the voice stops, with the image
+  // where the rhythm holds (a strike's silence, a stutter's skipped beats) the voice falls away with the
+  // image — a quick dip (−24 dB in 60 ms), never a dead cut, which would sound like a dropout
   const hs = holds(A, plan, index);
   for (const [h0, h1] of hs) {
-    gate.gain.setValueAtTime(level, start + h0 - 0.004);
-    gate.gain.linearRampToValueAtTime(0, start + h0);
-    gate.gain.setValueAtTime(0, start + h1);
-    gate.gain.linearRampToValueAtTime(level, start + h1 + 0.02);
+    gate.gain.setValueAtTime(level, start + h0 - 0.06);
+    gate.gain.linearRampToValueAtTime(level * 0.06, start + h0);
+    gate.gain.setValueAtTime(level * 0.06, start + h1);
+    gate.gain.linearRampToValueAtTime(level, start + h1 + 0.08);
   }
   gate.gain.setValueAtTime(level, end - 0.005);
   gate.gain.linearRampToValueAtTime(0, end);
   gate.connect(a.perfDry);
-  // the strike's silence is the whole room's: the beds stop too, and only the reverb rings on
+  // the strike's quiet is the whole room's: the beds dip too (−18 dB); only the blow rings on into it
   const strike = index === strikeShot(plan) && A.c.rhythm.p.strike > 0.3;
   if (strike) {
     const [h0, h1] = hs[0];
-    a.perfDry.gain.setValueAtTime(1, start + h0 - 0.004);
-    a.perfDry.gain.linearRampToValueAtTime(0, start + h0);
-    a.perfDry.gain.setValueAtTime(0, start + h1);
-    a.perfDry.gain.linearRampToValueAtTime(1, start + h1 + 0.02);
+    a.perfDry.gain.setValueAtTime(1, start + h0 - 0.06);
+    a.perfDry.gain.linearRampToValueAtTime(0.12, start + h0);
+    a.perfDry.gain.setValueAtTime(0.12, start + h1);
+    a.perfDry.gain.linearRampToValueAtTime(1, start + h1 + 0.12);
   }
   const send = c.createGain();
   send.gain.value = shot.aborted ? 0.05 : 0.2;
@@ -313,6 +314,7 @@ function data(v: V): number[] {
   env.gain.linearRampToValueAtTime(1 + 0.6 * rp.swelling - 0.85 * rp.dwindling, v.end);
   src.connect(env).connect(v.out);
   pulse(v).connect(v.out);
+  if (v.strike) blow(v);
   // the points heard as points: a fine grain of 6–15 kHz blips and single-sample clicks, panned wide
   const dust = rendered(v, (L, R, sr) => {
     const rate = lerp(300, 3000, A.s.density * 0.5 + A.s.arousal * 0.5);
@@ -361,7 +363,7 @@ function lone(v: V): number[] {
 
 /** The rhythm Jev hears in the word — the same beats the image keeps (field.wgsl rhythmLight(), and the
  *  holds of show/rhythm.ts): a precise tick on every beat (steady) — on the beats that are not skipped (a
- *  stutter); a slow tide of a low tone (pulsing); the strike shot's one deep blow, then the room's silence.
+ *  stutter); a slow tide of a low tone (pulsing). (The strike's blow is blow(), outside the dips.)
  *  A positive word's beats sit high (no sub: it would sound like grief). Weighted by the rhythm distribution. */
 function pulse(v: V): AudioBufferSourceNode {
   const { A } = v;
@@ -394,15 +396,27 @@ function pulse(v: V): AudioBufferSourceNode {
         L[i] += x; R[i] += x;
       }
     }
-    // the strike: one blow as the shockwave leaves (the silence after it is the gate's)
-    if (v.strike) {
-      let ph = 0;
-      for (let i = 0; i < sr * 0.6 && i < n; i++) {
-        const u = i / sr;
-        ph += (2 * Math.PI * (46 + 50 * Math.exp(-u / 0.03))) / sr;
-        const x = (Math.sin(ph) + 0.4 * Math.sin(ph * 4)) * Math.exp(-u / 0.3) * (1 - Math.exp(-u / 0.002)) * 0.9 * rp.strike;
-        L[i] += x; R[i] += x;
-      }
+  });
+}
+
+/** The strike: one deep blow as the shockwave leaves, ringing on into the quiet after it — its own path, past
+ *  the dips (the shot's gate and the room's), straight to the output and into the reverb. */
+function blow(v: V) {
+  const { a, A } = v;
+  const c = a.ctx;
+  const src = rendered(v, (L, R, sr) => {
+    let ph = 0;
+    for (let i = 0; i < sr * 2.4 && i < L.length; i++) {
+      const u = i / sr;
+      ph += (2 * Math.PI * (46 + 50 * Math.exp(-u / 0.03))) / sr;
+      const x = (Math.sin(ph) + 0.4 * Math.sin(ph * 4) + 0.15 * Math.sin(ph * 6)) * Math.exp(-u / 0.7) * (1 - Math.exp(-u / 0.002)) * 0.8 * A.c.rhythm.p.strike;
+      L[i] += x; R[i] += x;
     }
   });
+  const g = c.createGain();
+  g.gain.value = dbToGain(lerp(-6, 0, loud(A)));
+  src.connect(g).connect(a.bus);
+  const wet = c.createGain();
+  wet.gain.value = 0.5;
+  g.connect(wet).connect(a.send);
 }
