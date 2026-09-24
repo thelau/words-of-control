@@ -4,17 +4,17 @@ A species is what a verdict is made of, seen at a glance (points, ink, …; see 
 Every species must react to the whole reading, not only the mood — the particles set the bar. A new species
 is done when each line below has an answer in its shader and its voice (clips.ts), or a written reason why not.
 
-| Reading (frame.ts) | What it must change | points (field.wgsl) | ink (ink.wgsl) |
-|---|---|---|---|
-| mood pos / neu / neg | colour, light, character — never an inversion | palette glitter · clinical axis views · colourless, contracting | palette + glow + glitter · cool + isolines · grey, hard |
-| material (top) | the substance's physics and surface | per-particle matter: embers, waves, crystals, glints… | viscosity, weight, vorticity, fading; ice/glass crystallise, metal a mercury sheen, fire burns to soot, light glows |
-| material (second) + share | a trace of another substance | a share of the particles | a share of the sources (their own weight and push) |
-| texture | the surface's grain | cracked gaps, soft, grainy, crystalline | cracked dye, granulating pigment, faceted shards, soft |
-| motion (top, second turning in) | what happens in the shot | behaveAt() gestures on the verdict clock | each source pushes the word's way; the whole field is carried |
-| shape | the form | the reading's formation + operators | the sources laid out in the shape |
-| rhythm | beat, stutter, tide, strike, swell/dwindle | rhythmLight(), clock() | beat light, stutter, tide, strike wave, swell/dwindle, lazy clock |
-| who / distance | where you stand | camera(): inside, facing, turning, far | close, facing, turning, far |
-| palette / colour | the pigments | p1–p3 | p1–p3 |
-| variety (ops) | never built the same way twice | echo, warp, flow + recentOps | current, light + recentOps |
-| dramaturgy, hand-off | the form of the performance | director (shared) | director (shared); poured from the last barcode |
-| sound | the same parameters, the same clock | data(), pulse(), blow() | ink(): drops on the beats, water; pulse(), blow() |
+| Reading (frame.ts) | What it must change | points (field.wgsl) | ink (ink.wgsl) | solids (solids.wgsl) |
+|---|---|---|---|---|
+| mood pos / neu / neg | colour, light, character — never an inversion | palette glitter · clinical axis views · colourless, contracting | palette + glow + glitter · cool + isolines · grey, hard | warm light, gold chrome, palette matte, glitter · cool exact light, white · colourless |
+| material (top) | the substance's physics and surface | per-particle matter: embers, waves, crystals, glints… | viscosity, weight, vorticity, fading; ice/glass crystallise, metal a mercury sheen, fire burns to soot, light glows | chrome, glass (ice frosted, water tinted), matte (stone, sand, wood, cloth, flesh), embers with glowing cracks, light, black gloss |
+| material (second) + share | a trace of another substance | a share of the particles | a share of the sources (their own weight and push) | a share of the spheres, and white porcelain as the house contrast |
+| texture | the surface's grain | cracked gaps, soft, grainy, crystalline | cracked dye, granulating pigment, faceted shards, soft | grainy rough, cracked fissured, soft sheen |
+| motion (top, second turning in) | what happens in the shot | behaveAt() gestures on the verdict clock | each source pushes the word's way; the whole field is carried | the cluster rises, falls, spreads, packs tight, turns, trembles, breathes, bursts, drifts |
+| shape | the form | the reading's formation + operators | the sources laid out in the shape | the cluster's envelope: ball, pile, wave, helix, outliers, knot, one great sphere |
+| rhythm | beat, stutter, tide, strike, swell/dwindle | rhythmLight(), clock() | beat light, stutter, tide, strike wave, swell/dwindle, lazy clock | a letter struck per beat (its spheres glint), stutter, tide, strike burst, swell/dwindle, lazy clock |
+| who / distance | where you stand | camera(): inside, facing, turning, far | close, facing, turning, far | close, facing, circling, far |
+| palette / colour | the pigments | p1–p3 | p1–p3 | p1–p2 on matte and emissive, gold chrome |
+| variety (ops) | never built the same way twice | echo, warp, flow + recentOps | current, light + recentOps | light (studio, rim, spot, clinical), camera move + recentOps |
+| dramaturgy, hand-off | the form of the performance | director (shared) | director (shared); poured from the last barcode | director (shared); each 1-bit of the bits reading becomes a sphere |
+| sound | the same parameters, the same clock | data(), pulse(), blow() | ink(): drops on the beats, water; pulse(), blow() | solids(): the struck letter's spheres ring as a chord of their matter; hum; pulse(), blow() |

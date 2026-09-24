@@ -37,6 +37,7 @@ const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = 
   sand: { bloom: 0.05, halation: 0.03, flat: 0 },
   data: { bloom: 0.05, halation: 0.02, flat: 0 },
   ink: { bloom: 0.06, halation: 0.03, flat: 1 },
+  solids: { bloom: 0.07, halation: 0.03, flat: 1 },
 };
 
 /** White balance from the matter: cold for glass, ice, water; warm for fire, sand, lazy afternoons. */

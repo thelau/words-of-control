@@ -158,6 +158,16 @@ verdict now comes in species that differ at first sight, and two performances in
   push of water behind it, on the same beats, panned where it falls, over dark moving water.
   The first choice of a session goes by how liquid the reading is (`inkiness`), then the species alternate.
 
-Next species (one step each): solids (sculpted forms, chrome/porcelain/stone), threads (long glowing
-lines), light (colour fields, almost no objects). With four or more, the reading picks among those not
-just seen, so it stops being a plain alternation.
+- **solids** — the reading made matter (solids.wgsl, after video-g): every 1-bit of the word's bytes is a
+  sphere, sized by its value, packed into a cluster shaped by the word (ball, pile, wave, helix, outliers,
+  knot, one great sphere), each of the word's matter (chrome, glass, matte, embers, black gloss, a share of
+  white porcelain), traced exactly (true reflections, refraction, soft shadows) with a macro lens. It opens
+  on the bits reading: each bit becomes a sphere. On each beat one letter is struck: its spheres glint and
+  ring as a chord of their matter. (A first version of sculpted primitives — cubes, discs, rings — read as a
+  CG demo and was replaced.)
+
+The species is chosen by how well each suits the reading (director.ts suits(): ink the liquid, solids the
+material, points the data), softly, never the last one. A name stays points. A sentence earns more time:
+up to ~40% longer for six words or more.
+
+Next species: threads (long glowing lines), light (colour fields, almost no objects).

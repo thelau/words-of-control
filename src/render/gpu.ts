@@ -3,7 +3,8 @@
  * black) into an HDR target, then bloom and the film composite. Scenes are
  * fullscreen shaders except relief (compute height field + shading), sand
  * (compute simulation + camera + lens), data (points in 3D, instanced, with
- * their own bokeh) and ink (a fluid simulation, its dye lit as a surface).
+ * their own bokeh), ink (a fluid simulation, its dye lit as a surface) and solids
+ * (a traced cluster of spheres, placed and packed once a frame by a compute pass).
  */
 import commonWGSL from './shaders/common.wgsl?raw';
 import roomWGSL from './shaders/room.wgsl?raw';
@@ -13,13 +14,14 @@ import fieldWGSL from './shaders/field.wgsl?raw';
 import sandWGSL from './shaders/sand.wgsl?raw';
 import sandDrawWGSL from './shaders/sand_draw.wgsl?raw';
 import inkWGSL from './shaders/ink.wgsl?raw';
+import solidsWGSL from './shaders/solids.wgsl?raw';
 import blitWGSL from './shaders/blit.wgsl?raw';
 import dofWGSL from './shaders/dof.wgsl?raw';
 import bloomWGSL from './shaders/bloom.wgsl?raw';
 import compositeWGSL from './shaders/composite.wgsl?raw';
 import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
 
-export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'sand' | 'data' | 'ink';
+export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'sand' | 'data' | 'ink' | 'solids';
 
 const HDR: GPUTextureFormat = 'rgba16float';
 const BLOOM_LEVELS = 6;
@@ -62,6 +64,7 @@ export class Renderer {
   private inkP: GPUTexture[] = [];
   private inkDiv!: GPUTexture;
   private inkDye: GPUTexture[] = [];
+  private solidsBuf!: GPUBuffer;
   private sampler!: GPUSampler;
   private atlas!: GPUTexture;
   private heightTex!: GPUTexture;
@@ -125,6 +128,7 @@ export class Renderer {
     this.inkP = [inkTex(INK_VEL), inkTex(INK_VEL)];
     this.inkDiv = inkTex(INK_VEL);
     this.inkDye = [inkTex(INK_DYE), inkTex(INK_DYE)];
+    this.solidsBuf = d.createBuffer({ size: (6 + 2 * 96) * 16, usage: GPUBufferUsage.STORAGE }); // camera, bound, count + 96 spheres (solids.wgsl)
     this.heightTex = d.createTexture({
       size: [RELIEF_RES, RELIEF_RES], format: HDR,
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
@@ -187,6 +191,13 @@ export class Renderer {
       fragment: { module: ink, entryPoint: 'fs', targets: [{ format: HDR }] },
     });
 
+    const solids = mod('solids', pre + solidsWGSL);
+    this.c.solidsSetup = d.createComputePipeline({ layout: 'auto', compute: { module: solids, entryPoint: 'setup' } });
+    this.p.solids = d.createRenderPipeline({
+      layout: 'auto', vertex: { module: solids, entryPoint: 'vs_full' },
+      fragment: { module: solids, entryPoint: 'fs', targets: [{ format: HDR }] },
+    });
+
     const bloom = mod('bloom', bloomWGSL);
     const bl = (entry: string, blend?: GPUBlendState) => d.createRenderPipeline({
       layout: 'auto', vertex: { module: bloom, entryPoint: 'vs' },
@@ -228,6 +239,8 @@ export class Renderer {
     group('ink_project', this.c.ink_project, [{ binding: 2, resource: v(vB) }, { binding: 3, resource: v(vA) }, { binding: 4, resource: v(pA) }]);
     group('ink_dye', this.c.ink_dye, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: v(vA) }, { binding: 8, resource: v(dA) }, { binding: 9, resource: v(dB) }, lin]);
     group('ink', this.p.ink, [{ binding: 0, resource: uni }, { binding: 8, resource: v(dA) }, lin]);
+    group('solidsSetup', this.c.solidsSetup, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: { buffer: this.solidsBuf } }]);
+    group('solids', this.p.solids, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 3, resource: { buffer: this.solidsBuf } }]);
     this.resize();
   }
 
@@ -385,6 +398,13 @@ export class Renderer {
       cp.end();
       enc.copyTextureToTexture({ texture: this.inkDye[1] }, { texture: this.inkDye[0] }, [INK_DYE, INK_DYE]);
       fullPass(this.p.ink, this.bg.ink);
+    } else if (layer === 'solids') {
+      const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
+      cp.setPipeline(this.c.solidsSetup); cp.setBindGroup(0, this.bg.solidsSetup); cp.dispatchWorkgroups(1);
+      cp.end();
+      // like the sand: drawn with its blur in alpha into the spare target, resolved by the lens
+      fullPass(this.p.solids, this.bg.solids, this.trail.view, {});
+      fullPass(this.p.dof, this.bg.dof, this.scene.view, {});
     } else if (layer === 'appraisal' && hi) {
       fullPass(this.p.appraisal, this.bg.appraisal, this.sceneHi.view);
       enc.beginRenderPass({ colorAttachments: [{ view: this.scene.view, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] }).end();
@@ -433,7 +453,7 @@ export class Renderer {
 
   /** Draw every layer once so no pipeline compiles mid-performance. */
   warmUp(frame: Float32Array) {
-    for (const l of ['room', 'appraisal', 'relief', 'sand', 'data', 'ink', 'black'] as Layer[]) this.render(l, frame, l === 'appraisal');
+    for (const l of ['room', 'appraisal', 'relief', 'sand', 'data', 'ink', 'solids', 'black'] as Layer[]) this.render(l, frame, l === 'appraisal');
   }
 
 }

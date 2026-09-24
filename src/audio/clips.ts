@@ -21,7 +21,7 @@ import { mulberry32 } from '../core/rng.ts';
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
-const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, lone: 8, ink: 4 };
+const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, lone: 8, ink: 4, solids: 4 };
 
 /** One shot's voice: `strike` — it carries the verdict's strike; `pos` — a positive word (its beats sit high, no sub);
  *  `tail` — how long it rings on after its cut (s); `off` — when the shot begins on the verdict clock (s). */
@@ -34,10 +34,10 @@ const TAIL = 0.8;
 /** Schedules one shot's voice. Returns pitches worth remembering (drone residue). */
 export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan, index: number, t0: number): number[] {
   let shot = plan.shots[index];
-  // ink is one continuous fluid across its shots, so it is one continuous voice: the first ink shot plays the
-  // whole span (the picture cuts, the water carries across — each cut heard as the water changing course)
-  if (shot.clip === 'ink') {
-    const inks = plan.shots.filter((x) => x.clip === 'ink');
+  // ink and solids are one continuous scene across their shots, so one continuous voice: the first shot plays
+  // the whole span (the picture cuts, the sound carries across — for ink each cut heard as the water changing course)
+  if (shot.clip === 'ink' || shot.clip === 'solids') {
+    const inks = plan.shots.filter((x) => x.clip === shot.clip);
     if (inks[0] !== shot) return [];
     const last = inks[inks.length - 1];
     shot = { ...shot, dur: last.start + last.dur - shot.start };
@@ -93,6 +93,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
   // (strike: the ink's voice is scheduled from its first shot, which is the strike's shot)
   switch (shot.clip) {
     case 'ink': return ink(v, plan);
+    case 'solids': return solids(v);
     case 'relief': return relief(v);
     case 'drift': return drift(v);
     case 'lone': return lone(v);
@@ -479,6 +480,104 @@ function ink(v: V, plan: Plan): number[] {
     sines(v, [fs, fs + 0.7], g);
   }
   return [tune(f0)];
+}
+
+// ------------------------------------------------------------------ solids: each letter's spheres struck on the beat, heard as their matter
+/** How each matter rings when struck (by MATERIALS name of frame.ts, and the porcelain): partial ratios, their lengths (s), their levels,
+ *  and how much noise is in the knock. */
+const STRIKE: Record<string, { r: number[]; d: number[]; g: number[]; knock: number }> = {
+  metal: { r: [1, 2.76, 5.4, 8.93], d: [2.4, 1.5, 0.8, 0.5], g: [1, 0.6, 0.4, 0.25], knock: 0.1 },
+  glass: { r: [1, 2.32, 4.25, 6.63], d: [1.2, 0.8, 0.5, 0.3], g: [1, 0.5, 0.35, 0.2], knock: 0.05 },
+  ice: { r: [1.5, 3.5, 6.4], d: [0.6, 0.4, 0.2], g: [1, 0.5, 0.3], knock: 0.3 },
+  stone: { r: [1, 1.83, 2.9], d: [0.12, 0.08, 0.05], g: [1, 0.5, 0.3], knock: 0.8 },
+  sand: { r: [1, 1.9], d: [0.06, 0.04], g: [0.6, 0.3], knock: 1 },
+  wood: { r: [1, 2.57, 4.2], d: [0.25, 0.15, 0.08], g: [1, 0.45, 0.2], knock: 0.4 },
+  cloth: { r: [0.5, 0.75], d: [0.08, 0.05], g: [1, 0.4], knock: 0.5 },
+  flesh: { r: [0.5, 0.8], d: [0.1, 0.06], g: [1, 0.4], knock: 0.4 },
+  water: { r: [1], d: [0.15], g: [1], knock: 0.1 },
+  fire: { r: [0.75], d: [0.3], g: [0.6], knock: 1 },
+  smoke: { r: [1], d: [0.4], g: [0.15], knock: 0.8 },
+  light: { r: [1, 2, 3], d: [1.5, 1, 0.6], g: [1, 0.35, 0.15], knock: 0 },
+  void: { r: [0.25], d: [0.4], g: [0.8], knock: 0 },
+  // the white porcelain spheres (solids.wgsl's house contrast): a bright ceramic tick
+  porcelain: { r: [1, 2.9, 5.2], d: [0.5, 0.3, 0.15], g: [1, 0.4, 0.2], knock: 0.15 },
+};
+
+/** The same spheres as solids.wgsl (one per 1-bit of the word's bytes; radiusOf(), matterOf(), lastBeat()): on
+ *  each beat of the verdict clock one letter is struck — all its spheres ring together, a chord, each as its matter,
+ *  pitched by its size (a large sphere low), tuned by the mood, panned by its bit. Under them, the cluster's hum: a
+ *  low bowed resonance of the main matter. */
+function solids(v: V): number[] {
+  const { a, A } = v;
+  const c = a.ctx;
+  const tape = A.tape;
+  const tv = (i: number) => tape[((i % tape.length) + tape.length) % tape.length];
+  const hv = (s: number, salt: number) => (((tv(s + salt) * 7.31 + (s % 8) * 0.618 + salt * 0.137) % 1) + 1) % 1;
+  const letters = Math.min(12, Math.max(1, A.bytes.length));
+  const bit = (s: number) => ((A.bytes[Math.floor(s / 8)] ?? 0) >> (s % 8)) & 1;
+  const P = beatPeriod(A);
+  const rp = A.c.rhythm.p;
+  const mats = Object.entries(A.c.material.p).sort((x, y) => y[1] - x[1]);
+  const share = mats[1][1] / Math.max(1e-6, mats[0][1] + mats[1][1]);
+  const matterOf = (s: number) => (hv(s, 5) < 0.16 && (A.c.material.p.void ?? 0) < 0.5 ? 'porcelain' : hv(s, 9) < share ? mats[1][0] : mats[0][0]);
+  const point = Object.entries(A.c.shape.p).sort((x, y) => y[1] - x[1])[0][0] === 'point';
+  const first = [...Array(96).keys()].find((s) => s < letters * 8 && bit(s)) ?? 0;
+  const radius = (s: number) => (point ? (s === first ? 0.3 : 0.022) : (0.035 + 0.075 * Math.pow(hv(s, 3), 1.6)) * lerp(0.85, 1.2, A.s.scale));
+  const f0 = D2 * 4 * Math.pow(2, (A.s.pitch - 0.5) * 0.6);
+  const JUST = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3, 2];
+  const tune = (f: number) => {
+    if (v.pos) { const oct = Math.floor(Math.log2(f / D2)); const r = f / (D2 * 2 ** oct); return D2 * 2 ** oct * JUST.reduce((b, x) => (Math.abs(x - r) < Math.abs(b - r) ? x : b), 1); }
+    if (A.mood.neu > A.mood.neg) return 1000 * 2 ** (Math.round(Math.log2(f / 1000) * 2) / 2);
+    return f;
+  };
+  const span = Math.max(0.1, v.shot.dur);
+  const struck = rendered(v, (L, R, sr) => {
+    for (let b = Math.ceil(v.off / P); b * P < v.off + v.shot.dur; b++) {
+      if (rp.stuttering > 0.35 && skipped(b)) continue;
+      const letter = b % letters;
+      const spheres = [...Array(8).keys()].map((j) => letter * 8 + j).filter(bit);
+      if (!spheres.length) continue;
+      const vu = (b * P - v.off) / span;
+      const amp = Math.max(0.1, 1 + 0.2 * rp.swelling * (2 * vu - 1) - 0.35 * rp.dwindling * vu) * 0.1 / Math.sqrt(spheres.length);
+      const s0 = Math.floor((b * P - v.off) * sr);
+      for (const s of spheres) {
+        const st = STRIKE[matterOf(s)] ?? STRIKE.stone;
+        const f = tune(f0 * Math.pow(2, -(radius(s) - 0.07) * 20));
+        const pan = ((s % 8) / 7 - 0.5) * 1.2;
+        const len = Math.floor(sr * Math.max(...st.d) * 4);
+        let lp = 0;
+        for (let i = 0; i < len && s0 + i < L.length; i++) {
+          const u = i / sr;
+          let x = 0;
+          for (let j = 0; j < st.r.length; j++) x += Math.sin(2 * Math.PI * f * st.r[j] * u) * st.g[j] * Math.exp(-u / st.d[j]);
+          // the knock: a short burst of dark noise (stone, sand, fire's crackle)
+          lp += (v.rand() * 2 - 1 - lp) * 0.25;
+          x += lp * st.knock * Math.exp(-u / 0.012) * 2;
+          x *= amp * (1 - Math.exp(-u / 0.001));
+          L[s0 + i] += x * (1 - pan); R[s0 + i] += x * (1 + pan);
+        }
+      }
+    }
+  });
+  struck.connect(v.out);
+  // the hum: the main matter's lowest partials, bowed by slow noise
+  const top = STRIKE[mats[0][0]] ?? STRIKE.stone;
+  const bow = noiseSrc(v);
+  const hum = c.createGain();
+  hum.gain.setValueAtTime(0, v.start);
+  hum.gain.linearRampToValueAtTime(lerp(1.5, 3, A.s.weight), v.start + 1.5);
+  hum.connect(v.out);
+  modes(v, bow, top.r.slice(0, 2).map((r) => tune(f0 / 2) * r), 300, [0.5, 0.25], hum);
+  pulse(v).connect(v.out);
+  if (v.strike) blow(v);
+  if (!v.pos) {
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, v.start);
+    g.gain.linearRampToValueAtTime(0.08, v.start + 0.8);
+    g.connect(v.out);
+    sines(v, [38 + A.s.weight * 10, 38.6 + A.s.weight * 10], g);
+  }
+  return [tune(f0 / 2)];
 }
 
 // ------------------------------------------------------------------ lone: a name — one pure tone, held, alone
