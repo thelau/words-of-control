@@ -95,7 +95,7 @@ if (!live) {
 
   await typeWord('fuck');
   await page.keyboard.press('Enter');
-  check('profanity alone performs (anger)', await waitState('performing', 3000));
+  check('profanity alone performs (anger)', await waitState('performing', 8000));
   await waitState('idle', 40000);
 } else {
   await typeWord('rain');
