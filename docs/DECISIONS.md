@@ -4,6 +4,10 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-25
 
+- **Cut: the light and contours species** ("lights and contours look like crap"). Embers carry no surface pattern
+  ("the lava style is ugly"). Wanted back in solids: merging forms and cylindrical bodies, as in the first version.
+  Ink: closer (macro) and organic, "not a typical screensaver".
+
 - **No clear cases: the species is chance** ("the selection of a species based on the input is not good, I prefer
   the previous randomness (without repeating the last species shown), it makes it less surprising"). Overrides the
   clear-cases decision below: never the last species; among the others, a draw the reading only leans on.

@@ -24,7 +24,7 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
 const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, hall: 5, curtain: 6, ink: 4, solids: 4,
-  threads: PLUGINS.threads.cal, contours: PLUGINS.contours.cal, light: PLUGINS.light.cal };
+  threads: PLUGINS.threads.cal };
 
 /** One shot's voice: `strike` — it carries the verdict's strike; `pos` — a positive word (its beats sit high, no sub);
  *  `tail` — how long it rings on after its cut (s); `off` — when the shot begins on the verdict clock (s). */
@@ -148,7 +148,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
   switch (shot.clip) {
     case 'ink': return ink(v, plan);
     case 'solids': return solids(v);
-    case 'threads': case 'contours': case 'light': return VOICES[shot.clip](kit(v, plan));
+    case 'threads': return VOICES[shot.clip](kit(v, plan));
     case 'relief': return relief(v);
     case 'drift': return drift(v);
     case 'chladni': return chladni(v);

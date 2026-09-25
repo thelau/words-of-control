@@ -322,12 +322,11 @@ fn emission(m: f32, s: i32, n: vec3f, V: vec3f) -> vec3f {
   let pal = mix(vec3f(F.p1R, F.p1G, F.p1B), vec3f(F.p2R, F.p2G, F.p2B), step(0.5, hv(s, 7)));
   let face = pow(max(dot(n, V), 0.0), 0.7);
   if (i32(m) == 7) {
-    // an ember: a dark crust, light only through thin cracks (they narrow as it cools over the verdict), a faint
-    // red heat under the crust
-    let q = n * 3.2 + vec3f(f32(s) * 3.1);
-    let vein = abs(gnoise(q.xy + q.z * 0.7) + 0.35 * gnoise(q.yz * 2.1 + 1.7));
-    let seam = 1.0 - ss(0.0, mix(0.06, 0.025, ss(0.2, 1.0, F.vu)), vein);
-    return vec3f(1.0, 0.34, 0.06) * seam * 3.5 + vec3f(0.3, 0.04, 0.01) * face * 0.12 + vec3f(0.012) * face;
+    // an ember: a charred, near-black body; its heat shows only as a soft glow from within at its edge (no pattern
+    // on its surface — veins read as a cheap lava texture), cooling over the verdict
+    let heat = 1.0 - 0.75 * ss(0.2, 1.0, F.vu);
+    let edge = pow(1.0 - face, 2.2);
+    return vec3f(1.0, 0.3, 0.06) * edge * 1.6 * heat + vec3f(0.5, 0.09, 0.02) * 0.12 * heat + vec3f(0.015) * face;
   }
   return (pal * 0.6 + 0.5) * (1.4 * face + 0.3);
 }
