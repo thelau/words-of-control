@@ -17,11 +17,14 @@ import { plateModes } from '../show/chladni.ts';
 import { DATA_CLIPS } from '../show/director.ts';
 import { loud } from './score.ts';
 import { mulberry32 } from '../core/rng.ts';
+import { PLUGINS, isPlugin } from '../show/species/index.ts';
+import { VOICES } from './species/index.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
-const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, lone: 8, hall: 5, ink: 4, solids: 4 };
+const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, lone: 8, hall: 5, ink: 4, solids: 4,
+  threads: PLUGINS.threads.cal, contours: PLUGINS.contours.cal, light: PLUGINS.light.cal };
 
 /** One shot's voice: `strike` — it carries the verdict's strike; `pos` — a positive word (its beats sit high, no sub);
  *  `tail` — how long it rings on after its cut (s); `off` — when the shot begins on the verdict clock (s). */
@@ -31,12 +34,63 @@ type V = { a: AudioEngine; drone: Drone; A: Appraisal; shot: Shot; start: number
  *  black between shots) as it fades — a false start's only briefly. */
 const TAIL = 0.8;
 
+/** The mood tunes the pitches: positive settles on the just major of D, neutral on exact test frequencies
+ *  (half-octaves of 1 kHz), negative stays free (the raw value). */
+const JUST = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3, 2];
+function tuner(A: Appraisal, pos: boolean): (f: number) => number {
+  return (f) => {
+    if (pos) { const oct = Math.floor(Math.log2(f / D2)); const r = f / (D2 * 2 ** oct); return D2 * 2 ** oct * JUST.reduce((b, x) => (Math.abs(x - r) < Math.abs(b - r) ? x : b), 1); }
+    if (A.mood.neu > A.mood.neg) return 1000 * 2 ** (Math.round(Math.log2(f / 1000) * 2) / 2);
+    return f;
+  };
+}
+
+/** What a plug-in species' voice (src/audio/species/<name>.ts) is given: its span (all its shots: one continuous
+ *  voice), the word, the house's tools — and it answers to the same parameters and clock as its image. */
+export type VoiceKit = {
+  a: AudioEngine; A: Appraisal; plan: Plan;
+  /** Audio time of its first shot's start and its last shot's end, and that length (s). */
+  start: number; end: number; dur: number;
+  /** When it begins on the verdict clock (s): beat k falls at k · beat − off. */
+  off: number;
+  /** Where to connect (level-calibrated, cut in with the image, ringing on after). */
+  out: AudioNode;
+  rand: () => number;
+  /** A positive word (beats high, no sub); it carries the verdict's strike. */
+  pos: boolean; strike: boolean;
+  /** The word's base pitch, and the mood's tuning. */
+  f0: number; tune: (f: number) => number;
+  /** One beat (s), and whether beat k is skipped (a stutter). */
+  beat: number; skipped: (k: number) => boolean;
+  /** A stereo buffer of the span (+ its tail), filled sample by sample, started at `start`. */
+  rendered: (fill: (L: Float32Array, R: Float32Array, sr: number) => void) => AudioBufferSourceNode;
+  /** Looping noise over the span. */
+  noise: () => AudioBufferSourceNode;
+  /** Bandpass resonances of `input` at freqs into `out`. */
+  modes: (input: AudioNode, freqs: number[], q: number, gains: number[], out: AudioNode) => void;
+  /** The shared beat (tick, stutter, tide): connect it to out. */
+  pulse: () => AudioBufferSourceNode;
+  /** The strike's deep blow (call it when strike). */
+  blow: () => void;
+  /** A breathing floor of two sines into out. */
+  sines: (freqs: [number, number], out: AudioNode) => void;
+};
+
+function kit(v: V, plan: Plan): VoiceKit {
+  return {
+    a: v.a, A: v.A, plan, start: v.start, end: v.end, dur: v.shot.dur, off: v.off, out: v.out, rand: v.rand, pos: v.pos, strike: v.strike,
+    f0: D2 * 4 * Math.pow(2, (v.A.s.pitch - 0.5) * 0.6), tune: tuner(v.A, v.pos), beat: beatPeriod(v.A), skipped,
+    rendered: (fill) => rendered(v, fill), noise: () => noiseSrc(v), modes: (i, f, q, g, o) => modes(v, i, f, q, g, o),
+    pulse: () => pulse(v), blow: () => blow(v), sines: (f, o) => sines(v, f, o),
+  };
+}
+
 /** Schedules one shot's voice. Returns pitches worth remembering (drone residue). */
 export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan, index: number, t0: number): number[] {
   let shot = plan.shots[index];
   // ink and solids are one continuous scene across their shots, so one continuous voice: the first shot plays
   // the whole span (the picture cuts, the sound carries across — for ink each cut heard as the water changing course)
-  if (shot.clip === 'ink' || shot.clip === 'solids') {
+  if (shot.clip === 'ink' || shot.clip === 'solids' || isPlugin(shot.clip)) {
     const inks = plan.shots.filter((x) => x.clip === shot.clip);
     if (inks[0] !== shot) return [];
     const last = inks[inks.length - 1];
@@ -94,6 +148,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
   switch (shot.clip) {
     case 'ink': return ink(v, plan);
     case 'solids': return solids(v);
+    case 'threads': case 'contours': case 'light': return VOICES[shot.clip](kit(v, plan));
     case 'relief': return relief(v);
     case 'drift': return drift(v);
     case 'lone': return lone(v);
@@ -278,16 +333,7 @@ function data(v: V): number[] {
   const f0 = D2 * 4 * Math.pow(2, (A.s.pitch - 0.5) * 0.6);
   // the mood tunes the data: positive settles on the just major of D, neutral on exact test frequencies
   // (half-octaves of 1 kHz), negative stays free (the raw value)
-  const JUST = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3, 2];
-  const tune = (f: number) => {
-    if (A.mood.pos > A.mood.neg && A.mood.pos > A.mood.neu) {
-      const oct = Math.floor(Math.log2(f / D2));
-      const r = f / (D2 * 2 ** oct);
-      return D2 * 2 ** oct * JUST.reduce((best, x) => (Math.abs(x - r) < Math.abs(best - r) ? x : best), 1);
-    }
-    if (A.mood.neu > A.mood.neg) return 1000 * 2 ** (Math.round(Math.log2(f / 1000) * 2) / 2); // half-octaves of 1 kHz
-    return f;
-  };
+  const tune = tuner(A, v.pos);
   const src = rendered(v, (L, R, sr) => {
     const n = L.length;
     if (form === 4) {
@@ -412,12 +458,7 @@ function ink(v: V, plan: Plan): number[] {
   const off = v.off, span = Math.max(0.1, plan.blackAt - plan.shots[0].start);
   const rp = A.c.rhythm.p, mo = A.c.motion.p;
   const f0 = D2 * 4 * Math.pow(2, (A.s.pitch - 0.5) * 0.6) * (A.mood.neg > 0.5 ? 0.5 : 1);
-  const JUST = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3, 2];
-  const tune = (f: number) => {
-    if (v.pos) { const oct = Math.floor(Math.log2(f / D2)); const r = f / (D2 * 2 ** oct); return D2 * 2 ** oct * JUST.reduce((b, x) => (Math.abs(x - r) < Math.abs(b - r) ? x : b), 1); }
-    if (A.mood.neu > A.mood.neg) return 1000 * 2 ** (Math.round(Math.log2(f / 1000) * 2) / 2);
-    return f;
-  };
+  const tune = tuner(A, v.pos);
   const glide = (mo.rising - mo.falling) * 3; // semitones over a second
   const quick = mo.breaking + mo.trembling * 0.5;
   // the drop rings as its matter: metal long and inharmonic, glass and ice bright, stone short and dull,
@@ -535,12 +576,7 @@ function solids(v: V): number[] {
   const first = [...Array(96).keys()].find((s) => s < letters * 8 && bit(s)) ?? 0;
   const radius = (s: number) => (point ? (s === first ? 0.3 : 0.022) : (0.035 + 0.075 * Math.pow(hv(s, 3), 1.6)) * lerp(0.85, 1.2, A.s.scale));
   const f0 = D2 * 4 * Math.pow(2, (A.s.pitch - 0.5) * 0.6);
-  const JUST = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3, 2];
-  const tune = (f: number) => {
-    if (v.pos) { const oct = Math.floor(Math.log2(f / D2)); const r = f / (D2 * 2 ** oct); return D2 * 2 ** oct * JUST.reduce((b, x) => (Math.abs(x - r) < Math.abs(b - r) ? x : b), 1); }
-    if (A.mood.neu > A.mood.neg) return 1000 * 2 ** (Math.round(Math.log2(f / 1000) * 2) / 2);
-    return f;
-  };
+  const tune = tuner(A, v.pos);
   const span = Math.max(0.1, v.shot.dur);
   const struck = rendered(v, (L, R, sr) => {
     for (let b = Math.ceil(v.off / P); b * P < v.off + v.shot.dur; b++) {

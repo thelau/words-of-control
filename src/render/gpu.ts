@@ -15,13 +15,19 @@ import sandWGSL from './shaders/sand.wgsl?raw';
 import sandDrawWGSL from './shaders/sand_draw.wgsl?raw';
 import inkWGSL from './shaders/ink.wgsl?raw';
 import solidsWGSL from './shaders/solids.wgsl?raw';
+import threadsWGSL from './shaders/threads.wgsl?raw';
+import contoursWGSL from './shaders/contours.wgsl?raw';
+import lightWGSL from './shaders/light.wgsl?raw';
+import { PLUGINS, PLUGIN_NAMES, type PluginName } from '../show/species/index.ts';
 import blitWGSL from './shaders/blit.wgsl?raw';
 import dofWGSL from './shaders/dof.wgsl?raw';
 import bloomWGSL from './shaders/bloom.wgsl?raw';
 import compositeWGSL from './shaders/composite.wgsl?raw';
 import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
 
-export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'sand' | 'data' | 'ink' | 'solids';
+export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'sand' | 'data' | 'ink' | 'solids' | PluginName;
+
+const PLUGIN_WGSL: Record<PluginName, string> = { threads: threadsWGSL, contours: contoursWGSL, light: lightWGSL };
 
 const HDR: GPUTextureFormat = 'rgba16float';
 const BLOOM_LEVELS = 6;
@@ -67,6 +73,9 @@ export class Renderer {
   private inkDiv!: GPUTexture;
   private inkDye: GPUTexture[] = [];
   private solidsBuf!: GPUBuffer;
+  /** The plug-in species (src/show/species): pipelines, state, and their own last two frames (trails). */
+  private plug: Partial<Record<PluginName, { setup: GPUComputePipeline; draw: GPURenderPipeline; bgSetup: GPUBindGroup; state: GPUBuffer; hist: Target[]; bgDraw: GPUBindGroup[]; bgDof: GPUBindGroup[]; flip: number }>> = {};
+  private drawLayout!: GPUBindGroupLayout;
   private sampler!: GPUSampler;
   private atlas!: GPUTexture;
   private heightTex!: GPUTexture;
@@ -243,6 +252,26 @@ export class Renderer {
     group('ink', this.p.ink, [{ binding: 0, resource: uni }, { binding: 8, resource: v(dA) }, lin]);
     group('solidsSetup', this.c.solidsSetup, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: { buffer: this.solidsBuf } }]);
     group('solids', this.p.solids, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 3, resource: { buffer: this.solidsBuf } }]);
+    // the plug-in species: one fixed contract (explicit layouts, so a shader may leave any binding unused)
+    const C = GPUShaderStage.COMPUTE, Fr = GPUShaderStage.FRAGMENT;
+    const setupLayout = d.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: C, buffer: { type: 'uniform' } }, { binding: 1, visibility: C, buffer: { type: 'read-only-storage' } },
+      { binding: 2, visibility: C, buffer: { type: 'storage' } }] });
+    this.drawLayout = d.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: Fr, buffer: { type: 'uniform' } }, { binding: 1, visibility: Fr, buffer: { type: 'read-only-storage' } },
+      { binding: 3, visibility: Fr, buffer: { type: 'read-only-storage' } }, { binding: 5, visibility: Fr, texture: { sampleType: 'float' } },
+      { binding: 6, visibility: Fr, sampler: { type: 'filtering' } }] });
+    for (const name of PLUGIN_NAMES) {
+      const m = mod(name, pre + PLUGIN_WGSL[name]);
+      const state = d.createBuffer({ size: PLUGINS[name].state * 16, usage: GPUBufferUsage.STORAGE });
+      const setup = d.createComputePipeline({ layout: d.createPipelineLayout({ bindGroupLayouts: [setupLayout] }), compute: { module: m, entryPoint: 'setup' } });
+      const draw = d.createRenderPipeline({
+        layout: d.createPipelineLayout({ bindGroupLayouts: [this.drawLayout] }), vertex: { module: m, entryPoint: 'vs_full' },
+        fragment: { module: m, entryPoint: 'fs', targets: [{ format: HDR }] },
+      });
+      const bgSetup = d.createBindGroup({ layout: setupLayout, entries: [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: { buffer: state } }] });
+      this.plug[name] = { setup, draw, bgSetup, state, hist: [], bgDraw: [], bgDof: [], flip: 0 };
+    }
     this.resize();
   }
 
@@ -294,6 +323,16 @@ export class Renderer {
     this.buildBloom();
     this.bg.blit = this.d.createBindGroup({ layout: this.p.blit.getBindGroupLayout(0), entries: [{ binding: 0, resource: this.trail.view }] });
     this.bg.dof = this.d.createBindGroup({ layout: this.p.dof.getBindGroupLayout(0), entries: [{ binding: 0, resource: this.trail.view }] });
+    // each plug-in species keeps its own last frame (ping-pong): drawn into one, reading the other
+    for (const name of PLUGIN_NAMES) {
+      const pl = this.plug[name]!;
+      for (const h of pl.hist) h.tex.destroy();
+      pl.hist = [mkLow(), mkLow()];
+      pl.bgDraw = [0, 1].map((k) => this.d.createBindGroup({ layout: this.drawLayout, entries: [
+        { binding: 0, resource: { buffer: this.fBuf } }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 3, resource: { buffer: pl.state } },
+        { binding: 5, resource: pl.hist[1 - k].view }, { binding: 6, resource: this.sampler }] }));
+      pl.bgDof = [0, 1].map((k) => this.d.createBindGroup({ layout: this.p.dof.getBindGroupLayout(0), entries: [{ binding: 0, resource: pl.hist[k].view }] }));
+    }
     this.bg.composite = this.d.createBindGroup({
       layout: this.p.composite.getBindGroupLayout(0),
       entries: [
@@ -408,6 +447,16 @@ export class Renderer {
       // like the sand: drawn with its blur in alpha into the spare target, resolved by the lens
       fullPass(this.p.solids, this.bg.solids, this.trail.view, {});
       fullPass(this.p.dof, this.bg.dof, this.scene.view, {});
+    } else if (layer in this.plug) {
+      // a plug-in species: its setup, its frame (into its own history, its blur in alpha), then the lens
+      const pl = this.plug[layer as PluginName]!;
+      const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
+      cp.setPipeline(pl.setup); cp.setBindGroup(0, pl.bgSetup); cp.dispatchWorkgroups(PLUGINS[layer as PluginName].groups);
+      cp.end();
+      const k = pl.flip;
+      pl.flip = 1 - k;
+      fullPass(pl.draw, pl.bgDraw[k], pl.hist[k].view, {});
+      fullPass(this.p.dof, pl.bgDof[k], this.scene.view, {});
     } else if (layer === 'appraisal' && hi) {
       fullPass(this.p.appraisal, this.bg.appraisal, this.sceneHi.view);
       enc.beginRenderPass({ colorAttachments: [{ view: this.scene.view, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] }).end();
@@ -456,7 +505,7 @@ export class Renderer {
 
   /** Draw every layer once so no pipeline compiles mid-performance. */
   warmUp(frame: Float32Array) {
-    for (const l of ['room', 'appraisal', 'relief', 'sand', 'data', 'ink', 'solids', 'black'] as Layer[]) this.render(l, frame, l === 'appraisal');
+    for (const l of ['room', 'appraisal', 'relief', 'sand', 'data', 'ink', 'solids', ...PLUGIN_NAMES, 'black'] as Layer[]) this.render(l, frame, l === 'appraisal');
   }
 
 }

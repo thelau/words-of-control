@@ -8,6 +8,7 @@ import type { App } from '../main.ts';
 import type { Answers } from '../jev/types.ts';
 import { CLIPS, type ClipId, type Plan } from '../show/director.ts';
 import { startRecording } from './record.ts';
+import { isPlugin } from '../show/species/index.ts';
 
 const CSS = `
 #harness { position: fixed; top: 0; right: 0; bottom: 0; width: 300px; overflow-y: auto; z-index: 10; cursor: auto;
@@ -45,7 +46,7 @@ export async function mountHarness(app: App) {
     const s = app.show();
     const A = s?.A;
     if (!A) { play(lastWord || words[0]); return; }
-    const plan: Plan = { drama: 'storm', species: clip === 'ink' || clip === 'solids' ? clip : 'points', fade: 0, cuts: [{ start: 0, dur: 0.35, mode: 'line', variant: 1 }], shots: [{ clip, start: 0.5, dur: 7, seed: 12345, aborted: false, angles: [{ at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 }], ops: { echo: 0, warp: 0, flow: 0 } }], blackAt: 7.5, end: 10.5 };
+    const plan: Plan = { drama: 'storm', species: clip === 'ink' || clip === 'solids' || isPlugin(clip) ? clip : 'points', fade: 0, cuts: [{ start: 0, dur: 0.35, mode: 'line', variant: 1 }], shots: [{ clip, start: 0.5, dur: 7, seed: 12345, aborted: false, angles: [{ at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 }], ops: { echo: 0, warp: 0, flow: 0 } }], blackAt: 7.5, end: 10.5 };
     app.performPlan(A, plan);
   };
 

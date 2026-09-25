@@ -4,6 +4,10 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-25
 
+- **No clear cases: the species is chance** ("the selection of a species based on the input is not good, I prefer
+  the previous randomness (without repeating the last species shown), it makes it less surprising"). Overrides the
+  clear-cases decision below: never the last species; among the others, a draw the reading only leans on.
+
 - **Particles: fuller, straighter, walkable** ("sometimes it's too empty … I prefer straight geometric forms
   (lines, columns, dense large fields, a bit of incoherence …) an installation you walk through"): a new formation,
   the hall (a forest of columns of light — one per 1-bit, as tall as its value — laser lines, a floor of lines, a few

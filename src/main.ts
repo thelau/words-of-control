@@ -22,6 +22,7 @@ import { seedFromText } from './core/rng.ts';
 import { showSupport, hideSupport } from './support.ts';
 import { showNotice, hideNotice } from './notice.ts';
 import { plateMode } from './show/chladni.ts';
+import { PLUGINS, PLUGIN_NAMES, isPlugin } from './show/species/index.ts';
 import { strikeShot } from './show/rhythm.ts';
 
 export type State = 'idle' | 'typing' | 'analyzing' | 'performing' | 'barred' | 'support' | 'error';
@@ -38,6 +39,7 @@ const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = 
   data: { bloom: 0.05, halation: 0.02, flat: 0 },
   ink: { bloom: 0.06, halation: 0.03, flat: 1 },
   solids: { bloom: 0.015, halation: 0, flat: 1 }, // (crisp: a glow round the spheres read as fog)
+  ...Object.fromEntries(PLUGIN_NAMES.map((n) => [n, { bloom: PLUGINS[n].bloom, halation: PLUGINS[n].halation, flat: 1 }])) as Record<(typeof PLUGIN_NAMES)[number], { bloom: number; halation: number; flat: number }>,
 };
 
 /** White balance from the matter: cold for glass, ice, water; warm for fire, sand, lazy afternoons. */
@@ -296,7 +298,7 @@ async function boot() {
         if (m.key !== lastKey && (layer === 'sand' || layer === 'data')) f('mode', 1); // a fresh layer of sand; particles placed at once
         // ink (one continuous fluid) and solids (spheres with momentum) carry across their shots (and the black
         // between them): fresh only as their first shot begins
-        if ((layer === 'ink' || layer === 'solids') && m.key !== lastKey && si === show.plan.shots.findIndex((x) => x.clip === m.clip)) f('mode', 1);
+        if ((layer === 'ink' || layer === 'solids' || isPlugin(layer)) && m.key !== lastKey && si === show.plan.shots.findIndex((x) => x.clip === m.clip)) f('mode', 1);
         if (m.clip === 'chladni') {
           const [mm, nn] = plateMode(show.A, m.seed, m.lt / m.dur);
           f('modeM', mm); f('modeN', nn);

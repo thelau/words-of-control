@@ -7,6 +7,7 @@
 import type { Appraisal } from '../jev/appraisal.ts';
 import { mulberry32 } from '../core/rng.ts';
 import type { Layer } from '../render/gpu.ts';
+import { PLUGINS, PLUGIN_NAMES, isPlugin, type PluginName } from './species/index.ts';
 
 /** The verdict vocabulary. The appraisal gone 3D — data formations (field.wgsl), each the spatial form of
  *  a 2D reading, and drift, the void — and two matters the data acts on: the relief (data → surface) and
@@ -15,7 +16,7 @@ import type { Layer } from '../render/gpu.ts';
  *  Ink and solids are other species (the reading gone liquid, ink.wgsl; made matter, solids.wgsl), each a
  *  whole performance of its own. */
 export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'lone', 'hall'] as const;
-export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink', 'solids'] as const;
+export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink', 'solids', 'threads', 'contours', 'light'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
 /** Which renderer layer draws a clip. */
@@ -46,7 +47,7 @@ export type Shot = { clip: ClipId; start: number; dur: number; seed: number; abo
 
 /** What a performance is made of, seen at a glance: the points (the data formations, the relief, the sand), ink,
  *  or solids. Two performances in a row are never the same species — the second word must not look like the first. */
-export type Species = 'points' | 'ink' | 'solids';
+export type Species = 'points' | 'ink' | 'solids' | PluginName;
 
 /** The performance's form, chosen from the reading (see direct()). */
 export type Drama = 'storm' | 'barrage' | 'endless' | 'misreading' | 'bloom' | 'measure' | 'shrug' | 'name' | 'greeting' | 'question' | 'void';
@@ -104,6 +105,9 @@ function affinity(A: Appraisal): Record<ClipId, number> {
     // (their own species: never mixed into a performance of points)
     ink: 0,
     solids: 0,
+    threads: 0,
+    contours: 0,
+    light: 0,
   };
 }
 
@@ -113,26 +117,11 @@ const recent: ClipId[] = [];
 const recentOps: string[] = [];
 const openers: ClipId[] = [];
 let lastSpecies: Species | null = null;
-/** How many performances in a row have been lastSpecies. */
-let streak = 0;
-
-/** The clear cases, where one species is plainly the word's material (Laurent: "if a visual is more appropriate
- *  than others based on some of the scores … in specific cases"): liquids and smoke are ink; hard objects are
- *  solids; the machine, nonsense and ordered abstractions are points; a strong feeling with a flowing shape is ink.
- *  Anything else is a soft choice. */
-function signature(A: Appraisal): Species | null {
-  const m = A.c.material.p, k = A.c.kind.p, d = A.c.domain.p;
-  if (m.water + m.smoke >= 0.6 || A.c.texture.p.liquid >= 0.6) return 'ink';
-  if ((k.object ?? 0) >= 0.6 && m.metal + m.stone + m.glass + m.wood + m.ice >= 0.6) return 'solids';
-  if (d.machine >= 0.6 || A.c.act.p.nonsense >= 0.5 || ((k['abstract idea'] ?? 0) >= 0.7 && A.s.order >= 0.7)) return 'points';
-  if (A.c.emotion.confidence >= 0.8 && A.mood.neu < 0.3 && A.c.shape.p.flowing >= 0.4) return 'ink';
-  return null;
-}
-
 /** How much each species suits the reading: ink the liquid (feeling, fluids, flowing, spreading), solids the
  *  material (objects and bodies, hard and heavy matter, round and jagged forms), points the data (the machine,
  *  order, nonsense, the abstract, the idle). */
 function suits(A: Appraisal): Record<Species, number> {
+  const plugins = Object.fromEntries(PLUGIN_NAMES.map((n) => [n, PLUGINS[n].suits(A)])) as Record<PluginName, number>;
   const m = A.c.material.p, sh = A.c.shape.p, tx = A.c.texture.p, mo = A.c.motion.p, d = A.c.domain.p, k = A.c.kind.p;
   return {
     ink: (1 - A.mood.neu) + m.water + m.smoke + m.fire * 0.7 + m.light * 0.5 + sh.flowing + tx.liquid + tx.soft * 0.3
@@ -141,6 +130,7 @@ function suits(A: Appraisal): Record<Species, number> {
       + A.s.hardness + A.s.weight + sh.round * 0.6 + sh.jagged * 0.6 + sh.point * 0.5 + d.body * 0.5,
     points: d.machine + d.mind * 0.5 + A.s.order + A.c.act.p.nonsense + (k['abstract idea'] ?? 0) + A.s.strangeness
       + d.city * 0.5 + tx.crystalline * 0.5 + A.lazy * 0.5 + (k.sound ?? 0) * 0.5,
+    ...plugins,
   };
 }
 
@@ -169,18 +159,15 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
 
   // ---- the species (a name is points: its one held point is its meaning)
   // among the others, the reading chooses — mostly the one that suits it best, sometimes the next
-  // a clear case takes its species (even the last one, but never a third time in a row); otherwise the reading
-  // chooses softly among the others — mostly the one that suits it best, sometimes the next
+  // never the last one; among the others, chance — the reading only leans on it (Laurent: the surprise matters
+  // more than the fit)
   const fit = suits(A);
-  const pool = (['points', 'ink', 'solids'] as Species[]).filter((x) => x !== lastSpecies);
+  const pool = (['points', 'ink', 'solids', ...PLUGIN_NAMES] as Species[]).filter((x) => x !== lastSpecies);
   const wsp = pool.map((x) => Math.exp(1.5 * fit[x]));
   let rs = rand() * wsp.reduce((x, y) => x + y, 0);
   let species: Species = pool[pool.length - 1];
   for (let i = 0; i < pool.length; i++) { rs -= wsp[i]; if (rs <= 0) { species = pool[i]; break; } }
-  const sig = signature(A);
-  if (sig && !(sig === lastSpecies && streak >= 2)) species = sig;
   if (drama === 'name') species = 'points';
-  streak = species === lastSpecies ? streak + 1 : 1;
   lastSpecies = species;
 
   // ---- appraisal: rapid cuts, faster when the word is charged
@@ -217,7 +204,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   const shown = new Map<ClipId, number>();
   for (const c of cuts) { const k = COUNTERPART[c.mode]; if (k) shown.set(k, (shown.get(k) ?? 0) + c.dur); }
   // (ink opens on the barcode: its bars become the first dye; solids on the bits: each 1-bit becomes a sphere)
-  const handOff = species === 'ink' ? 'city' : species === 'solids' ? 'lattice' : [...shown.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).find((k) => !openers.includes(k));
+  const handOff = species === 'ink' ? 'city' : species === 'solids' ? 'lattice' : isPlugin(species) ? PLUGINS[species].handOff : [...shown.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).find((k) => !openers.includes(k));
   // (a barcode hand-off ends on the vertical-bar style — appraisal.wgsl style = ⌊fract(variant·13.7)·4⌋ = 0 —
   // the one the echo rebuilds, so the last flat frame and the first 3D frame are the same image)
   let lastVariant = rand();
@@ -369,6 +356,17 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     return { echo: 0, warp: Math.floor(rand() * 4), flow: Math.floor(rand() * 4) };
   };
 
+  // a plug-in species' construction: weighted by its own reading of the word, never one just used
+  const pluginOps = (name: PluginName): Ops => {
+    const wt = PLUGINS[name].ops(A);
+    for (let tries = 0; tries < 12; tries++) {
+      const ops: Ops = { echo: 0, warp: draw(wt.warp), flow: draw(wt.flow) };
+      const key = `${name}${ops.warp}${ops.flow}`;
+      if (!recentOps.includes(key)) { recentOps.push(key); recentOps.splice(0, Math.max(0, recentOps.length - 24)); return ops; }
+    }
+    return { echo: 0, warp: draw(wt.warp), flow: draw(wt.flow) };
+  };
+
   const shots: Shot[] = [];
   t += 0.15;
   // low confidence (outside the misreading itself): a false start — a shot begins, is cut off, and the machine starts again
@@ -386,7 +384,10 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     // and it opens wide, so its first dye is the barcode just seen
     if (clip === 'ink') cover = cover.map((x, k) => (i === 0 && k === 0 ? { ...x, zoom: 1, offX: 0, offY: 0 } : { ...x, zoom: Math.min(x.zoom, 2.5) }));
     // solids open dead frontal, so the spheres stand where the bits just were
-    else if (clip === 'solids') { if (i === 0) cover = [{ ...WIDE, seed: -1 }, ...cover.filter((x) => x.at >= 2.5)]; }
+    else if (clip === 'solids' || isPlugin(clip)) {
+      if (isPlugin(clip)) cover = cover.map((x) => ({ ...x, zoom: Math.min(x.zoom, PLUGINS[clip].maxZoom) }));
+      if (i === 0) cover = [{ ...WIDE, seed: -1 }, ...cover.filter((x) => x.at >= 2.5)];
+    }
     else if (i === 0 && clip === handOff && drama !== 'question') {
       // the reveal: the reading itself, frontal (angle seed −1), with the appraisal's last variant, then into its depth
       cover = [{ ...WIDE, seed: -1 }, ...cover.filter((x) => x.at >= 3)];
@@ -395,7 +396,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     // a greeting: the field turns to face you (the reveal, reversed)
     if (drama === 'greeting' && i === picks.length - 1) cover = [{ ...WIDE, seed: -2 }];
     shots.push({
-      clip, start: t, dur, seed, aborted: false, angles: cover, ops: clip === 'ink' ? inkOps() : clip === 'solids' ? solidsOps() : chooseOps(),
+      clip, start: t, dur, seed, aborted: false, angles: cover, ops: clip === 'ink' ? inkOps() : clip === 'solids' ? solidsOps() : isPlugin(clip) ? pluginOps(clip) : chooseOps(),
       // the barrage opens on a white beat (one, not a strobe); the misreading's correction lands with one too
       flash: (drama === 'barrage' && i === 0) || (drama === 'misreading' && i === Math.ceil(picks.length / 2)),
       flip: drama === 'misreading' && i < Math.ceil(picks.length / 2),
