@@ -23,7 +23,7 @@ import { VOICES } from './species/index.ts';
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
-const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, lone: 8, hall: 5, ink: 4, solids: 4,
+const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, hall: 5, ink: 4, solids: 4,
   threads: PLUGINS.threads.cal, contours: PLUGINS.contours.cal, light: PLUGINS.light.cal };
 
 /** One shot's voice: `strike` — it carries the verdict's strike; `pos` — a positive word (its beats sit high, no sub);
@@ -151,7 +151,6 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
     case 'threads': case 'contours': case 'light': return VOICES[shot.clip](kit(v, plan));
     case 'relief': return relief(v);
     case 'drift': return drift(v);
-    case 'lone': return lone(v);
     case 'chladni': return chladni(v);
     default: return data(v);
   }
@@ -376,7 +375,7 @@ function data(v: V): number[] {
           const x = Math.sin((2 * Math.PI * f * i) / sr) * Math.exp(-i / (sr * 0.004 + val * sr * 0.02)) * 0.3 * val;
           L[s0 + i] += x * (1 - pan); R[s0 + i] += x * (1 + pan);
         }
-      } else if (form === 7) {
+      } else if (form === 6) {
         // hall: walking past the columns — each a resonant pillar, a low soft ping as tall as its value (the tall
         // ring lower and longer), passing left and right
         const f = tune(f0 * 0.5 * Math.pow(2, (1 - val) * 1.5));
@@ -625,25 +624,6 @@ function solids(v: V): number[] {
     sines(v, [38 + A.s.weight * 10, 38.6 + A.s.weight * 10], g);
   }
   return [tune(f0 / 2)];
-}
-
-// ------------------------------------------------------------------ lone: a name — one pure tone, held, alone
-function lone(v: V): number[] {
-  const { a, A } = v;
-  const c = a.ctx;
-  // its pitch is the name's own bytes (their sum, folded into two octaves above D3): each name has its note
-  const sum = [...A.bytes].reduce((x, y) => x + y, 0);
-  const f = D2 * 2 * Math.pow(2, (sum % 24) / 12);
-  const o = c.createOscillator();
-  o.frequency.value = f;
-  const g = c.createGain();
-  g.gain.setValueAtTime(0, v.start);
-  g.gain.linearRampToValueAtTime(0.14, v.start + 1.5);
-  g.gain.setValueAtTime(0.14, v.end - 2);
-  g.gain.linearRampToValueAtTime(0, v.end);
-  o.connect(g).connect(v.out);
-  o.start(v.start); o.stop(v.end + 0.05);
-  return [f];
 }
 
 /** The rhythm Jev hears in the word — the same beats the image keeps (field.wgsl rhythmLight(), and the

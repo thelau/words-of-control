@@ -169,7 +169,8 @@ verdict now comes in species that differ at first sight, and two performances in
   CG demo and was replaced.)
 
 The species is chosen by how well each suits the reading (director.ts suits(): ink the liquid, solids the
-material, points the data), softly, never the last one. A name stays points. A sentence earns more time:
+material, points the data), softly, never the last one. A name is performed as one long held take of its species (it was one lone point of light,
+which read as empty — "earth, wind and fire"). A sentence earns more time:
 up to ~40% longer for six words or more.
 
 Next species: threads (long glowing lines), light (colour fields, almost no objects).

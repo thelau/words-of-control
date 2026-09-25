@@ -12,7 +12,7 @@
 //   3 cloud     — the scatter's return map, each layer shifted one value: a sheaf of paths
 //   4 tube      — the closing line, each echo turned by the next value: a twisting ribbon
 //   5 drift     — the void: sparse dust drifting, one highlight wandering through it
-//   7 hall      — an installation you walk through: a forest of columns of light to the horizon (one per bit
+//   6 hall      — an installation you walk through: a forest of columns of light to the horizon (one per bit
 //                 that is 1, as tall as its value), laser lines strung between them, a floor of lines; a little
 //                 incoherence (a few columns off the grid, broken segments), like data errors
 // Two kinds of point: most are fine dust (sharp, gone when out of focus); a few
@@ -136,21 +136,14 @@ fn reading(i: u32, t: f32) -> vec4f {
     let p = vec2f(x * cos(ang), x * sin(ang) + (tv(i32(k) + 7) - 0.5) * 0.1);
     return vec4f(p, z, (0.6 + 0.4 * tv(i32(k))) * fade);
   }
-  if (form == 7u) { return hall(i, t); }
-  if (form == 6u) {
-    // lone: a name — one point of light held at the centre, a few motes far away in a vast dark
-    if (i < 400u) { return vec4f((vec3f(a, b, c) - 0.5) * 0.004, 1.0); }
-    if (r1(i, 9u) > 0.01) { return vec4f(0.0, 0.0, 0.0, -1.0); }
-    let dir = normalize(vec3f(a, b, c) - 0.5 + 1e-3);
-    return vec4f(dir * mix(4.0, 9.0, r1(i, 10u)), 0.08);
-  }
+  if (form == 6u) { return hall(i, t); }
   // drift: the void — a sparse dust drifting slowly through the dark, one highlight wandering
   if (r1(i, 9u) > 0.12) { return vec4f(0.0, 0.0, 0.0, -1.0); }
   let p = (vec3f(a, b, c) - 0.5) * vec3f(8.0, 4.0, 8.0) + vec3f(t * 0.04, sin(t * 0.2 + a * 9.0) * 0.1, 0.0);
   return vec4f(p, 0.15 + 0.2 * r1(i, 10u));
 }
 
-/** The hall (form 7): world positions, y up; the floor at y = −0.6, the camera walks at eye level (camera()). */
+/** The hall (form 6): world positions, y up; the floor at y = −0.6, the camera walks at eye level (camera()). */
 const HALL_S = 0.55;  // column spacing
 const HALL_N = 30.0;  // columns per side
 fn hall(i: u32, t: f32) -> vec4f {
@@ -286,7 +279,7 @@ fn behaveAt(p: vec3f, i: u32, t: f32, u: f32, gesture: f32) -> vec3f {
   var q = p;
   let exact = ss(0.45, 0.65, F.moodNeu);
   // (the hall is a world, not an object: its gestures are gentle, and it never turns round you)
-  let world = u32(F.variant2 + 0.5) == 7u;
+  let world = u32(F.variant2 + 0.5) == 6u;
   let mv0 = (1.0 - exact) * (1.0 - 0.8 * F.mo_still) * select(1.0, 0.25, world);
   let mv = mv0 * gesture; // (the big gestures; gesture 0 = the reading at rest, for framing)
   let e = ss(0.0, 1.0, u);
@@ -351,7 +344,7 @@ fn camera() {
   let t = clock();
   let t0 = F.angleAt * mix(1.0, 0.35, F.lazy);
   let form = u32(F.variant2 + 0.5);
-  if (form == 7u) {
+  if (form == 6u) {
     // the hall: you walk through it at eye level, down an aisle between the columns, at the word's pace; each
     // angle another aisle and heading. "they" (far) — lifted high above the forest, looking down across it;
     // "I" — close to the columns
@@ -453,7 +446,7 @@ fn lifeOf(i: u32) -> f32 { return select(mix(1.2, 3.2, r1(i, 42u)), mix(6.0, 10.
  *  drifting away (smoke). Half of a fire's or a sand's particles, 45% of a smoke's. */
 fn detach(i: u32) -> i32 {
   let f = u32(F.variant2 + 0.5);
-  if (f == 5u || f == 6u) { return -1; }
+  if (f == 5u) { return -1; }
   let m = pmat(i);
   let r = r1(i, 40u) / max(F.matSure, 0.05);
   if (m == FIRE && r < 0.5) { return 0; }
@@ -562,7 +555,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> VOut {
   let sharp = max(max(isM(i, WATER), isM(i, STONE)), crystalOf(i));
   // (the hall is walked through: deep focus, or the columns beside you would blur away)
   let aperture = mix(0.012, 0.035, F.s_intensity) * F.zoom * select(1.0, 1.25, inside) * select(1.0, 0.1, exact) * (1.0 - 0.7 * sharp)
-    * select(1.0, 0.2, form == 7u);
+    * select(1.0, 0.2, form == 6u);
   // (the frame is measured by its short side, so a portrait phone sees the whole formation)
   let side = min(res.x, res.y);
   let coc = min(abs(z - dist) / z * aperture * side * 0.5, 12.0); // (a disc never larger than 12 px: no shot goes to soup)

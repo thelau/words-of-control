@@ -15,7 +15,7 @@ import { PLUGINS, PLUGIN_NAMES, isPlugin, type PluginName } from './species/inde
  *  every mark from the word's data; each family answers to different dimensions of the reading.
  *  Ink and solids are other species (the reading gone liquid, ink.wgsl; made matter, solids.wgsl), each a
  *  whole performance of its own. */
-export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'lone', 'hall'] as const;
+export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall'] as const;
 export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink', 'solids', 'threads', 'contours', 'light'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
@@ -98,8 +98,6 @@ function affinity(A: Appraisal): Record<ClipId, number> {
     // an installation you walk through: places, order, scale, the city, awe, distance, the shared ("we"), the steady
     hall: (A.c.kind.p.place ?? 0) * 1.1 + s.order * 0.6 + s.scale * 0.8 + d.city * 0.6 + em.awe * 0.6 + s.distance * 0.4
       + A.c.who.p.we * 0.5 + rh.steady * 0.4 + tm.timeless * 0.3 + m.stone * 0.3 + m.glass * 0.3 + 0.3,
-    // a name: one point held alone (only ever chosen by the name dramaturgy)
-    lone: 0,
     // the void, the lazy afternoon: a sparse dust drifting
     drift: (m.void * 0.9 + m.smoke * 0.4 + mo.drifting * 0.3) * A.lazy,
     // (their own species: never mixed into a performance of points)
@@ -157,17 +155,17 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
     : md.neu >= md.neg ? 'measure'
     : 'storm';
 
-  // ---- the species (a name is points: its one held point is its meaning)
+  // ---- the species (a name too: it is performed as one long held take, see the forms below)
   // among the others, the reading chooses — mostly the one that suits it best, sometimes the next
   // never the last one; among the others, chance — the reading only leans on it (Laurent: the surprise matters
   // more than the fit)
   const fit = suits(A);
-  const pool = (['points', 'ink', 'solids', ...PLUGIN_NAMES] as Species[]).filter((x) => x !== lastSpecies);
+  // (a species that suits nothing is never drawn — a plug-in not yet built answers 0)
+  const pool = (['points', 'ink', 'solids', ...PLUGIN_NAMES] as Species[]).filter((x) => x !== lastSpecies && (!isPlugin(x) || fit[x] > 0));
   const wsp = pool.map((x) => Math.exp(1.5 * fit[x]));
   let rs = rand() * wsp.reduce((x, y) => x + y, 0);
   let species: Species = pool[pool.length - 1];
   for (let i = 0; i < pool.length; i++) { rs -= wsp[i]; if (rs <= 0) { species = pool[i]; break; } }
-  if (drama === 'name') species = 'points';
   lastSpecies = species;
 
   // ---- appraisal: rapid cuts, faster when the word is charged
@@ -235,7 +233,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   if (lazy < 0.6) for (const c of CLIPS) aff[c] *= Math.pow(0.7, recent.filter((r) => r === c).length);
   // rare clips are rationed across the session: the relief and the sand are treats, not staples
   for (const c of ['relief', 'chladni'] as ClipId[]) if (recent.includes(c)) aff[c] *= 0.25;
-  const ranked: ClipId[] = CLIPS.filter((c) => c !== 'lone').sort((a, b) => aff[b] - aff[a]);
+  const ranked: ClipId[] = [...CLIPS].sort((a, b) => aff[b] - aff[a]);
   const charge = clamp01(aro * 0.75 + A.s.density * 0.25);
   const dark = clamp01(A.n.violence + em.anger * 0.7 + em.fear * 0.6 + em.anxiety * 0.3 + A.s.tension * 0.3);
   // the pace of the edit: fast and sharp in the dark, energetic and flowing in the light, long in the idle
@@ -268,7 +266,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   else for (let i = 0; i < form.count; i++) {
     const from = eligible.filter((c) => !picks.includes(c));
     if (!from.length) break;
-    let c: ClipId = drama === 'void' ? 'drift' : drama === 'name' ? 'lone' : i === 0 && handOff && from.includes(handOff) ? handOff : from[0];
+    let c: ClipId = drama === 'void' ? 'drift' : i === 0 && handOff && from.includes(handOff) ? handOff : from[0];
     if (i > 0) {
       const wts = from.map((x) => Math.pow(Math.max(aff[x], 1e-3), 2));
       let r = rand() * wts.reduce((a, b) => a + b, 0);
