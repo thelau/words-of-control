@@ -390,6 +390,8 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
     else if (clip === 'solids' || isPlugin(clip)) {
       if (isPlugin(clip)) cover = cover.map((x) => ({ ...x, zoom: Math.min(x.zoom, PLUGINS[clip].maxZoom) }));
       if (i === 0) cover = [{ ...WIDE, seed: -1 }, ...cover.filter((x) => x.at >= 2.5)];
+      // (a plug-in opens on the appraisal's last reading with its very variant, so the first frame matches it)
+      if (i === 0 && isPlugin(clip)) seed = seed - (seed % 1000) + Math.round(lastVariant * 999);
     }
     else if (i === 0 && clip === handOff && drama !== 'question') {
       // the reveal: the reading itself, frontal (angle seed −1), with the appraisal's last variant, then into its depth
