@@ -12,6 +12,8 @@
 //   3 cloud     — the scatter's return map, each layer shifted one value: a sheaf of paths
 //   4 tube      — the closing line, each echo turned by the next value: a twisting ribbon
 //   5 drift     — the void: sparse dust drifting, one highlight wandering through it
+//   7 curtain   — a dense falling curtain of grains (a waterfall of light): a wavy sheet shaped by the word's
+//                 values, a few bright veins running down it, falling at the word's pace
 //   6 hall      — an installation you walk through: a forest of columns of light to the horizon (one per bit
 //                 that is 1, as tall as its value), laser lines strung between them, a floor of lines; a little
 //                 incoherence (a few columns off the grid, broken segments), like data errors
@@ -137,6 +139,7 @@ fn reading(i: u32, t: f32) -> vec4f {
     return vec4f(p, z, (0.6 + 0.4 * tv(i32(k))) * fade);
   }
   if (form == 6u) { return hall(i, t); }
+  if (form == 7u) { return curtain(i, t); }
   // drift: the void — a sparse dust drifting slowly through the dark, one highlight wandering
   if (r1(i, 9u) > 0.12) { return vec4f(0.0, 0.0, 0.0, -1.0); }
   let p = (vec3f(a, b, c) - 0.5) * vec3f(8.0, 4.0, 8.0) + vec3f(t * 0.04, sin(t * 0.2 + a * 9.0) * 0.1, 0.0);
@@ -180,6 +183,39 @@ fn hall(i: u32, t: f32) -> vec4f {
   // the floor: rows of fine lines (a test pattern underfoot), fading to the edges
   let row = floor(b * 150.0);
   return vec4f((a - 0.5) * E, -0.6, (row / 150.0 - 0.5) * E, 0.22 + 0.2 * tv(i32(row)));
+}
+
+/** The curtain (form 7): world positions. Grains fall through a wavy sheet (its folds from the tape); a third ride
+ *  a few thin bright veins; each grain wraps from the bottom back to the top out of frame (faded at both ends). */
+fn curtain(i: u32, t: f32) -> vec4f {
+  let a = r1(i, 1u);
+  let b = r1(i, 2u);
+  let c = r1(i, 3u);
+  let H = 3.2;
+  let speed = mix(0.12, 0.6, F.s_arousal) * (0.6 + 0.8 * r1(i, 4u));
+  let ph = fract(a - t * speed / H);
+  let y = (ph - 0.5) * H;
+  // the sheet's fold at this height: three slow sines, their phases and depths from the tape
+  let fold = 0.22 * sin(y * 1.7 + tv(3) * 6.0 + t * 0.15) + 0.12 * sin(y * 3.9 + tv(5) * 6.0) + 0.05 * sin(y * 9.0 + tv(7) * 6.0);
+  let vein = r1(i, 5u) < 0.33;
+  var x: f32;
+  var z: f32;
+  if (vein) {
+    // a vein: one of 5, thin, following the fold, placed by the word's values
+    let k = floor(b * 5.0);
+    let vx = (tv(i32(k) + 11) - 0.5) * 1.4;
+    let g = (c - 0.5) * 0.02;
+    x = vx + fold + g + 0.04 * sin(y * 6.0 + k);
+    z = (tv(i32(k) + 17) - 0.5) * 0.3 + g;
+  } else {
+    // the body: a soft sheet, thicker toward the middle, with a mist of strays at its edges
+    let spread = (b - 0.5) * 2.0;
+    let edge = pow(abs(spread), 3.0);
+    x = spread * mix(0.9, 1.3, F.s_scale) + fold + (c - 0.5) * 0.08;
+    z = (c - 0.5) * mix(0.15, 0.6, edge) + fold * 0.5;
+  }
+  let v = select(0.25 + 0.35 * tv(i32(i % 61u)), 0.5 + 0.25 * tv(i32(i % 13u) + 20), vein);
+  return vec4f(x, y, z, v * ss(0.0, 0.08, ph) * ss(1.0, 0.9, ph));
 }
 
 /** A rotation of p about the y axis. */

@@ -23,7 +23,7 @@ import { VOICES } from './species/index.ts';
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
-const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, hall: 5, ink: 4, solids: 4,
+const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, hall: 5, curtain: 6, ink: 4, solids: 4,
   threads: PLUGINS.threads.cal, contours: PLUGINS.contours.cal, light: PLUGINS.light.cal };
 
 /** One shot's voice: `strike` — it carries the verdict's strike; `pos` — a positive word (its beats sit high, no sub);
@@ -374,6 +374,18 @@ function data(v: V): number[] {
         for (let i = 0; i < len && s0 + i < n; i++) {
           const x = Math.sin((2 * Math.PI * f * i) / sr) * Math.exp(-i / (sr * 0.004 + val * sr * 0.02)) * 0.3 * val;
           L[s0 + i] += x * (1 - pan); R[s0 + i] += x * (1 + pan);
+        }
+      } else if (form === 7) {
+        // curtain: a fine rain of soft high grains (the falling light), each a short sine, thick with the word's density
+        for (let g = 0; g < 6; g++) {
+          const f = tune(2000 + val * 3000 + g * 170);
+          const g0 = s0 + Math.floor(v.rand() * sr * step);
+          const len = Math.floor(sr * 0.03);
+          const pan = v.rand() * 1.6 - 0.8;
+          for (let i = 0; i < len && g0 + i < n; i++) {
+            const x = Math.sin((2 * Math.PI * f * i) / sr) * Math.exp(-i / (sr * 0.008)) * 0.02 * (0.4 + val);
+            L[g0 + i] += x * (1 - pan); R[g0 + i] += x * (1 + pan);
+          }
         }
       } else if (form === 6) {
         // hall: walking past the columns — each a resonant pillar, a low soft ping as tall as its value (the tall

@@ -15,7 +15,7 @@ import { PLUGINS, PLUGIN_NAMES, READY, isPlugin, type PluginName } from './speci
  *  every mark from the word's data; each family answers to different dimensions of the reading.
  *  Ink and solids are other species (the reading gone liquid, ink.wgsl; made matter, solids.wgsl), each a
  *  whole performance of its own. */
-export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall'] as const;
+export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall', 'curtain'] as const;
 export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink', 'solids', 'threads', 'contours', 'light'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
@@ -100,6 +100,9 @@ function affinity(A: Appraisal): Record<ClipId, number> {
       + A.c.who.p.we * 0.5 + rh.steady * 0.4 + tm.timeless * 0.3 + m.stone * 0.3 + m.glass * 0.3 + 0.3,
     // the void, the lazy afternoon: a sparse dust drifting
     drift: (m.void * 0.9 + m.smoke * 0.4 + mo.drifting * 0.3) * A.lazy,
+    // a falling curtain of grains: falling, water, rain, the steady, the dense, the calm and the sad
+    curtain: mo.falling * 0.8 + m.water * 0.7 + s.density * 0.5 + rh.steady * 0.3 + em.calm * 0.3 + em.sadness * 0.3
+      + d.nature * 0.3 + A.c.sense.p.hearing * 0.3 + 0.3,
     // (their own species: never mixed into a performance of points)
     ink: 0,
     solids: 0,
