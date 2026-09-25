@@ -7,7 +7,7 @@
 import type { Appraisal } from '../jev/appraisal.ts';
 import { mulberry32 } from '../core/rng.ts';
 import type { Layer } from '../render/gpu.ts';
-import { PLUGINS, PLUGIN_NAMES, isPlugin, type PluginName } from './species/index.ts';
+import { PLUGINS, PLUGIN_NAMES, READY, isPlugin, type PluginName } from './species/index.ts';
 
 /** The verdict vocabulary. The appraisal gone 3D — data formations (field.wgsl), each the spatial form of
  *  a 2D reading, and drift, the void — and two matters the data acts on: the relief (data → surface) and
@@ -132,8 +132,9 @@ function suits(A: Appraisal): Record<Species, number> {
   };
 }
 
-/** `salt` makes every performance of the same answers a little different (the room is live, never a replay). */
-export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan {
+/** `salt` makes every performance of the same answers a little different (the room is live, never a replay);
+ *  `force` picks the species (the picker, for testing). */
+export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force?: Species): Plan {
   const rand = mulberry32(A.seed ^ 0x5bd1e995 ^ salt);
   const aro = A.s.arousal, lazy = A.lazy, conf = A.c.emotion.confidence;
   const rh = A.c.rhythm.top;
@@ -160,12 +161,13 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0): Plan
   // never the last one; among the others, chance — the reading only leans on it (Laurent: the surprise matters
   // more than the fit)
   const fit = suits(A);
-  // (a species that suits nothing is never drawn — a plug-in not yet built answers 0)
-  const pool = (['points', 'ink', 'solids', ...PLUGIN_NAMES] as Species[]).filter((x) => x !== lastSpecies && (!isPlugin(x) || fit[x] > 0));
+  // (a plug-in not yet built is never drawn)
+  const pool = (['points', 'ink', 'solids', ...PLUGIN_NAMES] as Species[]).filter((x) => x !== lastSpecies && (!isPlugin(x) || READY[x]));
   const wsp = pool.map((x) => Math.exp(1.5 * fit[x]));
   let rs = rand() * wsp.reduce((x, y) => x + y, 0);
   let species: Species = pool[pool.length - 1];
   for (let i = 0; i < pool.length; i++) { rs -= wsp[i]; if (rs <= 0) { species = pool[i]; break; } }
+  if (force) species = force;
   lastSpecies = species;
 
   // ---- appraisal: rapid cuts, faster when the word is charged

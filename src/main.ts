@@ -16,13 +16,13 @@ import { playPerformance } from './audio/score.ts';
 import { analyze } from './jev/client.ts';
 import { buildAppraisal, type Appraisal } from './jev/appraisal.ts';
 import type { Answers } from './jev/types.ts';
-import { CUT_MODES, DATA_CLIPS, direct, type Plan } from './show/director.ts';
+import { CUT_MODES, DATA_CLIPS, direct, type Plan, type Species } from './show/director.ts';
 import { momentAt, type Moment } from './show/timeline.ts';
 import { seedFromText } from './core/rng.ts';
 import { showSupport, hideSupport } from './support.ts';
 import { showNotice, hideNotice } from './notice.ts';
 import { plateMode } from './show/chladni.ts';
-import { PLUGINS, PLUGIN_NAMES, isPlugin } from './show/species/index.ts';
+import { PLUGINS, PLUGIN_NAMES, READY, isPlugin } from './show/species/index.ts';
 import { strikeShot } from './show/rhythm.ts';
 
 export type State = 'idle' | 'typing' | 'analyzing' | 'performing' | 'barred' | 'support' | 'error';
@@ -133,10 +133,22 @@ async function boot() {
     if (audio && drone) playPerformance(audio, drone, A, plan, t0);
   }
 
+  // the species picker (testing): random, or one species every time (kept in memory only)
+  const picker = document.getElementById('species') as HTMLButtonElement;
+  const PICKS: (Species | null)[] = [null, 'points', 'ink', 'solids', ...PLUGIN_NAMES.filter((n) => READY[n])];
+  const LABEL: Record<string, string> = { points: 'particles' };
+  let pick = 0;
+  picker.addEventListener('mousedown', (e) => e.preventDefault()); // (the typing keeps its focus)
+  picker.addEventListener('click', () => {
+    pick = (pick + 1) % PICKS.length;
+    const s = PICKS[pick];
+    picker.textContent = s ? LABEL[s] ?? s : 'random';
+  });
+
   function perform(answers: Answers, text: string) {
     const A = buildAppraisal(answers, text, typing.trace(), seedFromText(text));
     renderer.setWord(text);
-    performPlan(A, direct(A));
+    performPlan(A, direct(A, undefined, PICKS[pick] ?? undefined));
   }
 
   async function submit(text: string) {
@@ -323,6 +335,7 @@ async function boot() {
     f('hiRes', hi ? 1 : 0);
     f('resX', hi ? renderer.width : renderer.lowW); f('resY', hi ? renderer.height : renderer.lowH); f('dpr', hi ? renderer.dpr : 1);
     renderer.render(layer, frame.f32, hi);
+    picker.hidden = !(state === 'idle' || state === 'typing' || state === 'error');
     for (const h of app.frameHooks) h(now);
     requestAnimationFrame(loop);
   };
