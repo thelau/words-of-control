@@ -10,3 +10,4 @@ references/
 docs/captures/
 # local tooling (headless Chromium for perf/capture scripts)
 .cache/
+.claude/worktrees/
