@@ -36,7 +36,7 @@ const FIELD_N = 250_000;
 const SAND_N = 512;
 /** The ink's velocity and dye grids (keep in step with ink.wgsl VN, DN), and its pressure iterations. */
 const INK_VEL = 256;
-const INK_DYE = 1536;
+const INK_DYE = 1280;
 const INK_JACOBI = 24;
 const WORD_W = 2048;
 const WORD_H = 160;

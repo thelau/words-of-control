@@ -48,7 +48,7 @@ export function momentAt(plan: Plan, t: number, arousal: number): Moment {
       const lt = t - c.start;
       return {
         layer: 'appraisal', clip: null, key: `cut${i}`, lt, dur: c.dur, mode: CUT_MODES.indexOf(c.mode), variant: c.variant,
-        aborted: false, seed: 0, zoom: 1, offX: 0, offY: 0, angle: 0, angleAt: 0, ops: STILL, flip: false, hold: false, flash: 0, invert: arousal > 0.6 && c.variant > 0.86 && c.mode !== 'line' && c.mode !== 'word', done: false,
+        aborted: false, seed: 0, zoom: 1, offX: 0, offY: 0, angle: 0, angleAt: 0, ops: STILL, flip: false, hold: false, flash: 0, invert: c.inv ?? (arousal > 0.6 && c.variant > 0.86 && c.mode !== 'line' && c.mode !== 'word'), done: false,
       };
     }
   }

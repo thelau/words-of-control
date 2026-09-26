@@ -2,6 +2,18 @@
 
 Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
+## 2026-09-26
+
+- **New canon references** (references/README.md "CANON"): Ryoji Ikeda's data.matrix sequence for the STRUCTURE, and
+  a set of 3D references for the shots between the data shots. "This + the sequence nullify the previous inspirations."
+- **The verdict is a sequence that responds to the word** ("we need a system as a sequence that responds to the
+  words entered"): flat data shots of the word's own readings, 3D shots of its species, black silences and data
+  strobes alternate on a grid; the tempo, the lengths, what fills the gaps and the rhythm are all the word's.
+  "Not cloning Ikeda but massively inspired — ultimately we will define our style."
+- **The sound breathes with the sequence** (amends "no drops, ever"): loud on the 3D shots, a floor (−26 dB) and a thin
+  tone on the black and the data shots, the data's clicks heard in full — never a dead silence.
+- **Ink stays** (not in the references): closer, more organic, darker/shadowed or coloured, a strong render — real ink.
+
 ## 2026-09-25
 
 - **Cut: the light and contours species** ("lights and contours look like crap"). Embers carry no surface pattern

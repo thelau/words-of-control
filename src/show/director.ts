@@ -27,7 +27,9 @@ export const CUT_MODES = ['barcode', 'numbers', 'spectrum', 'bits', 'scatter', '
 export type CutMode = (typeof CUT_MODES)[number];
 
 /** One flash of the appraisal. */
-export type Cut = { start: number; dur: number; mode: CutMode; variant: number };
+/** One flash of the appraisal (or, inside the verdict, a flat data shot between the 3D shots). `inv`: drawn as a
+ *  white slab, the data black on it. */
+export type Cut = { start: number; dur: number; mode: CutMode; variant: number; inv?: boolean };
 
 /** One camera angle inside a shot, from `at` seconds: a cut on the same continuous scene.
  *  zoom 1 = wide, > 1 = close on (offX, offY); `seed` sets the camera (sand: height, direction, roll;
@@ -242,21 +244,21 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
   // the pace of the edit: fast and sharp in the dark, energetic and flowing in the light, long in the idle
   const pace = clamp01(charge * 0.5 + dark * 0.6 + md.pos * A.s.energy * 0.5 - lazy * 0.5 - em.calm * 0.3);
 
-  // per dramaturgy: duration (s), shot count, gap between shots, angle length, fade, tail
-  type Form = { dur: number; count: number; gap: number; angle: number; fade: number; tail: number };
+  // per dramaturgy: duration (s), shot count, angle length, fade, tail
+  type Form = { dur: number; count: number; angle: number; fade: number; tail: number };
   const F: Record<Drama, Form> = {
-    void: { dur: 5, count: 1, gap: 0, angle: 99, fade: 0, tail: 6 },
-    name: { dur: lerp(8, 11, A.s.intensity), count: 1, gap: 0, angle: 99, fade: 2.5, tail: 4 },
-    greeting: { dur: lerp(8, 11, A.s.energy), count: 2, gap: 0.2, angle: 3, fade: 0, tail: 3 },
-    question: { dur: lerp(6, 8, aro), count: 2, gap: 0.1, angle: lerp(2.5, 1, pace), fade: 0, tail: 1.2 },
-    barrage: { dur: lerp(9, 12, A.s.intensity), count: 6, gap: 0, angle: 0.85, fade: 0, tail: 3.5 },
-    endless: { dur: lerp(13, 17, A.s.intensity), count: 3, gap: 0.3, angle: 4.5, fade: 5, tail: 8 },
-    misreading: { dur: lerp(9, 12, A.s.intensity), count: 4, gap: 0.15, angle: lerp(3, 1, pace), fade: 0, tail: 3 },
-    bloom: { dur: lerp(10, 14, A.s.intensity), count: Math.round(lerp(3, 6, A.s.energy * 0.5 + aro * 0.5)), gap: 0.1, angle: lerp(3.5, 1.2, pace), fade: 1.5, tail: 3.5 },
-    measure: { dur: lerp(9, 12, A.s.duration), count: 5, gap: 0, angle: 2, fade: 0, tail: 2.5 },
-    shrug: { dur: lerp(11, 14, lazy), count: 1, gap: 0, angle: 99, fade: 0, tail: 3 },
+    void: { dur: 5, count: 1, angle: 99, fade: 0, tail: 6 },
+    name: { dur: lerp(8, 11, A.s.intensity), count: 1, angle: 99, fade: 2.5, tail: 4 },
+    greeting: { dur: lerp(8, 11, A.s.energy), count: 2, angle: 3, fade: 0, tail: 3 },
+    question: { dur: lerp(6, 8, aro), count: 2, angle: lerp(2.5, 1, pace), fade: 0, tail: 1.2 },
+    barrage: { dur: lerp(9, 12, A.s.intensity), count: 6, angle: 0.85, fade: 0, tail: 3.5 },
+    endless: { dur: lerp(13, 17, A.s.intensity), count: 3, angle: 4.5, fade: 5, tail: 8 },
+    misreading: { dur: lerp(9, 12, A.s.intensity), count: 4, angle: lerp(3, 1, pace), fade: 0, tail: 3 },
+    bloom: { dur: lerp(10, 14, A.s.intensity), count: Math.round(lerp(3, 6, A.s.energy * 0.5 + aro * 0.5)), angle: lerp(3.5, 1.2, pace), fade: 1.5, tail: 3.5 },
+    measure: { dur: lerp(9, 12, A.s.duration), count: 5, angle: 2, fade: 0, tail: 2.5 },
+    shrug: { dur: lerp(11, 14, lazy), count: 1, angle: 99, fade: 0, tail: 3 },
     storm: { dur: lerp(9, 14, clamp01(A.s.intensity * 0.5 + A.s.duration * 0.3 + (1 - pace) * 0.2)),
-      count: Math.max(2, Math.min(6, Math.round(lerp(2, 6, pace)))), gap: lerp(0.4, 0, pace), angle: lerp(4, 0.55, pace), fade: 0, tail: lerp(2.4, 4, clamp01(A.s.scale * 0.5 + A.s.duration * 0.5)) },
+      count: Math.max(2, Math.min(6, Math.round(lerp(2, 6, pace)))), angle: lerp(4, 0.55, pace), fade: 0, tail: lerp(2.4, 4, clamp01(A.s.scale * 0.5 + A.s.duration * 0.5)) },
   };
   // a sentence earns more time than a word: up to ~40% longer for six words or more
   const words = 1 + A.bytes.filter((b) => b === 0x20).length;
@@ -277,10 +279,6 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
     }
     picks.push(c);
   }
-  // durations: the bloom builds to its longest shot at ~60%; the others give the first (best) shot the most
-  const w = picks.map((_, i) => drama === 'bloom' ? 1 + 0.8 * Math.exp(-(((i + 0.5) / picks.length - 0.6) ** 2) / 0.04) : drama === 'measure' ? 1 : 1 / (1 + i * 0.2));
-  const wsum = w.reduce((a, b) => a + b, 0);
-
   // coverage: a shot is cut between camera angles on the same continuous scene; the measure cuts on a strict tempo
   // the word's gesture is the motion: when one motion dominates (or the word is still), the camera holds —
   // one or two long takes — so the gesture is seen whole, not chased
@@ -377,36 +375,82 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
     shots.push({ clip: alt, start: t, dur: d, seed: (rand() * 2 ** 31) | 0, aborted: true, angles: [WIDE], ops: STILL });
     t += d + lerp(0.25, 0.6, 1 - conf);
   }
-  picks.forEach((clip, i) => {
-    const dur = ((form.dur - form.gap * (picks.length - 1)) * w[i]) / wsum;
-    let cover = angles(dur);
+  // ---- the sequence (after Ikeda, data.matrix): the verdict alternates on a grid — 3D shots of the species, flat
+  // data shots of the word's own readings, black silences, rapid data strobes — and every choice of that grid is
+  // the word's: its tempo (arousal), how long the matter holds (calm, idle, still: long; charged, dark: short), what
+  // fills the gaps (ordered, machine, dense words: data; idle, void, sad words: black; tense, angry: strobes), and
+  // its rhythm (steady: regular; stuttering: irregular, beats skipped; pulsing: long/short; swelling: the cells
+  // grow; dwindling: they shrink and the blacks lengthen)
+  const g = 60 / lerp(56, 128, aro); // one beat (show/rhythm.ts beatPeriod)
+  const rp = A.c.rhythm.p;
+  const verdictStart = t, verdictEnd = t + form.dur;
+  const hold3d = lerp(4.5, 1.5, pace) * (1 + lazy * 0.8 + mo.still * 0.8) * (hold ? 1.4 : 1);
+  const wData = 0.2 + A.s.order * 0.6 + A.c.domain.p.machine * 0.8 + A.s.density * 0.4 + md.neu * 0.5;
+  const wBlack = 0.15 + lazy * 0.8 + A.c.material.p.void * 0.8 + em.sadness * 0.5 + A.n.loss * 0.5 + em.calm * 0.3;
+  const wStrobe = 0.05 + A.s.tension * 0.6 + em.anger * 0.7 + em.anxiety * 0.6 + dark * 0.4;
+  const wNext = 0.05 + md.pos * 0.2 + A.s.energy * 0.15;
+  const snap = (x: number) => Math.max(0.5, Math.round(x / (g * 0.5)) * 0.5) * g; // on half-beats of the grid
+  const whiteSlab = () => rand() < 0.15 + A.s.intensity * 0.35 + A.s.dominance * 0.2;
+  let cell = 0, pick = 0;
+  t = verdictStart;
+  while (t < verdictEnd - 0.5) {
+    const u = (t - verdictStart) / form.dur;
+    // the 3D shot: its length from the word (and its rhythm), never shorter than a beat
+    let len = hold3d * g / 0.75 * lerp(0.75, 1.3, rand());
+    if (rp.stuttering > 0.35) len *= rand() < 0.5 ? 0.45 : 1.2;
+    if (rp.pulsing > 0.35) len *= cell % 2 ? 0.55 : 1.35;
+    len *= 1 + rp.swelling * (u - 0.3) - rp.dwindling * u * 0.6;
+    len = snap(Math.max(g, len));
+    // (every word alternates: a 3D shot never holds past ~3.5 s — the first, the hand-off, 4 s — and is long enough
+    // to be read)
+    len = Math.min(len, cell === 0 ? 4 : 3.5 + lazy);
+    if (cell === 0) len = Math.max(len, 2.4);
+    len = Math.min(len, verdictEnd - t);
+    const clip = species === 'points' ? picks[Math.floor(pick / 2) % picks.length] : picks[0];
+    pick++;
+    let cover: Angle[] = [angles(len)[0] ?? WIDE];
+    cover = [{ ...cover[0], at: 0 }];
     let seed = (rand() * 2 ** 31) | 0;
-    // (the dye is a 1024² field: a closer view than 2.5× would show its grain)
-    // and it opens wide, so its first dye is the barcode just seen
-    if (clip === 'ink') cover = cover.map((x, k) => (i === 0 && k === 0 ? { ...x, zoom: 1, offX: 0, offY: 0 } : { ...x, zoom: Math.min(x.zoom, 1.8) }));
-    // solids open dead frontal, so the spheres stand where the bits just were
+    if (clip === 'ink') cover = [{ ...cover[0], zoom: cell === 0 ? 1 : Math.min(cover[0].zoom, 1.8), offX: cell === 0 ? 0 : cover[0].offX, offY: cell === 0 ? 0 : cover[0].offY }];
     else if (clip === 'solids' || isPlugin(clip)) {
-      if (isPlugin(clip)) cover = cover.map((x) => ({ ...x, zoom: Math.min(x.zoom, PLUGINS[clip].maxZoom) }));
-      if (i === 0) cover = [{ ...WIDE, seed: -1 }, ...cover.filter((x) => x.at >= 2.5)];
-      // (a plug-in opens on the appraisal's last reading with its very variant, so the first frame matches it)
-      if (i === 0 && isPlugin(clip)) seed = seed - (seed % 1000) + Math.round(lastVariant * 999);
-    }
-    else if (i === 0 && clip === handOff && drama !== 'question') {
+      if (isPlugin(clip)) cover = [{ ...cover[0], zoom: Math.min(cover[0].zoom, PLUGINS[clip].maxZoom) }];
+      if (cell === 0) cover = [{ ...WIDE, seed: -1 }];
+      if (cell === 0 && isPlugin(clip)) seed = seed - (seed % 1000) + Math.round(lastVariant * 999);
+    } else if (cell === 0 && clip === handOff && drama !== 'question') {
       // the reveal: the reading itself, frontal (angle seed −1), with the appraisal's last variant, then into its depth
-      cover = [{ ...WIDE, seed: -1 }, ...cover.filter((x) => x.at >= 3)];
+      cover = [{ ...WIDE, seed: -1 }];
       seed = seed - (seed % 1000) + Math.round(lastVariant * 999);
     }
-    // a greeting: the field turns to face you (the reveal, reversed)
-    if (drama === 'greeting' && i === picks.length - 1) cover = [{ ...WIDE, seed: -2 }];
+    const last = t + len >= verdictEnd - 0.5;
+    if (drama === 'greeting' && last) cover = [{ ...WIDE, seed: -2 }];
     shots.push({
-      clip, start: t, dur, seed, aborted: false, angles: cover, ops: clip === 'ink' ? inkOps() : clip === 'solids' ? solidsOps() : isPlugin(clip) ? pluginOps(clip) : chooseOps(),
-      // the barrage opens on a white beat (one, not a strobe); the misreading's correction lands with one too
-      flash: (drama === 'barrage' && i === 0) || (drama === 'misreading' && i === Math.ceil(picks.length / 2)),
-      flip: drama === 'misreading' && i < Math.ceil(picks.length / 2),
+      clip, start: t, dur: len, seed, aborted: false, angles: cover,
+      ops: clip === 'ink' ? inkOps() : clip === 'solids' ? solidsOps() : isPlugin(clip) ? pluginOps(clip) : chooseOps(),
+      flash: (drama === 'barrage' && cell === 0) || (drama === 'misreading' && u >= 0.5 && shots.every((x) => !x.flash)),
+      flip: drama === 'misreading' && u < 0.5,
       hold,
     });
-    t += dur + (i < picks.length - 1 ? form.gap : 0);
-  });
+    t += len;
+    cell++;
+    if (last || t >= verdictEnd - 0.5) break;
+    // the interlude, drawn from the word: black, a flat data shot, a strobe of data, or a straight cut to the next angle
+    const dim = 1 - rp.dwindling * u; // a dwindling word lets the black grow
+    const wt = [wBlack / Math.max(dim, 0.3), wData, wStrobe, wNext];
+    let q = rand() * wt.reduce((x, y) => x + y, 0), kind = 0;
+    for (; kind < 3; kind++) { q -= wt[kind]; if (q <= 0) break; }
+    if (kind === 0) t += snap(g * lerp(0.5, 1.5, rand()) / Math.max(dim, 0.4));
+    else if (kind === 1) {
+      const d = snap(g * lerp(0.5, 2, rand()));
+      cuts.push({ start: t, dur: d, mode: drawReading(), variant: rand(), inv: whiteSlab() });
+      t += d;
+    } else if (kind === 2) {
+      // a strobe: data and black alternating on quarter-beats (never faster than 8 a second)
+      const q4 = Math.max(0.125, g / 4), n = 4 + Math.floor(rand() * 5);
+      const mode = drawReading(), inv = whiteSlab();
+      for (let k = 0; k < n; k++) if (k % 2 === 0 || rp.stuttering > 0.35 && rand() < 0.3) cuts.push({ start: t + k * q4, dur: q4, mode, variant: rand(), inv });
+      t += n * q4;
+    }
+  }
 
   if (species === 'points') {
     openers.push(picks[0]);

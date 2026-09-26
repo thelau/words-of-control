@@ -23,7 +23,7 @@
 const FIB_PERIOD = 4.0;
 
 const VN = 256.0;  // velocity grid (keep in step with gpu.ts INK_VEL)
-const DN = 1536.0; // dye grid (gpu.ts INK_DYE)
+const DN = 1280.0; // dye grid (gpu.ts INK_DYE)
 
 fn tv(i: i32) -> f32 {
   let n = max(i32(F.tapeLen), 1);

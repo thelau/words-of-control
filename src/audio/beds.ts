@@ -410,13 +410,14 @@ function accents(a: AudioEngine, A: Appraisal, plan: Plan, t0: number, rand: () 
   const span = plan.blackAt - first.start;
   const buf = c.createBuffer(2, Math.ceil((span + 5) * sr), sr);
   const L = buf.getChannelData(0), R = buf.getChannelData(1);
+  // every 3D shot of the sequence lands with the word's accent (the grid is heard); a dark word's first lands with the
+  // full impact, the others lighter (overlapping full impacts turn to mud)
+  let k = 0;
   for (const shot of plan.shots) {
     if (shot.aborted) continue;
-    if (dark > 0.45) impact(L, R, sr, Math.floor((shot.start - first.start) * sr), 0.9, rand);
     for (const ang of shot.angles) {
-      if (ang.at <= 0) continue;
       const s0 = Math.floor((shot.start + ang.at - first.start) * sr);
-      if (main === 'impact') { impact(L, R, sr, s0, 0.5, rand); continue; }
+      if (main === 'impact' || dark > 0.45) { impact(L, R, sr, s0, k++ === 0 ? 0.9 : 0.4, rand); continue; }
       const f = main === 'tick' ? 2600 : 6000 + rand() * 6000;
       const len = Math.floor(sr * (main === 'tick' ? 0.02 : 0.004));
       for (let i = 0; i < len && s0 + i < L.length; i++) {
