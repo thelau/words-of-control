@@ -145,15 +145,6 @@ async function boot() {
     picker.textContent = s ? LABEL[s] ?? s : 'random';
   });
 
-  // the frame (testing): full screen, a standing slab, or a square (in memory only)
-  const framer = document.getElementById('frame') as HTMLButtonElement;
-  const BOXES = ['full', 'slab', 'square'] as const;
-  framer.addEventListener('mousedown', (e) => e.preventDefault());
-  framer.addEventListener('click', () => {
-    renderer.box = BOXES[(BOXES.indexOf(renderer.box) + 1) % BOXES.length];
-    framer.textContent = renderer.box;
-  });
-
   function perform(answers: Answers, text: string) {
     const A = buildAppraisal(answers, text, typing.trace(), seedFromText(text));
     renderer.setWord(text);
@@ -259,6 +250,7 @@ async function boot() {
   // ---- frame loop
   let last = performance.now();
   let lastKey = '';
+  let lastClip = '';
   // quality follows the device: if a performance runs slow (frames over ~20 ms on average), the soft layers
   // and the point count step down (1 → 0.75 → 0.5) — a phone plays the same piece, lighter
   let slow = 0;
@@ -316,7 +308,8 @@ async function boot() {
         const fade = show.plan.fade > 0 && m.clip ? Math.min(1, Math.max(0, (lastEnd - (clock() - show.t0)) / show.plan.fade)) : 1;
         f('exposure', fade * fade);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
-        if (m.key !== lastKey && (layer === 'sand' || layer === 'data')) f('mode', 1); // a fresh layer of sand; particles placed at once
+        // a fresh layer of sand, or particles placed at once — when the matter changes, not on every flash of it
+        if (m.key !== lastKey && (layer === 'sand' || layer === 'data') && m.clip !== lastClip) f('mode', 1);
         // ink (one continuous fluid) and solids (spheres with momentum) carry across their shots (and the black
         // between them): fresh only as their first shot begins
         if ((layer === 'ink' || layer === 'solids' || isPlugin(layer)) && m.key !== lastKey && si === show.plan.shots.findIndex((x) => x.clip === m.clip)) f('mode', 1);
@@ -325,6 +318,7 @@ async function boot() {
           f('modeM', mm); f('modeN', nn);
         }
         lastKey = m.key;
+        if (m.clip) lastClip = m.clip;
         // how many points the formation uses: all for the dense geometric ones, fewer for the costly soft ones
         renderer.dataShare = m.clip === 'cloud' || m.clip === 'tube' ? 0.85 : m.clip === 'landscape' ? 0.92 : 1;
         // variant2: which data formation; for ink, which reading it is poured from (1: a question's line)
@@ -345,7 +339,7 @@ async function boot() {
     f('resX', hi ? renderer.hiW : renderer.lowW); f('resY', hi ? renderer.hiH : renderer.lowH); f('dpr', hi ? renderer.dpr : 1);
     f('boxW', renderer.boxW); f('boxH', renderer.boxH); f('boxOn', layer === 'room' ? 0 : 1);
     renderer.render(layer, frame.f32, hi);
-    picker.hidden = framer.hidden = !(state === 'idle' || state === 'typing' || state === 'error');
+    picker.hidden = !(state === 'idle' || state === 'typing' || state === 'error');
     for (const h of app.frameHooks) h(now);
     requestAnimationFrame(loop);
   };

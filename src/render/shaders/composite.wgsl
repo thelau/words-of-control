@@ -31,8 +31,8 @@ fn film(c: vec3f) -> vec3f {
 fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let res = vec2f(F.outX, F.outY);
   let uv0 = fc.xy / res;
-  // the frame: the performance lives in a standing slab or a square in the dark (the room fills the screen); below
-  // it, a faint reflection on a black floor (after Ikeda's slab in the hall)
+  // the frame: the performance lives in a square in the dark (the room fills the screen); below it, a faint
+  // reflection on a black floor (after Ikeda's slab in the hall)
   let box = select(vec2f(1.0), vec2f(F.boxW, F.boxH), F.boxOn > 0.5);
   let centre = vec2f(0.5, select(0.5, 0.46, box.y < 0.99));
   var uv = (uv0 - centre) / box + 0.5;

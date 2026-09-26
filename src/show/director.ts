@@ -54,11 +54,20 @@ export type Species = 'points' | 'ink' | 'solids' | PluginName;
 /** The performance's form, chosen from the reading (see direct()). */
 export type Drama = 'storm' | 'barrage' | 'endless' | 'misreading' | 'bloom' | 'measure' | 'shrug' | 'name' | 'greeting' | 'question' | 'void';
 
+/** One cycle of the sequence (after the film's 3 s cycle): an attack of flashes (the flicker is also the sound's gate),
+ *  a hold, and a black tail; `scene`: what it shows (the matter, the word's data, or the break's black); the hold's
+ *  `clip`: its matter (null: its data). The music is built on these (audio/music.ts). */
+export type Cycle = {
+  start: number; dur: number; section: 'A' | 'break' | 'B'; scene: 'matter' | 'data' | 'break';
+  flashes: { start: number; dur: number }[]; hold: { start: number; dur: number; clip: ClipId | null };
+};
+
 export type Plan = {
   drama: Drama;
   species: Species;
   cuts: Cut[];
   shots: Shot[];
+  cycles: Cycle[];
   /** Seconds over which the image fades before the black (0 = a hard cut). */
   fade: number;
   /** When the image cuts to black (the verdict ends). */
@@ -370,103 +379,91 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
 
   const shots: Shot[] = [];
   t += 0.15;
-  // low confidence (outside the misreading itself): a false start — a shot begins, is cut off, and the machine starts again
-  if (conf < 0.5 && lazy < 0.7 && drama === 'storm' && species === 'points') {
-    const alt = ranked[1 + Math.floor(rand() * 2)];
-    const d = lerp(0.35, 0.8, rand());
-    shots.push({ clip: alt, start: t, dur: d, seed: (rand() * 2 ** 31) | 0, aborted: true, angles: [WIDE], ops: STILL });
-    t += d + lerp(0.25, 0.6, 1 - conf);
-  }
-  // ---- the sequence (after Ikeda, data.matrix): not a random walk but a form, as the film has one —
-  //   step 0  the appraisal (above), fast
-  //   A       the pulse: the matter ON (a 3D shot) / OFF (black, a thin tone) on a steady cycle; each ON a new view
-  //           of the same matter, which has moved on; an OFF may carry a one-frame flash of data
-  //   B       the break: a data shot of the word's readings, accelerating into flicker — data against black, then
-  //           the matter itself blinking — a calm word only holds its data, still
-  //   A'      the return of the pulse, resolving (a swelling word builds, a dwindling one fades out)
-  // Everything is the word's: the cycle (arousal, charge, idleness), ON/OFF, how hard B breaks (tension, anger,
-  // anxiety, darkness), its data (the word's own readings, white slabs for intense words), its rhythm (stuttering:
-  // an ON does not come; pulsing: ON and OFF trade places; strike: B opens on a white blow)
-  const g = 60 / lerp(56, 128, aro); // one beat (show/rhythm.ts beatPeriod)
+  // ---- the sequence: after the film (Ikeda, data.matrix / illusor), measured frame by frame. It turns on a strict
+  // cycle (the film's: 3.0 s). Each cycle opens with an ATTACK — the image flickering in a code of one- and two-frame
+  // flashes (the film's ##.##.####.##.#) — then HOLDS, then may fall to black. The flicker is also the music: every
+  // flash is a burst of noise and sub (audio/music.ts), so a cut is a beat. Section A flickers in the code, a break of
+  // black, section B strobes frame by frame, and the last cycle holds. The word writes it: its cycle (arousal,
+  // idleness), its code (its own bits), how long it attacks (intensity, tension), how much black (idleness, void,
+  // sadness), whether it breaks and strobes (tension, anger, anxiety, darkness), its data (its readings), and its
+  // matter: the species are materials the scenes use — the performance's own, and a second one it turns to
+  const C = lerp(3.4, 2.5, aro) * lerp(1, 1.2, lazy);
+  const unit = 1 / 30; // one flicker step: a frame of the film
   const rp = A.c.rhythm.p;
-  const snap = (x: number) => Math.max(1, Math.round(x / (g * 0.5))) * g * 0.5; // on half-beats of the grid
-  const cycle = snap(lerp(3.4, 1.6, pace) * (1 + lazy * 0.6));
-  const onShare = clamp01(lerp(0.5, 0.68, 1 - pace) + lazy * 0.1 - A.c.material.p.void * 0.2);
+  const bits: number[] = [];
+  for (const b of A.bytes) for (let k = 7; k >= 0; k--) bits.push((b >> k) & 1);
+  if (!bits.length) bits.push(1, 0, 1, 1);
+  let bi = 0;
+  // the code: each bit of the word, ON for two frames (1) or one (0), then OFF for one — a stutter drops some
+  const code = (len: number): { start: number; dur: number }[] => {
+    const out: { start: number; dur: number }[] = [];
+    for (let x = 0; x < len - unit;) {
+      const on = (bits[bi++ % bits.length] ? 2 : 1) * unit;
+      if (!(rp.stuttering > 0.35 && rand() < 0.2)) out.push({ start: x, dur: Math.min(on, len - x) });
+      x += on + unit;
+    }
+    return out;
+  };
+  // the strobe: one frame on, one off
+  const strobe = (len: number) => Array.from({ length: Math.floor(len / (2 * unit)) }, (_, k) => ({ start: k * 2 * unit, dur: unit }));
   const breakHard = clamp01(A.s.tension * 0.6 + em.anger * 0.7 + em.anxiety * 0.6 + dark * 0.5 + aro * 0.3 - lazy * 0.6 - em.calm * 0.4);
-  const whiteSlab = () => rand() < 0.15 + A.s.intensity * 0.35 + A.s.dominance * 0.2;
-  const nCycles = Math.max(3, Math.round(form.dur / cycle));
-  const nB = drama === 'void' ? 0 : Math.max(1, Math.round(nCycles * lerp(0.2, 0.4, breakHard)));
-  const nA = Math.max(1, Math.round((nCycles - nB) * 0.6)), nA2 = Math.max(1, nCycles - nB - nA);
-  let pick = 0, first = true;
-  const on3d = (len: number, opts: { flash?: boolean } = {}) => {
-    const clip = species === 'points' ? picks[Math.floor(pick / 2) % picks.length] : picks[0];
-    pick++;
-    let cover: Angle[] = [{ ...(angles(len)[0] ?? WIDE), at: 0 }];
+  const attackShare = clamp01(lerp(0.18, 0.5, A.s.intensity * 0.5 + A.s.tension * 0.3 + aro * 0.3));
+  const tailShare = clamp01(lazy * 0.25 + em.sadness * 0.15 + A.c.material.p.void * 0.25 + A.n.loss * 0.1);
+  const pData = clamp01(0.2 + A.s.order * 0.25 + A.c.domain.p.machine * 0.3 + A.s.density * 0.15);
+  const whiteSlab = () => rand() < 0.2 + A.s.intensity * 0.35 + A.s.dominance * 0.2;
+  const nCycles = Math.max(4, Math.round(form.dur / C));
+  const breakAt = nCycles >= 6 && drama !== 'void' && breakHard > 0.2 ? Math.round(nCycles * 0.55) : -1;
+  // the materials: the performance's species, and a second the scenes turn to (more often in section B)
+  const matOf = (sp: Species): ClipId => sp === 'points' ? (picks.length ? picks[0] : ranked.find((c) => (DATA_CLIPS as readonly string[]).includes(c) && c !== 'drift') ?? 'landscape') : sp;
+  const others = (['points', 'ink', 'solids', ...PLUGIN_NAMES] as Species[]).filter((x) => x !== species && (!isPlugin(x) || READY[x]));
+  const second = matOf(others[Math.floor(rand() * others.length)] ?? species);
+  const opsOf = (clip: ClipId): Ops => clip === 'ink' ? inkOps() : clip === 'solids' ? solidsOps() : isPlugin(clip) ? pluginOps(clip) : chooseOps();
+  const cycles: Cycle[] = [];
+  let pointsPick = 0;
+  for (let c = 0; c < nCycles; c++) {
+    const cs = t, u = c / nCycles, last = c === nCycles - 1;
+    const section = c === breakAt ? 'break' : breakAt >= 0 && c > breakAt && breakHard > 0.3 ? 'B' : 'A';
+    const dur = last ? C * (drama === 'endless' || drama === 'bloom' ? 1.8 : 1.3) : C;
+    if (section === 'break') {
+      // the break: black, one frame of data in it
+      cuts.push({ start: cs + C * 0.5, dur: unit * 2, mode: drawReading(), variant: rand(), inv: false });
+      cycles.push({ start: cs, dur, section, scene: 'break', flashes: [], hold: { start: cs + C, dur: 0, clip: null } });
+      t = cs + dur;
+      continue;
+    }
+    const scene = c === 0 ? 'matter' : rand() < pData ? 'data' : 'matter';
+    const attack = (c === 0 ? 0.3 : section === 'B' ? 1.2 : 1) * attackShare * C * (1 + rp.swelling * (u - 0.3));
+    const tail = last ? 0 : C * tailShare * (1 + rp.dwindling * u);
+    const holdDur = Math.max(0.3, dur - attack - tail);
+    // the cycle's matter: its own or the second (a points performance walks through its formations)
+    let clip = rand() < (section === 'B' ? 0.5 : 0.2) && c > 0 ? second : matOf(species);
+    if (species === 'points' && clip === matOf(species)) clip = picks[Math.floor(pointsPick++ / 2) % picks.length];
+    let cover: Angle = { ...(angles(holdDur)[0] ?? WIDE), at: 0 };
     let seed = (rand() * 2 ** 31) | 0;
-    if (clip === 'ink') cover = [{ ...cover[0], zoom: first ? 1 : Math.min(cover[0].zoom, 1.8), offX: first ? 0 : cover[0].offX, offY: first ? 0 : cover[0].offY }];
-    else if (clip === 'solids' || isPlugin(clip)) {
-      if (isPlugin(clip)) cover = [{ ...cover[0], zoom: Math.min(cover[0].zoom, PLUGINS[clip].maxZoom) }];
-      if (first) cover = [{ ...WIDE, seed: -1 }];
-      if (first && isPlugin(clip)) seed = seed - (seed % 1000) + Math.round(lastVariant * 999);
-    } else if (first && clip === handOff && drama !== 'question') {
-      // the reveal: the reading itself, frontal (angle seed −1), with the appraisal's last variant, then into its depth
-      cover = [{ ...WIDE, seed: -1 }];
+    if (clip === 'ink') cover = { ...cover, zoom: Math.min(cover.zoom, 1.8) };
+    else if (isPlugin(clip)) cover = { ...cover, zoom: Math.min(cover.zoom, PLUGINS[clip].maxZoom) };
+    if (c === 0) {
+      // the hand-off: the reading itself, frontal (angle seed −1), with the appraisal's last variant
+      cover = { ...WIDE, seed: -1 };
       seed = seed - (seed % 1000) + Math.round(lastVariant * 999);
     }
-    const u = shots.length ? (t - shots[0].start) / form.dur : 0;
-    shots.push({
-      clip, start: t, dur: len, seed, aborted: false, angles: cover,
-      ops: clip === 'ink' ? inkOps() : clip === 'solids' ? solidsOps() : isPlugin(clip) ? pluginOps(clip) : chooseOps(),
-      flash: !!opts.flash || (drama === 'barrage' && first), flip: drama === 'misreading' && u < 0.5, hold,
-    });
-    first = false;
-    t += len;
-  };
-  const data = (d: number, mode: CutMode = drawReading(), inv = whiteSlab()) => { cuts.push({ start: t, dur: d, mode, variant: rand(), inv }); t += d; };
-  const off = (d: number) => {
-    // the OFF: black, sometimes a single frame of data in its middle (the film's flashes of digits)
-    if (d > 0.4 && rand() < 0.2 + A.s.order * 0.3 + A.c.domain.p.machine * 0.3) {
-      t += d * 0.45;
-      data(0.1, drawReading(), false);
-      t += d * 0.55 - 0.1;
-    } else t += d;
-  };
-  const pulse = (n: number, phase: 'A' | 'A2') => {
-    for (let k = 0; k < n; k++) {
-      const u = (t - verdictStart) / form.dur;
-      let on = cycle * onShare, gap = cycle - on;
-      if (rp.pulsing > 0.35 && k % 2) [on, gap] = [gap, on];
-      if (phase === 'A2') on *= 1 + rp.swelling * 0.5 - rp.dwindling * 0.4 * (k + 1) / n;
-      const lastOne = phase === 'A2' && k === n - 1;
-      if (lastOne) on *= drama === 'endless' || drama === 'bloom' ? 1.8 : 1.3; // the resolution holds
-      if (first) on = Math.max(on, 2.4); // the hand-off holds long enough to be read
-      // a stutter: an ON that does not come (never the first, never the last)
-      if (!first && !lastOne && rp.stuttering > 0.35 && rand() < 0.3) { off(snap(on) + snap(gap)); continue; }
-      on3d(snap(on));
-      if (!lastOne) off(snap(gap * (1 + rp.dwindling * u)));
+    if (drama === 'greeting' && last) cover = { ...WIDE, seed: -2 };
+    const ops = opsOf(clip);
+    const mat = (start: number, d: number) => shots.push({ clip, start, dur: d, seed, aborted: false, angles: [cover], ops, flip: drama === 'misreading' && u < 0.5, hold });
+    const mode = drawReading(), inv = whiteSlab();
+    const flashes = (section === 'B' ? strobe(attack) : code(attack)).map((f) => ({ start: cs + f.start, dur: f.dur }));
+    for (const f of flashes) {
+      if (scene === 'matter') mat(f.start, f.dur);
+      else cuts.push({ start: f.start, dur: f.dur, mode, variant: rand(), inv });
     }
-  };
-  const verdictStart = t;
-  pulse(nA, 'A');
-  if (nB > 0) {
-    // the break: its data, then flicker accelerating (a calm word: the data held, and black)
-    const mode = drawReading(), inv = whiteSlab() || rp.strike > 0.3;
-    data(snap(g * lerp(1, 2, rand())), mode, inv);
-    if (breakHard < 0.25) off(snap(g));
-    else {
-      // data / black, the period shrinking from a half-beat to a tenth of a second
-      const n = Math.round(lerp(6, 16, breakHard));
-      for (let k = 0; k < n; k++) {
-        const per = Math.max(0.1, lerp(g * 0.5, 0.1, k / n));
-        if (k % 2 === 0) data(per, rand() < 0.7 ? mode : drawReading(), inv); else t += per;
-      }
-      // then the matter itself blinks (the relief flickering on and off), on quarter-beats
-      const m = Math.round(lerp(2, 8, breakHard));
-      for (let k = 0; k < m; k++) { on3d(Math.max(0.1, g / 4)); t += Math.max(0.1, g / 4); }
-      off(snap(g * 0.5));
-    }
+    // the hold: the matter (a data cycle holds its data half the time)
+    const hs = cs + attack;
+    const holdMatter = scene === 'matter' || rand() < 0.5;
+    if (holdMatter) mat(hs, holdDur);
+    else cuts.push({ start: hs, dur: holdDur, mode: rand() < 0.5 ? mode : drawReading(), variant: rand(), inv: rand() < 0.3 });
+    cycles.push({ start: cs, dur, section, scene, flashes, hold: { start: hs, dur: holdDur, clip: holdMatter ? clip : null } });
+    t = cs + dur;
   }
-  pulse(nA2, 'A2');
 
   if (species === 'points') {
     openers.push(picks[0]);
@@ -479,5 +476,5 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
   cuts.push({ start: t, dur: 1.1, mode: 'word', variant: 2 });
   t += 1.1;
   const blackAt = t;
-  return { drama, species, cuts, shots, fade: form.fade, blackAt, end: blackAt + form.tail };
+  return { drama, species, cuts, shots, cycles, fade: form.fade, blackAt, end: blackAt + form.tail };
 }

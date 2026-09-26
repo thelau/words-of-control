@@ -8,16 +8,15 @@
  *   dry buffer, so sound and image cut together. The first cut replays how the
  *   word was typed.
  * - Voices: robot voices read the digits on screen (voice.ts, in a worker).
- * - Verdict: one voice per clip (clips.ts), cut in with the image and ringing on under the next, over one to
- *   three beds drawn from the judgement, with every camera cut heard (beds.ts).
- * - The verdict breathes with its sequence: loud on the 3D shots, a floor and a thin tone between (breathe()).
+ * - Verdict: music on the sequence's cycles (music.ts) — the flicker is its beat, each hold its material's voice
+ *   (clips.ts) — over one to three beds drawn from the judgement, every cycle landing with an accent (beds.ts).
  * - Release: the hall blooms once at the cut to black; the drone ducks.
  */
 import type { Appraisal } from '../jev/appraisal.ts';
 import type { Cut, Plan } from '../show/director.ts';
 import { D2, dbToGain, type AudioEngine } from './audio.ts';
 import type { Drone } from './drone.ts';
-import { playShot } from './clips.ts';
+import { playMusic } from './music.ts';
 import { playBeds } from './beds.ts';
 import type { VoiceSpec } from './voice.ts';
 
@@ -37,18 +36,13 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, plan
   const g = a.ctx.createGain();
   // precise, not big: the appraisal follows the word's loudness but stays under the verdict
   g.gain.value = 0.35 * dbToGain(lerp(-6, 0, loud(A)));
-  // (the data's clicks bypass the verdict's breathing below: a flat data shot between 3D shots is heard in full)
-  g.connect(a.bus);
-  g.connect(a.hallSend);
-  src.connect(g);
+  src.connect(g).connect(a.perfDry);
   src.start(t0);
 
   // the voices read the appraisal only (not the data shots inside the verdict)
   const v0 = plan.shots[0]?.start ?? plan.blackAt;
   voices(a, A, plan.cuts.filter((c) => c.start < v0), t0);
-  breathe(a, A, plan, t0);
-  const residue: number[] = [];
-  plan.shots.forEach((_, i) => residue.push(...playShot(a, drone, A, plan, i, t0)));
+  const residue = playMusic(a, drone, A, plan, t0);
   playBeds(a, A, plan, t0);
   a.cutAt(t0 + plan.blackAt, t0 + plan.end);
   drone.duck(t0 + plan.blackAt);
@@ -57,43 +51,6 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, plan
     bright: A.s.light,
     residue: residue.slice(-2),
   }, t0 + plan.blackAt);
-}
-
-/** The verdict breathes with its sequence (after Ikeda): the 3D shots are heard in full; on the black and the data
- *  shots between them the matter's sound falls to a floor (−26 dB, never silence) and a thin tone carries the gap —
- *  the contrast is the rhythm. Ramps of 10–20 ms: a cut, never a click. */
-function breathe(a: AudioEngine, A: Appraisal, plan: Plan, t0: number) {
-  const shots = plan.shots.filter((s) => !s.aborted);
-  if (!shots.length) return;
-  const c = a.ctx;
-  const g = a.perfDry.gain;
-  const floor = dbToGain(-26);
-  const tone = c.createOscillator();
-  const pos = A.mood.pos > A.mood.neg && A.mood.pos > A.mood.neu;
-  // the gap's tone: high and exact (1 kHz, or D's harmonic near it for a positive word), the word's pitch nudging it
-  tone.frequency.value = (pos ? D2 * 14 : 1000) * Math.pow(2, Math.round((A.s.pitch - 0.5) * 4) / 12);
-  const tg = c.createGain();
-  tg.gain.value = 0;
-  tone.connect(tg).connect(a.bus);
-  const start = t0 + shots[0].start, end = t0 + plan.blackAt;
-  tone.start(start);
-  tone.stop(end + 0.1);
-  const level = dbToGain(-40);
-  for (let i = 0; i < shots.length; i++) {
-    const sEnd = t0 + shots[i].start + shots[i].dur;
-    const next = i + 1 < shots.length ? t0 + shots[i + 1].start : end;
-    if (next - sEnd < 0.03) continue; // a straight cut: no gap
-    g.setValueAtTime(1, sEnd - 0.012);
-    g.linearRampToValueAtTime(floor, sEnd + 0.008);
-    tg.gain.setValueAtTime(0, sEnd);
-    tg.gain.linearRampToValueAtTime(level, sEnd + 0.02);
-    if (next < end) {
-      g.setValueAtTime(floor, next - 0.01);
-      g.linearRampToValueAtTime(1, next);
-      tg.gain.setValueAtTime(level, next - 0.02);
-      tg.gain.linearRampToValueAtTime(0, next);
-    }
-  }
 }
 
 // ------------------------------------------------------------------ appraisal

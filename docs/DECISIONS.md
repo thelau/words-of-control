@@ -4,6 +4,15 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-26
 
+- **Clone the film's speed, cuts and format** ("try to clone this on speed of sequence, cut, format"). **Square**, not a
+  portrait slab. The sequence turns on the film's cycle (~3 s): an attack of coded flicker (the word's own bits),
+  a hold, a black tail; section A, a break, section B strobing, a held last cycle.
+- **The music is continuous; the cut is the beat** ("the visual cut is the music beats and tempo … the scenes are part
+  of it"): every flash is a burst of noise over a sub, every cut a click; common elements run throughout (thin high
+  tones, a soft line under the holds), and each scene's hold brings its own sound (its material's voice, its data).
+- **The species become materials the scenes use**: a performance has its own and a second one its scenes turn to.
+- (Superseded the same day: the "pulse / break / return" form with random gaps, and the slab/square toggle.)
+
 - **New canon references** (references/README.md "CANON"): Ryoji Ikeda's data.matrix sequence for the STRUCTURE, and
   a set of 3D references for the shots between the data shots. "This + the sequence nullify the previous inspirations."
 - **The verdict is a sequence that responds to the word** ("we need a system as a sequence that responds to the

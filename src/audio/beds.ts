@@ -410,20 +410,19 @@ function accents(a: AudioEngine, A: Appraisal, plan: Plan, t0: number, rand: () 
   const span = plan.blackAt - first.start;
   const buf = c.createBuffer(2, Math.ceil((span + 5) * sr), sr);
   const L = buf.getChannelData(0), R = buf.getChannelData(1);
-  // every 3D shot of the sequence lands with the word's accent (the grid is heard); a dark word's first lands with the
+  // every cycle of the sequence lands with the word's accent (the grid is heard); a dark word's first lands with the
   // full impact, the others lighter (overlapping full impacts turn to mud)
   let k = 0;
-  for (const shot of plan.shots) {
-    if (shot.aborted) continue;
-    for (const ang of shot.angles) {
-      const s0 = Math.floor((shot.start + ang.at - first.start) * sr);
-      if (main === 'impact' || dark > 0.45) { impact(L, R, sr, s0, k++ === 0 ? 0.9 : 0.4, rand); continue; }
-      const f = main === 'tick' ? 2600 : 6000 + rand() * 6000;
-      const len = Math.floor(sr * (main === 'tick' ? 0.02 : 0.004));
-      for (let i = 0; i < len && s0 + i < L.length; i++) {
-        const v = Math.sin((2 * Math.PI * f * i) / sr) * Math.exp(-i / (sr * (main === 'tick' ? 0.004 : 0.0015))) * 0.5;
-        L[s0 + i] += v; R[s0 + i] += v;
-      }
+  const onsets = plan.cycles.length ? plan.cycles.filter((cy) => cy.scene !== 'break').map((cy) => cy.start)
+    : plan.shots.filter((x) => !x.aborted).flatMap((x) => x.angles.map((ang) => x.start + ang.at));
+  for (const at of onsets) {
+    const s0 = Math.floor((at - first.start) * sr);
+    if (main === 'impact' || dark > 0.45) { impact(L, R, sr, s0, k++ === 0 ? 0.9 : 0.4, rand); continue; }
+    const f = main === 'tick' ? 2600 : 6000 + rand() * 6000;
+    const len = Math.floor(sr * (main === 'tick' ? 0.02 : 0.004));
+    for (let i = 0; i < len && s0 + i < L.length; i++) {
+      const v = Math.sin((2 * Math.PI * f * i) / sr) * Math.exp(-i / (sr * (main === 'tick' ? 0.004 : 0.0015))) * 0.5;
+      L[s0 + i] += v; R[s0 + i] += v;
     }
   }
   const s = c.createBufferSource();

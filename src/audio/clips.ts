@@ -10,14 +10,14 @@
  */
 import type { Appraisal } from '../jev/appraisal.ts';
 import type { Plan, Shot } from '../show/director.ts';
-import { beatPeriod, skipped, strikeShot } from '../show/rhythm.ts';
+import { beatPeriod, skipped } from '../show/rhythm.ts';
 import { D2, dbToGain, type AudioEngine } from './audio.ts';
 import type { Drone } from './drone.ts';
 import { plateModes } from '../show/chladni.ts';
 import { DATA_CLIPS } from '../show/director.ts';
 import { loud } from './score.ts';
 import { mulberry32 } from '../core/rng.ts';
-import { PLUGINS, isPlugin } from '../show/species/index.ts';
+import { PLUGINS } from '../show/species/index.ts';
 import { VOICES } from './species/index.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -86,16 +86,7 @@ function kit(v: V, plan: Plan): VoiceKit {
 }
 
 /** Schedules one shot's voice. Returns pitches worth remembering (drone residue). */
-export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan, index: number, t0: number): number[] {
-  let shot = plan.shots[index];
-  // ink and solids are one continuous scene across their shots, so one continuous voice: the first shot plays
-  // the whole span (the picture cuts, the sound carries across — for ink each cut heard as the water changing course)
-  if (shot.clip === 'ink' || shot.clip === 'solids' || isPlugin(shot.clip)) {
-    const inks = plan.shots.filter((x) => x.clip === shot.clip);
-    if (inks[0] !== shot) return [];
-    const last = inks[inks.length - 1];
-    shot = { ...shot, dur: last.start + last.dur - shot.start };
-  }
+export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan, shot: Shot, t0: number, carriesStrike: boolean): number[] {
   const c = a.ctx;
   const start = t0 + shot.start;
   const end = start + shot.dur;
@@ -138,7 +129,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
     hiss.connect(hp).connect(hg).connect(a.perfDry);
   }
   // the strike's shot lands with one deep blow (the sound never drops out: the holds are the image's only)
-  const strike = index === strikeShot(plan) && A.c.rhythm.p.strike > 0.3;
+  const strike = carriesStrike && A.c.rhythm.p.strike > 0.3;
   const send = c.createGain();
   send.gain.value = shot.aborted ? 0.05 : 0.2;
   gate.connect(send).connect(a.perfSend);

@@ -55,9 +55,8 @@ export class Renderer {
   lowH = 0;
   /** 1, 0.75 or 0.5: the soft layers' resolution and the data layer's point count (lowered on slow devices). */
   quality = 1;
-  /** The frame the performance lives in: the whole screen, a standing slab (after Ikeda), or a square. */
-  box: 'full' | 'slab' | 'square' = 'full';
-  /** The frame as a share of the output, and the scene's size at native resolution (px). */
+  /** The frame the performance lives in (a square in the dark, 72% of the short side), as a share of the output, and
+   *  the scene's size at native resolution (px). */
   boxW = 1;
   boxH = 1;
   hiW = 0;
@@ -309,9 +308,7 @@ export class Renderer {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.max(1, Math.round(this.canvas.clientWidth * this.dpr));
     const h = Math.max(1, Math.round(this.canvas.clientHeight * this.dpr));
-    // the frame: a standing slab 78% of the height (9:16), or a square 72% of the short side
-    const [bw, bh] = this.box === 'slab' ? [Math.min(0.9 * w, h * 0.78 * 9 / 16) / w, 0.78]
-      : this.box === 'square' ? [(0.72 * Math.min(w, h)) / w, (0.72 * Math.min(w, h)) / h] : [1, 1];
+    const [bw, bh] = [(0.72 * Math.min(w, h)) / w, (0.72 * Math.min(w, h)) / h];
     const hw = Math.max(1, Math.round(w * bw)), hh = Math.max(1, Math.round(h * bh));
     if (w === this.width && h === this.height && this.scene && hw === this.hiW && hh === this.hiH && this.lowW === Math.max(1, Math.round((hw / this.dpr) * this.quality))) return false;
     this.width = w;

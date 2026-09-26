@@ -109,12 +109,12 @@ html, body {
 }
 #note .detail { font-size: 10px; margin-top: 6px; opacity: 0.6; }
 
-/* the pickers (testing): discreet words at the foot of the room — the species (random → each), the frame (full, slab, square) */
-#pickers { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; gap: 18px; }
-#species, #frame {
+/* the species picker (testing): one discreet word at the foot of the room — click to cycle random → each species */
+#species {
+  position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
   background: none; border: 0; padding: 6px 10px; cursor: pointer;
   font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
   color: var(--ink); opacity: 0.22; transition: opacity 0.3s;
 }
-#species:hover, #frame:hover { opacity: 0.6; }
-#species[hidden], #frame[hidden] { display: none; }
+#species:hover { opacity: 0.6; }
+#species[hidden] { display: none; }
