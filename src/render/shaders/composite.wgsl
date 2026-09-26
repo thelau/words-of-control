@@ -30,16 +30,37 @@ fn film(c: vec3f) -> vec3f {
 @fragment
 fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let res = vec2f(F.outX, F.outY);
-  let uv = fc.xy / res;
-  // soft layers are rendered at CSS resolution and upscaled; the data stays native
-  var c = textureSampleLevel(scene, samp, uv, 0.0).rgb;
-  if (F.hiRes > 0.5) { c = textureLoad(sceneHi, vec2i(fc.xy), 0).rgb; }
-  let q = uv - 0.5;
-  // neutral bloom (small) + film halation: only the brightest light bleeds red into the emulsion
-  if (F.bloom > 0.0 || F.halation > 0.0) {
-    let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
-    c += bl * F.bloom + max(bl - vec3f(0.35), vec3f(0.0)) * vec3f(1.0, 0.35, 0.15) * F.halation;
+  let uv0 = fc.xy / res;
+  // the frame: the performance lives in a standing slab or a square in the dark (the room fills the screen); below
+  // it, a faint reflection on a black floor (after Ikeda's slab in the hall)
+  let box = select(vec2f(1.0), vec2f(F.boxW, F.boxH), F.boxOn > 0.5);
+  let centre = vec2f(0.5, select(0.5, 0.46, box.y < 0.99));
+  var uv = (uv0 - centre) / box + 0.5;
+  let inside = all(uv >= vec2f(0.0)) && all(uv <= vec2f(1.0));
+  var refl = 0.0;
+  if (!inside && uv.y > 1.0 && uv.x >= 0.0 && uv.x <= 1.0) {
+    refl = 0.16 * exp(-(uv.y - 1.0) * 9.0);
+    uv = vec2f(uv.x, 2.0 - uv.y);
   }
+  var c = vec3f(0.0);
+  if (inside || refl > 0.0) {
+    // soft layers are rendered at CSS resolution and upscaled; the data stays native
+    c = textureSampleLevel(scene, samp, uv, 0.0).rgb;
+    if (F.hiRes > 0.5) { c = textureLoad(sceneHi, vec2i(uv * vec2f(textureDimensions(sceneHi))), 0).rgb; }
+    // neutral bloom (small) + film halation: only the brightest light bleeds red into the emulsion
+    if (F.bloom > 0.0 || F.halation > 0.0) {
+      let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
+      c += bl * F.bloom + max(bl - vec3f(0.35), vec3f(0.0)) * vec3f(1.0, 0.35, 0.15) * F.halation;
+    }
+    // (the reflection is soft: the floor is not a mirror)
+    if (!inside) { c = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb * 2.0 * refl + c * refl * 0.5; }
+  }
+  // the frame reads as an object even when it is dark: a surface barely lifted from the black, a hairline edge
+  if (box.x < 0.99 && inside) {
+    let px = (min(uv, 1.0 - uv)) * box * res;
+    c += vec3f(0.0015) + vec3f(0.03) * ss(1.5, 0.0, min(px.x, px.y));
+  }
+  let q = uv0 - 0.5;
   c = c * vec3f(F.wbR, F.wbG, F.wbB) * F.exposure + vec3f(F.flash);
   let vig = mix(1.0 - 0.35 * pow(dot(q * vec2f(1.0, 1.25), q * vec2f(1.0, 1.25)) * 2.2, 1.3), 1.0, F.flat);
   var outc = toSrgb(BG * (1.0 - F.flat) + film(c) * vig);

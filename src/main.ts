@@ -145,6 +145,15 @@ async function boot() {
     picker.textContent = s ? LABEL[s] ?? s : 'random';
   });
 
+  // the frame (testing): full screen, a standing slab, or a square (in memory only)
+  const framer = document.getElementById('frame') as HTMLButtonElement;
+  const BOXES = ['full', 'slab', 'square'] as const;
+  framer.addEventListener('mousedown', (e) => e.preventDefault());
+  framer.addEventListener('click', () => {
+    renderer.box = BOXES[(BOXES.indexOf(renderer.box) + 1) % BOXES.length];
+    framer.textContent = renderer.box;
+  });
+
   function perform(answers: Answers, text: string) {
     const A = buildAppraisal(answers, text, typing.trace(), seedFromText(text));
     renderer.setWord(text);
@@ -333,9 +342,10 @@ async function boot() {
     // text and lines are drawn at native resolution; everything soft (and scatter's dots) at CSS resolution
     const hi = layer === 'appraisal' && moment?.mode !== CUT_MODES.indexOf('scatter');
     f('hiRes', hi ? 1 : 0);
-    f('resX', hi ? renderer.width : renderer.lowW); f('resY', hi ? renderer.height : renderer.lowH); f('dpr', hi ? renderer.dpr : 1);
+    f('resX', hi ? renderer.hiW : renderer.lowW); f('resY', hi ? renderer.hiH : renderer.lowH); f('dpr', hi ? renderer.dpr : 1);
+    f('boxW', renderer.boxW); f('boxH', renderer.boxH); f('boxOn', layer === 'room' ? 0 : 1);
     renderer.render(layer, frame.f32, hi);
-    picker.hidden = !(state === 'idle' || state === 'typing' || state === 'error');
+    picker.hidden = framer.hidden = !(state === 'idle' || state === 'typing' || state === 'error');
     for (const h of app.frameHooks) h(now);
     requestAnimationFrame(loop);
   };
