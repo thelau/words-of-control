@@ -89,14 +89,15 @@ export function atlasModel(A: Appraisal): AtlasModel {
   // grid: 7 × 7 cells, answers in battery order, then the specimen's own cells
   const M = 0.06, top = 0.12, cols = 7, rows = 7;
   const cw = (1 - 2 * M) / cols, ch = (1 - top - M) / rows;
-  const step = lerp(0.075, 0.04, pace) * slow;
+  // (the grid is built in at most ~5 s, even for the calmest word)
+  const step = Math.min(lerp(0.075, 0.04, pace) * slow, 0.055);
   const grid: Item[] = [];
   for (let k = 0; k < cols * rows; k++) {
     const cx = M + (k % cols) * cw, cy = top + Math.floor(k / cols) * ch;
     const d = dims[k];
     grid.push({ x0: cx, y0: cy, x1: cx + cw * 0.92, y1: cy + ch * 0.86, t: 0.3 + k * step, dur: 0.14, red: !!d && red.includes(d.id), value: d ? d.value : 0 });
   }
-  const gridDur = (0.3 + cols * rows * step + 1.6) * slow;
+  const gridDur = Math.min(0.3 + cols * rows * step + 1.6 * slow, 5);
 
   // focus: the scale, wiped in
   const focusItems: Item[] = [{ x0: 0.08, y0: 0.44, x1: 0.92, y1: 0.7, t: 0.25, dur: 1.2 * slow, red: true, value: focus.value }];

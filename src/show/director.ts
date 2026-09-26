@@ -150,9 +150,10 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
   const appraisalDur = lerp(1.7, 2.6, clamp01(A.tape.length / 180)) * lerp(1.1, 0.85, aro);
   const cutLen = lerp(0.26, 0.075, aro) * (lazy > 0.6 ? 1.8 : 1);
   // it opens on the word itself and its bytes, held long enough to be read: proof the machine is reading *this*
-  const cuts: Cut[] = [{ start: 0, dur: lerp(0.7, 0.45, aro), mode: 'word', variant: 0 }];
-  let t = cuts[0].dur;
-  let prev: CutMode | null = 'word';
+  // (the atlas starts straight on the readings: no title card of the word first)
+  const cuts: Cut[] = species === 'atlas' ? [] : [{ start: 0, dur: lerp(0.7, 0.45, aro), mode: 'word', variant: 0 }];
+  let t = cuts[0]?.dur ?? 0;
+  let prev: CutMode | null = cuts.length ? 'word' : null;
   // which readings the machine favours depends on what it found: ordered words read as barcodes and bits,
   // crowded ones as figures, heard ones as spectra, strange ones as return maps (barcodes come in four styles)
   const readings: CutMode[] = ['barcode', 'numbers', 'spectrum', 'bits', 'scatter'];
@@ -185,7 +186,9 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
   // the one the echo rebuilds, so the last flat frame and the first 3D frame are the same image)
   let lastVariant = rand();
   while (handOff === 'city' && Math.floor((lastVariant * 13.7) % 1 * 4) !== 0) lastVariant = rand();
-  if (drama === 'question') {
+  // (the atlas cuts straight from the readings to its first plate: no held reading to hand over)
+  if (species === 'atlas') { /* no hand-off */ }
+  else if (drama === 'question') {
     cuts.push({ start: t, dur: 0.6, mode: 'line', variant: 0 });
     t += 0.6;
   } else if (handOff) {

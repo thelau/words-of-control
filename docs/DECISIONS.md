@@ -4,6 +4,10 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-26
 
+- **No theatrical intro for the atlas** ("we don't need most of the intro, only the analysis part"): no title card of
+  the word first, no held reading at the end of the analysis; the readings start at once and cut into the grid. The
+  grid builds in at most ~5 s.
+
 - **The verdict is the atlas** ("yea good suggestions", after Ikeda's data-verse): the word as a scientific specimen —
   four annotated plates (grid of every answer as an instrument, the most distinctive answer in focus, the crowd of
   every answer against the reference words, the map of valence × arousal with its nearest words), the answers that
