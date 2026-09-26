@@ -16,6 +16,8 @@ import sandDrawWGSL from './shaders/sand_draw.wgsl?raw';
 import inkWGSL from './shaders/ink.wgsl?raw';
 import solidsWGSL from './shaders/solids.wgsl?raw';
 import threadsWGSL from './shaders/threads.wgsl?raw';
+import pinsWGSL from './shaders/pins.wgsl?raw';
+import strataWGSL from './shaders/strata.wgsl?raw';
 import { PLUGINS, PLUGIN_NAMES, type PluginName } from '../show/species/index.ts';
 import blitWGSL from './shaders/blit.wgsl?raw';
 import dofWGSL from './shaders/dof.wgsl?raw';
@@ -25,7 +27,7 @@ import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
 
 export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'sand' | 'data' | 'ink' | 'solids' | PluginName;
 
-const PLUGIN_WGSL: Record<PluginName, string> = { threads: threadsWGSL };
+const PLUGIN_WGSL: Record<PluginName, string> = { threads: threadsWGSL, pins: pinsWGSL, strata: strataWGSL };
 
 const HDR: GPUTextureFormat = 'rgba16float';
 const BLOOM_LEVELS = 6;

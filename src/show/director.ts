@@ -16,7 +16,7 @@ import { PLUGINS, PLUGIN_NAMES, READY, isPlugin, type PluginName } from './speci
  *  Ink and solids are other species (the reading gone liquid, ink.wgsl; made matter, solids.wgsl), each a
  *  whole performance of its own. */
 export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall', 'curtain'] as const;
-export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink', 'solids', 'threads'] as const;
+export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink', 'solids', 'threads', 'pins', 'strata'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
 /** Which renderer layer draws a clip. */
@@ -109,6 +109,8 @@ function affinity(A: Appraisal): Record<ClipId, number> {
     ink: 0,
     solids: 0,
     threads: 0,
+    pins: 0,
+    strata: 0,
   };
 }
 

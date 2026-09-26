@@ -2,5 +2,7 @@
 import type { VoiceKit } from '../clips.ts';
 import type { PluginName } from '../../show/species/index.ts';
 import { threads } from './threads.ts';
+import { pins } from './pins.ts';
+import { strata } from './strata.ts';
 
-export const VOICES: Record<PluginName, (k: VoiceKit) => number[]> = { threads };
+export const VOICES: Record<PluginName, (k: VoiceKit) => number[]> = { threads, pins, strata };
