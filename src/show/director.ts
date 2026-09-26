@@ -176,10 +176,10 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
   lastSpecies = species;
 
   // ---- appraisal: rapid cuts, faster when the word is charged
-  const appraisalDur = lerp(1.7, 2.6, clamp01(A.tape.length / 180)) * lerp(1.1, 0.85, aro);
+  const appraisalDur = lerp(0.9, 1.4, clamp01(A.tape.length / 180)) * lerp(1.1, 0.85, aro); // (step 0 of the sequence: fast)
   const cutLen = lerp(0.26, 0.075, aro) * (lazy > 0.6 ? 1.8 : 1);
   // it opens on the word itself and its bytes, held long enough to be read: proof the machine is reading *this*
-  const cuts: Cut[] = [{ start: 0, dur: lerp(0.7, 0.45, aro), mode: 'word', variant: 0 }];
+  const cuts: Cut[] = [{ start: 0, dur: lerp(0.5, 0.32, aro), mode: 'word', variant: 0 }];
   let t = cuts[0].dur;
   let prev: CutMode | null = 'word';
   // which readings the machine favours depends on what it found: ordered words read as barcodes and bits,
@@ -218,8 +218,8 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
     cuts.push({ start: t, dur: 0.6, mode: 'line', variant: 0 });
     t += 0.6;
   } else if (handOff) {
-    cuts.push({ start: t, dur: 0.45, mode: READING_OF[handOff]!, variant: lastVariant });
-    t += 0.45;
+    cuts.push({ start: t, dur: 0.3, mode: READING_OF[handOff]!, variant: lastVariant });
+    t += 0.3;
   }
 
   // ---- verdict
@@ -377,82 +377,96 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
     shots.push({ clip: alt, start: t, dur: d, seed: (rand() * 2 ** 31) | 0, aborted: true, angles: [WIDE], ops: STILL });
     t += d + lerp(0.25, 0.6, 1 - conf);
   }
-  // ---- the sequence (after Ikeda, data.matrix): the verdict alternates on a grid — 3D shots of the species, flat
-  // data shots of the word's own readings, black silences, rapid data strobes — and every choice of that grid is
-  // the word's: its tempo (arousal), how long the matter holds (calm, idle, still: long; charged, dark: short), what
-  // fills the gaps (ordered, machine, dense words: data; idle, void, sad words: black; tense, angry: strobes), and
-  // its rhythm (steady: regular; stuttering: irregular, beats skipped; pulsing: long/short; swelling: the cells
-  // grow; dwindling: they shrink and the blacks lengthen)
+  // ---- the sequence (after Ikeda, data.matrix): not a random walk but a form, as the film has one —
+  //   step 0  the appraisal (above), fast
+  //   A       the pulse: the matter ON (a 3D shot) / OFF (black, a thin tone) on a steady cycle; each ON a new view
+  //           of the same matter, which has moved on; an OFF may carry a one-frame flash of data
+  //   B       the break: a data shot of the word's readings, accelerating into flicker — data against black, then
+  //           the matter itself blinking — a calm word only holds its data, still
+  //   A'      the return of the pulse, resolving (a swelling word builds, a dwindling one fades out)
+  // Everything is the word's: the cycle (arousal, charge, idleness), ON/OFF, how hard B breaks (tension, anger,
+  // anxiety, darkness), its data (the word's own readings, white slabs for intense words), its rhythm (stuttering:
+  // an ON does not come; pulsing: ON and OFF trade places; strike: B opens on a white blow)
   const g = 60 / lerp(56, 128, aro); // one beat (show/rhythm.ts beatPeriod)
   const rp = A.c.rhythm.p;
-  const verdictStart = t, verdictEnd = t + form.dur;
-  const hold3d = lerp(4.5, 1.5, pace) * (1 + lazy * 0.8 + mo.still * 0.8) * (hold ? 1.4 : 1);
-  const wData = 0.2 + A.s.order * 0.6 + A.c.domain.p.machine * 0.8 + A.s.density * 0.4 + md.neu * 0.5;
-  const wBlack = 0.15 + lazy * 0.8 + A.c.material.p.void * 0.8 + em.sadness * 0.5 + A.n.loss * 0.5 + em.calm * 0.3;
-  const wStrobe = 0.05 + A.s.tension * 0.6 + em.anger * 0.7 + em.anxiety * 0.6 + dark * 0.4;
-  const wNext = 0.05 + md.pos * 0.2 + A.s.energy * 0.15;
-  const snap = (x: number) => Math.max(0.5, Math.round(x / (g * 0.5)) * 0.5) * g; // on half-beats of the grid
+  const snap = (x: number) => Math.max(1, Math.round(x / (g * 0.5))) * g * 0.5; // on half-beats of the grid
+  const cycle = snap(lerp(3.4, 1.6, pace) * (1 + lazy * 0.6));
+  const onShare = clamp01(lerp(0.5, 0.68, 1 - pace) + lazy * 0.1 - A.c.material.p.void * 0.2);
+  const breakHard = clamp01(A.s.tension * 0.6 + em.anger * 0.7 + em.anxiety * 0.6 + dark * 0.5 + aro * 0.3 - lazy * 0.6 - em.calm * 0.4);
   const whiteSlab = () => rand() < 0.15 + A.s.intensity * 0.35 + A.s.dominance * 0.2;
-  let cell = 0, pick = 0;
-  t = verdictStart;
-  while (t < verdictEnd - 0.5) {
-    const u = (t - verdictStart) / form.dur;
-    // the 3D shot: its length from the word (and its rhythm), never shorter than a beat
-    let len = hold3d * g / 0.75 * lerp(0.75, 1.3, rand());
-    if (rp.stuttering > 0.35) len *= rand() < 0.5 ? 0.45 : 1.2;
-    if (rp.pulsing > 0.35) len *= cell % 2 ? 0.55 : 1.35;
-    len *= 1 + rp.swelling * (u - 0.3) - rp.dwindling * u * 0.6;
-    len = snap(Math.max(g, len));
-    // (every word alternates: a 3D shot never holds past ~3.5 s — the first, the hand-off, 4 s — and is long enough
-    // to be read)
-    len = Math.min(len, cell === 0 ? 4 : 3.5 + lazy);
-    if (cell === 0) len = Math.max(len, 2.4);
-    len = Math.min(len, verdictEnd - t);
+  const nCycles = Math.max(3, Math.round(form.dur / cycle));
+  const nB = drama === 'void' ? 0 : Math.max(1, Math.round(nCycles * lerp(0.2, 0.4, breakHard)));
+  const nA = Math.max(1, Math.round((nCycles - nB) * 0.6)), nA2 = Math.max(1, nCycles - nB - nA);
+  let pick = 0, first = true;
+  const on3d = (len: number, opts: { flash?: boolean } = {}) => {
     const clip = species === 'points' ? picks[Math.floor(pick / 2) % picks.length] : picks[0];
     pick++;
-    let cover: Angle[] = [angles(len)[0] ?? WIDE];
-    cover = [{ ...cover[0], at: 0 }];
+    let cover: Angle[] = [{ ...(angles(len)[0] ?? WIDE), at: 0 }];
     let seed = (rand() * 2 ** 31) | 0;
-    if (clip === 'ink') cover = [{ ...cover[0], zoom: cell === 0 ? 1 : Math.min(cover[0].zoom, 1.8), offX: cell === 0 ? 0 : cover[0].offX, offY: cell === 0 ? 0 : cover[0].offY }];
+    if (clip === 'ink') cover = [{ ...cover[0], zoom: first ? 1 : Math.min(cover[0].zoom, 1.8), offX: first ? 0 : cover[0].offX, offY: first ? 0 : cover[0].offY }];
     else if (clip === 'solids' || isPlugin(clip)) {
       if (isPlugin(clip)) cover = [{ ...cover[0], zoom: Math.min(cover[0].zoom, PLUGINS[clip].maxZoom) }];
-      if (cell === 0) cover = [{ ...WIDE, seed: -1 }];
-      if (cell === 0 && isPlugin(clip)) seed = seed - (seed % 1000) + Math.round(lastVariant * 999);
-    } else if (cell === 0 && clip === handOff && drama !== 'question') {
+      if (first) cover = [{ ...WIDE, seed: -1 }];
+      if (first && isPlugin(clip)) seed = seed - (seed % 1000) + Math.round(lastVariant * 999);
+    } else if (first && clip === handOff && drama !== 'question') {
       // the reveal: the reading itself, frontal (angle seed −1), with the appraisal's last variant, then into its depth
       cover = [{ ...WIDE, seed: -1 }];
       seed = seed - (seed % 1000) + Math.round(lastVariant * 999);
     }
-    const last = t + len >= verdictEnd - 0.5;
-    if (drama === 'greeting' && last) cover = [{ ...WIDE, seed: -2 }];
+    const u = shots.length ? (t - shots[0].start) / form.dur : 0;
     shots.push({
       clip, start: t, dur: len, seed, aborted: false, angles: cover,
       ops: clip === 'ink' ? inkOps() : clip === 'solids' ? solidsOps() : isPlugin(clip) ? pluginOps(clip) : chooseOps(),
-      flash: (drama === 'barrage' && cell === 0) || (drama === 'misreading' && u >= 0.5 && shots.every((x) => !x.flash)),
-      flip: drama === 'misreading' && u < 0.5,
-      hold,
+      flash: !!opts.flash || (drama === 'barrage' && first), flip: drama === 'misreading' && u < 0.5, hold,
     });
+    first = false;
     t += len;
-    cell++;
-    if (last || t >= verdictEnd - 0.5) break;
-    // the interlude, drawn from the word: black, a flat data shot, a strobe of data, or a straight cut to the next angle
-    const dim = 1 - rp.dwindling * u; // a dwindling word lets the black grow
-    const wt = [wBlack / Math.max(dim, 0.3), wData, wStrobe, wNext];
-    let q = rand() * wt.reduce((x, y) => x + y, 0), kind = 0;
-    for (; kind < 3; kind++) { q -= wt[kind]; if (q <= 0) break; }
-    if (kind === 0) t += snap(g * lerp(0.5, 1.5, rand()) / Math.max(dim, 0.4));
-    else if (kind === 1) {
-      const d = snap(g * lerp(0.5, 2, rand()));
-      cuts.push({ start: t, dur: d, mode: drawReading(), variant: rand(), inv: whiteSlab() });
-      t += d;
-    } else if (kind === 2) {
-      // a strobe: data and black alternating on quarter-beats (never faster than 8 a second)
-      const q4 = Math.max(0.125, g / 4), n = 4 + Math.floor(rand() * 5);
-      const mode = drawReading(), inv = whiteSlab();
-      for (let k = 0; k < n; k++) if (k % 2 === 0 || rp.stuttering > 0.35 && rand() < 0.3) cuts.push({ start: t + k * q4, dur: q4, mode, variant: rand(), inv });
-      t += n * q4;
+  };
+  const data = (d: number, mode: CutMode = drawReading(), inv = whiteSlab()) => { cuts.push({ start: t, dur: d, mode, variant: rand(), inv }); t += d; };
+  const off = (d: number) => {
+    // the OFF: black, sometimes a single frame of data in its middle (the film's flashes of digits)
+    if (d > 0.4 && rand() < 0.2 + A.s.order * 0.3 + A.c.domain.p.machine * 0.3) {
+      t += d * 0.45;
+      data(0.1, drawReading(), false);
+      t += d * 0.55 - 0.1;
+    } else t += d;
+  };
+  const pulse = (n: number, phase: 'A' | 'A2') => {
+    for (let k = 0; k < n; k++) {
+      const u = (t - verdictStart) / form.dur;
+      let on = cycle * onShare, gap = cycle - on;
+      if (rp.pulsing > 0.35 && k % 2) [on, gap] = [gap, on];
+      if (phase === 'A2') on *= 1 + rp.swelling * 0.5 - rp.dwindling * 0.4 * (k + 1) / n;
+      const lastOne = phase === 'A2' && k === n - 1;
+      if (lastOne) on *= drama === 'endless' || drama === 'bloom' ? 1.8 : 1.3; // the resolution holds
+      if (first) on = Math.max(on, 2.4); // the hand-off holds long enough to be read
+      // a stutter: an ON that does not come (never the first, never the last)
+      if (!first && !lastOne && rp.stuttering > 0.35 && rand() < 0.3) { off(snap(on) + snap(gap)); continue; }
+      on3d(snap(on));
+      if (!lastOne) off(snap(gap * (1 + rp.dwindling * u)));
+    }
+  };
+  const verdictStart = t;
+  pulse(nA, 'A');
+  if (nB > 0) {
+    // the break: its data, then flicker accelerating (a calm word: the data held, and black)
+    const mode = drawReading(), inv = whiteSlab() || rp.strike > 0.3;
+    data(snap(g * lerp(1, 2, rand())), mode, inv);
+    if (breakHard < 0.25) off(snap(g));
+    else {
+      // data / black, the period shrinking from a half-beat to a tenth of a second
+      const n = Math.round(lerp(6, 16, breakHard));
+      for (let k = 0; k < n; k++) {
+        const per = Math.max(0.1, lerp(g * 0.5, 0.1, k / n));
+        if (k % 2 === 0) data(per, rand() < 0.7 ? mode : drawReading(), inv); else t += per;
+      }
+      // then the matter itself blinks (the relief flickering on and off), on quarter-beats
+      const m = Math.round(lerp(2, 8, breakHard));
+      for (let k = 0; k < m; k++) { on3d(Math.max(0.1, g / 4)); t += Math.max(0.1, g / 4); }
+      off(snap(g * 0.5));
     }
   }
+  pulse(nA2, 'A2');
 
   if (species === 'points') {
     openers.push(picks[0]);
