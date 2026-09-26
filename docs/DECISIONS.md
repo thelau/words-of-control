@@ -4,6 +4,12 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-26
 
+- **Back to the previous iteration** (solids, particles, ink, full viewport; "looks like crap … go back full viewport
+  … if necessary let's go back to solids and particles and ink"). Removed: the film-replay sequence, the 9:16 / square
+  frame, the sculpture prototype, pins and strata. New reference for "proper Ryoji work": Data-verse (High Museum,
+  2025; references/craft/set4/dataverse.mp4) — real datasets shown as precise, annotated scientific specimens, grids of
+  many, rare red/blue, a slow contemplative passage — closest to our appraisal, which the artist has consistently liked.
+
 - **Exactly the film** ("if you can make it exactly as the video … great"): the verdict replays the film's own score,
   measured frame by frame (show/film.ts: 15 cycles of 3.0 s, one character per frame: black, matter, white data slab,
   dim data) — its figures and its order (A, break, B, return). The word fills it (its matter, its readings) and picks

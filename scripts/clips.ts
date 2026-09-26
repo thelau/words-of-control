@@ -35,7 +35,7 @@ for (const clip of clips) {
     const W = (window as any).__woc;
     W.perform(a, w);
     const A = W.show().A;
-    W.performPlan(A, { cuts: [], shots: [{ clip, start: 0.05, dur, seed, aborted: false, angles: Array.from({ length: nAngles }, (_, k) => ({ at: (k * dur) / nAngles, seed: nAngles > 1 ? (k + 0.37) / nAngles : 0.5, zoom: 1, offX: 0, offY: 0 })), ops: { echo, warp, flow } }], cycles: [], blackAt: dur + 0.1, end: dur + 0.3 });
+    W.performPlan(A, { cuts: [], shots: [{ clip, start: 0.05, dur, seed, aborted: false, angles: Array.from({ length: nAngles }, (_, k) => ({ at: (k * dur) / nAngles, seed: nAngles > 1 ? (k + 0.37) / nAngles : 0.5, zoom: 1, offX: 0, offY: 0 })), ops: { echo, warp, flow } }], blackAt: dur + 0.1, end: dur + 0.3 });
   }, [fixtures[word], word, clip, dur, seed, echo, warp, flow, nAngles] as const);
   let n = 0;
   for (const u of nAngles > 1 ? Array.from({ length: nAngles }, (_, k) => (k + 0.6) / nAngles) : [0.1, 0.3, 0.55, 0.9]) {

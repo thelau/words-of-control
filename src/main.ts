@@ -37,6 +37,7 @@ const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = 
   appraisal: { bloom: 0.02, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
   sand: { bloom: 0.05, halation: 0.03, flat: 0 },
   data: { bloom: 0.05, halation: 0.02, flat: 0 },
+  ink: { bloom: 0.03, halation: 0.02, flat: 1 }, // (more glow made fresh ink a lamp)
   solids: { bloom: 0.015, halation: 0, flat: 1 }, // (crisp: a glow round the spheres read as fog)
   ...Object.fromEntries(PLUGIN_NAMES.map((n) => [n, { bloom: PLUGINS[n].bloom, halation: PLUGINS[n].halation, flat: 1 }])) as Record<(typeof PLUGIN_NAMES)[number], { bloom: number; halation: number; flat: number }>,
 };
@@ -134,7 +135,7 @@ async function boot() {
 
   // the species picker (testing): random, or one species every time (kept in memory only)
   const picker = document.getElementById('species') as HTMLButtonElement;
-  const PICKS: (Species | null)[] = [null, 'points', 'solids', ...PLUGIN_NAMES.filter((n) => READY[n])];
+  const PICKS: (Species | null)[] = [null, 'points', 'ink', 'solids', ...PLUGIN_NAMES.filter((n) => READY[n])];
   const LABEL: Record<string, string> = { points: 'particles' };
   let pick = 0;
   picker.addEventListener('mousedown', (e) => e.preventDefault()); // (the typing keeps its focus)
@@ -249,7 +250,6 @@ async function boot() {
   // ---- frame loop
   let last = performance.now();
   let lastKey = '';
-  let lastClip = '';
   // quality follows the device: if a performance runs slow (frames over ~20 ms on average), the soft layers
   // and the point count step down (1 → 0.75 → 0.5) — a phone plays the same piece, lighter
   let slow = 0;
@@ -307,21 +307,19 @@ async function boot() {
         const fade = show.plan.fade > 0 && m.clip ? Math.min(1, Math.max(0, (lastEnd - (clock() - show.t0)) / show.plan.fade)) : 1;
         f('exposure', fade * fade);
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
-        // a fresh layer of sand, or particles placed at once — when the matter changes, not on every flash of it
-        if (m.key !== lastKey && (layer === 'sand' || layer === 'data') && m.clip !== lastClip) f('mode', 1);
-        // solids (spheres with momentum) and the plug-ins carry across their shots (and the black between them):
-        // fresh only as their first shot begins
-        if ((layer === 'solids' || isPlugin(layer)) && m.key !== lastKey && si === show.plan.shots.findIndex((x) => x.clip === m.clip)) f('mode', 1);
+        if (m.key !== lastKey && (layer === 'sand' || layer === 'data')) f('mode', 1); // a fresh layer of sand; particles placed at once
+        // ink (one continuous fluid) and solids (spheres with momentum) carry across their shots (and the black
+        // between them): fresh only as their first shot begins
+        if ((layer === 'ink' || layer === 'solids' || isPlugin(layer)) && m.key !== lastKey && si === show.plan.shots.findIndex((x) => x.clip === m.clip)) f('mode', 1);
         if (m.clip === 'chladni') {
           const [mm, nn] = plateMode(show.A, m.seed, m.lt / m.dur);
           f('modeM', mm); f('modeN', nn);
         }
         lastKey = m.key;
-        if (m.clip) lastClip = m.clip;
         // how many points the formation uses: all for the dense geometric ones, fewer for the costly soft ones
-        renderer.dataShare = m.clip === 'cloud' || m.clip === 'tube' ? 0.7 : m.clip === 'landscape' ? 0.85 : 1;
-        // variant2: which data formation
-        f('variant2', layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : 0);
+        renderer.dataShare = m.clip === 'cloud' || m.clip === 'tube' ? 0.7 : m.clip === 'landscape' || m.clip === 'hall' ? 0.85 : 1;
+        // variant2: which data formation; for ink, which reading it is poured from (1: a question's line)
+        f('variant2', layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : layer === 'ink' && show.plan.drama === 'question' ? 1 : 0);
       }
     }
     if (layer === 'room') {
@@ -335,8 +333,7 @@ async function boot() {
     // text and lines are drawn at native resolution; everything soft (and scatter's dots) at CSS resolution
     const hi = layer === 'appraisal' && moment?.mode !== CUT_MODES.indexOf('scatter');
     f('hiRes', hi ? 1 : 0);
-    f('resX', hi ? renderer.hiW : renderer.lowW); f('resY', hi ? renderer.hiH : renderer.lowH); f('dpr', hi ? renderer.dpr : 1);
-    f('boxW', renderer.boxW); f('boxH', renderer.boxH); f('boxOn', layer === 'room' ? 0 : 1);
+    f('resX', hi ? renderer.width : renderer.lowW); f('resY', hi ? renderer.height : renderer.lowH); f('dpr', hi ? renderer.dpr : 1);
     renderer.render(layer, frame.f32, hi);
     picker.hidden = !(state === 'idle' || state === 'typing' || state === 'error');
     for (const h of app.frameHooks) h(now);

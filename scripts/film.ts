@@ -43,7 +43,7 @@ for (const w of words) {
   for (const sh of plan.shots) { cuts.push(sh.start, sh.start + sh.dur); for (const a of sh.angles) cuts.push(sh.start + a.at); }
   cuts.push(plan.blackAt);
   // frames: 48×27 grey, every 1/25 s
-  const raw = execFileSync('ffmpeg', ['-v', 'error', '-i', out, '-vf', `fps=${FPS},scale=48:27,format=gray`, '-f', 'rawvideo', '-'], { maxBuffer: 1 << 28 });
+  const raw = execFileSync('ffmpeg', ['-v', 'error', '-i', out, '-vf', `fps=${FPS},scale=48:27,format=gray`, '-f', 'rawvideo', '-']);
   const n = Math.floor(raw.length / (48 * 27));
   const diffs: number[] = [];
   for (let f = 1; f < n; f++) {

@@ -68,9 +68,9 @@ const solo = (clip: string, mode: string) => page.evaluate(([a, clip, mode]) => 
   const A = W.show().A;
   const cuts = mode ? [{ start: 0, dur: 3.2, mode, variant: 0.3 }] : [];
   const shots = clip ? [{ clip, start: 0.05, dur: 3.2, seed: 7, aborted: false, angles: [{ at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 }], ops: { echo: 0, warp: 0, flow: 0 } }] : [];
-  W.performPlan(A, { cuts, shots, cycles: [], blackAt: 3.3, end: 3.9 });
+  W.performPlan(A, { cuts, shots, blackAt: 3.3, end: 3.9 });
 }, [fixtures.fuck, clip, mode]);
-for (const clip of ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall', 'relief', 'chladni', 'solids', 'threads', 'pins', 'strata']) {
+for (const clip of ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall', 'relief', 'chladni', 'ink', 'solids', 'threads']) {
   await solo(clip, '');
   await page.waitForTimeout(700);
   layers.push([`clip ${clip}`, stats(await sample(2000))]);

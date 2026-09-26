@@ -25,8 +25,6 @@ const FRAME = [
   'charge', 'kick', 'flash', 'invert', 'exposure', 'bloom', 'grain',
   // the output (canvas) size; scenes may render smaller (resX/resY) and be upscaled
   'outX', 'outY', 'outDpr', 'hiRes',
-  // the frame the verdict lives in, as a share of the output (1, 1 = the whole screen), and whether it applies now
-  'boxW', 'boxH', 'boxOn',
   // the performance's number in this session (the signature)
   'serial',
   // grading per layer: white balance, halation, flat (data: pure black, no vignette)

@@ -30,24 +30,16 @@ fn film(c: vec3f) -> vec3f {
 @fragment
 fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let res = vec2f(F.outX, F.outY);
-  let uv0 = fc.xy / res;
-  // the frame: the performance lives in a 9:16 column the full height of the screen, in the dark (the room fills
-  // the screen)
-  let box = select(vec2f(1.0), vec2f(F.boxW, F.boxH), F.boxOn > 0.5);
-  let uv = (uv0 - 0.5) / box + 0.5;
-  let inside = all(uv >= vec2f(0.0)) && all(uv <= vec2f(1.0));
-  var c = vec3f(0.0);
-  if (inside) {
-    // soft layers are rendered at CSS resolution and upscaled; the data stays native
-    c = textureSampleLevel(scene, samp, uv, 0.0).rgb;
-    if (F.hiRes > 0.5) { c = textureLoad(sceneHi, vec2i(uv * vec2f(textureDimensions(sceneHi))), 0).rgb; }
-    // neutral bloom (small) + film halation: only the brightest light bleeds red into the emulsion
-    if (F.bloom > 0.0 || F.halation > 0.0) {
-      let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
-      c += bl * F.bloom + max(bl - vec3f(0.35), vec3f(0.0)) * vec3f(1.0, 0.35, 0.15) * F.halation;
-    }
+  let uv = fc.xy / res;
+  // soft layers are rendered at CSS resolution and upscaled; the data stays native
+  var c = textureSampleLevel(scene, samp, uv, 0.0).rgb;
+  if (F.hiRes > 0.5) { c = textureLoad(sceneHi, vec2i(fc.xy), 0).rgb; }
+  let q = uv - 0.5;
+  // neutral bloom (small) + film halation: only the brightest light bleeds red into the emulsion
+  if (F.bloom > 0.0 || F.halation > 0.0) {
+    let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
+    c += bl * F.bloom + max(bl - vec3f(0.35), vec3f(0.0)) * vec3f(1.0, 0.35, 0.15) * F.halation;
   }
-  let q = uv0 - 0.5;
   c = c * vec3f(F.wbR, F.wbG, F.wbB) * F.exposure + vec3f(F.flash);
   let vig = mix(1.0 - 0.35 * pow(dot(q * vec2f(1.0, 1.25), q * vec2f(1.0, 1.25)) * 2.2, 1.3), 1.0, F.flat);
   var outc = toSrgb(BG * (1.0 - F.flat) + film(c) * vig);

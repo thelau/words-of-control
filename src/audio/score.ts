@@ -8,15 +8,16 @@
  *   dry buffer, so sound and image cut together. The first cut replays how the
  *   word was typed.
  * - Voices: robot voices read the digits on screen (voice.ts, in a worker).
- * - Verdict: music on the sequence's cycles (music.ts) — the flicker is its beat, each hold its material's voice
- *   (clips.ts); nothing under it but its own common tones (the film's lows come only with its bursts).
+ * - Verdict: one voice per clip (clips.ts), cut in with the image and ringing on under the next, over one to
+ *   three beds drawn from the judgement, with every camera cut heard (beds.ts).
  * - Release: the hall blooms once at the cut to black; the drone ducks.
  */
 import type { Appraisal } from '../jev/appraisal.ts';
 import type { Cut, Plan } from '../show/director.ts';
 import { D2, dbToGain, type AudioEngine } from './audio.ts';
 import type { Drone } from './drone.ts';
-import { playMusic } from './music.ts';
+import { playShot } from './clips.ts';
+import { playBeds } from './beds.ts';
 import type { VoiceSpec } from './voice.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -38,10 +39,10 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, plan
   src.connect(g).connect(a.perfDry);
   src.start(t0);
 
-  // the voices read the appraisal only (not the data shots inside the verdict)
-  const v0 = plan.shots[0]?.start ?? plan.blackAt;
-  voices(a, A, plan.cuts.filter((c) => c.start < v0), t0);
-  const residue = playMusic(a, drone, A, plan, t0);
+  voices(a, A, plan.cuts, t0);
+  const residue: number[] = [];
+  plan.shots.forEach((_, i) => residue.push(...playShot(a, drone, A, plan, i, t0)));
+  playBeds(a, A, plan, t0);
   a.cutAt(t0 + plan.blackAt, t0 + plan.end);
   drone.duck(t0 + plan.blackAt);
   drone.remember({

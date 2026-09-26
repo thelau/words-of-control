@@ -3,7 +3,7 @@
  * black) into an HDR target, then bloom and the film composite. Scenes are
  * fullscreen shaders except relief (compute height field + shading), sand
  * (compute simulation + camera + lens), data (points in 3D, instanced, with
- * their own bokeh) and solids
+ * their own bokeh), ink (a fluid simulation, its dye lit as a surface) and solids
  * (a traced cluster of spheres, placed and packed once a frame by a compute pass).
  */
 import commonWGSL from './shaders/common.wgsl?raw';
@@ -13,10 +13,9 @@ import reliefWGSL from './shaders/relief.wgsl?raw';
 import fieldWGSL from './shaders/field.wgsl?raw';
 import sandWGSL from './shaders/sand.wgsl?raw';
 import sandDrawWGSL from './shaders/sand_draw.wgsl?raw';
+import inkWGSL from './shaders/ink.wgsl?raw';
 import solidsWGSL from './shaders/solids.wgsl?raw';
 import threadsWGSL from './shaders/threads.wgsl?raw';
-import pinsWGSL from './shaders/pins.wgsl?raw';
-import strataWGSL from './shaders/strata.wgsl?raw';
 import { PLUGINS, PLUGIN_NAMES, type PluginName } from '../show/species/index.ts';
 import blitWGSL from './shaders/blit.wgsl?raw';
 import dofWGSL from './shaders/dof.wgsl?raw';
@@ -24,9 +23,9 @@ import bloomWGSL from './shaders/bloom.wgsl?raw';
 import compositeWGSL from './shaders/composite.wgsl?raw';
 import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
 
-export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'sand' | 'data' | 'solids' | PluginName;
+export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'sand' | 'data' | 'ink' | 'solids' | PluginName;
 
-const PLUGIN_WGSL: Record<PluginName, string> = { threads: threadsWGSL, pins: pinsWGSL, strata: strataWGSL };
+const PLUGIN_WGSL: Record<PluginName, string> = { threads: threadsWGSL };
 
 const HDR: GPUTextureFormat = 'rgba16float';
 const BLOOM_LEVELS = 6;
@@ -35,6 +34,10 @@ const RELIEF_RES = 512;
 /** Points drawn by the data layer. */
 const FIELD_N = 250_000;
 const SAND_N = 512;
+/** The ink's velocity and dye grids (keep in step with ink.wgsl VN, DN), and its pressure iterations. */
+const INK_VEL = 256;
+const INK_DYE = 1280;
+const INK_JACOBI = 24;
 const WORD_W = 2048;
 const WORD_H = 160;
 
@@ -50,12 +53,6 @@ export class Renderer {
   lowH = 0;
   /** 1, 0.75 or 0.5: the soft layers' resolution and the data layer's point count (lowered on slow devices). */
   quality = 1;
-  /** The frame the performance lives in (9:16, the full height of the screen — on a phone, the whole screen), as a
-   *  share of the output, and the scene's size at native resolution (px). */
-  boxW = 1;
-  boxH = 1;
-  hiW = 0;
-  hiH = 0;
   /** The share of the data layer's points a formation uses (the dense geometric ones all; the costly soft ones fewer). */
   dataShare = 1;
   private d!: GPUDevice;
@@ -69,6 +66,11 @@ export class Renderer {
   private sandTex!: GPUTexture;
   private wrapSampler!: GPUSampler;
   private sand: GPUBuffer[] = [];
+  private inkVel: GPUTexture[] = [];
+  private inkP: GPUTexture[] = [];
+  private inkDiv!: GPUTexture;
+  private inkDye: GPUTexture[] = [];
+  private inkFib: GPUTexture[] = [];
   private solidsBuf!: GPUBuffer;
   /** The plug-in species (src/show/species): pipelines, state, and their own last two frames (trails). */
   private plug: Partial<Record<PluginName, { setup: GPUComputePipeline; draw: GPURenderPipeline; bgSetup: GPUBindGroup; state: GPUBuffer; hist: Target[]; bgDraw: GPUBindGroup[]; bgDof: GPUBindGroup[]; flip: number }>> = {};
@@ -130,6 +132,13 @@ export class Renderer {
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
     this.atlas = await makeGlyphAtlas(d);
     this.wordTex = d.createTexture({ size: [WORD_W, WORD_H], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+    const inkTex = (n: number) => d.createTexture({ size: [n, n], format: HDR,
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST });
+    this.inkVel = [inkTex(INK_VEL), inkTex(INK_VEL)];
+    this.inkP = [inkTex(INK_VEL), inkTex(INK_VEL)];
+    this.inkDiv = inkTex(INK_VEL);
+    this.inkDye = [inkTex(INK_DYE), inkTex(INK_DYE)];
+    this.inkFib = [inkTex(INK_DYE), inkTex(INK_DYE)];
     this.solidsBuf = d.createBuffer({ size: (6 + 4 * 96) * 16, usage: GPUBufferUsage.STORAGE }); // camera, bound, count, 96 spheres + their physics (solids.wgsl)
     this.heightTex = d.createTexture({
       size: [RELIEF_RES, RELIEF_RES], format: HDR,
@@ -186,6 +195,13 @@ export class Renderer {
       fragment: { module: sandDraw, entryPoint: 'fs', targets: [{ format: HDR }] },
     });
 
+    const ink = mod('ink', pre + inkWGSL);
+    for (const e of ['force', 'divergence', 'jacobi', 'project', 'dye']) this.c[`ink_${e}`] = d.createComputePipeline({ layout: 'auto', compute: { module: ink, entryPoint: e } });
+    this.p.ink = d.createRenderPipeline({
+      layout: 'auto', vertex: { module: ink, entryPoint: 'vs_full' },
+      fragment: { module: ink, entryPoint: 'fs', targets: [{ format: HDR }] },
+    });
+
     const solids = mod('solids', pre + solidsWGSL);
     this.c.solidsSetup = d.createComputePipeline({ layout: 'auto', compute: { module: solids, entryPoint: 'setup' } });
     this.p.solids = d.createRenderPipeline({
@@ -223,6 +239,18 @@ export class Renderer {
     group('dataCam', this.c.dataCamera, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 3, resource: { buffer: this.camBuf } }]);
     group('dataSim', this.c.dataSim, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 5, resource: { buffer: this.partBuf } }]);
     group('data', this.p.data, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: { buffer: this.camBuf } }, { binding: 4, resource: { buffer: this.partBuf } }]);
+    // ink: velocity A → (force) B → (divergence, pressure A⇄B) → (project) A; dye A → B, copied back to A
+    const v = (t: GPUTexture) => t.createView();
+    const [vA, vB] = this.inkVel, [pA, pB] = this.inkP, [dA, dB] = this.inkDye;
+    const lin = { binding: 10, resource: this.sampler };
+    group('ink_force', this.c.ink_force, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: v(vA) }, { binding: 3, resource: v(vB) }, { binding: 8, resource: v(dA) }, lin]);
+    group('ink_divergence', this.c.ink_divergence, [{ binding: 2, resource: v(vB) }, { binding: 7, resource: v(this.inkDiv) }]);
+    group('ink_jacobiA', this.c.ink_jacobi, [{ binding: 0, resource: uni }, { binding: 4, resource: v(pA) }, { binding: 5, resource: v(pB) }, { binding: 6, resource: v(this.inkDiv) }]);
+    group('ink_jacobiB', this.c.ink_jacobi, [{ binding: 0, resource: uni }, { binding: 4, resource: v(pB) }, { binding: 5, resource: v(pA) }, { binding: 6, resource: v(this.inkDiv) }]);
+    group('ink_project', this.c.ink_project, [{ binding: 2, resource: v(vB) }, { binding: 3, resource: v(vA) }, { binding: 4, resource: v(pA) }]);
+    const [fA, fB] = this.inkFib;
+    group('ink_dye', this.c.ink_dye, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: v(vA) }, { binding: 8, resource: v(dA) }, { binding: 9, resource: v(dB) }, lin, { binding: 11, resource: v(fA) }, { binding: 12, resource: v(fB) }]);
+    group('ink', this.p.ink, [{ binding: 0, resource: uni }, { binding: 8, resource: v(dA) }, lin, { binding: 11, resource: v(fA) }]);
     group('solidsSetup', this.c.solidsSetup, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: { buffer: this.solidsBuf } }]);
     group('solids', this.p.solids, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 3, resource: { buffer: this.solidsBuf } }]);
     // the plug-in species: one fixed contract (explicit layouts, so a shader may leave any binding unused)
@@ -272,23 +300,17 @@ export class Renderer {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.max(1, Math.round(this.canvas.clientWidth * this.dpr));
     const h = Math.max(1, Math.round(this.canvas.clientHeight * this.dpr));
-    const [bw, bh] = [Math.min(1, (h * 9) / 16 / w), 1];
-    const hw = Math.max(1, Math.round(w * bw)), hh = Math.max(1, Math.round(h * bh));
-    if (w === this.width && h === this.height && this.scene && hw === this.hiW && hh === this.hiH && this.lowW === Math.max(1, Math.round((hw / this.dpr) * this.quality))) return false;
+    if (w === this.width && h === this.height && this.scene && this.lowW === Math.max(1, Math.round((w / this.dpr) * this.quality))) return false;
     this.width = w;
     this.height = h;
-    this.boxW = bw;
-    this.boxH = bh;
-    this.hiW = hw;
-    this.hiH = hh;
     this.canvas.width = w;
     this.canvas.height = h;
     const mk = (): Target => {
-      const tex = this.d.createTexture({ size: [hw, hh], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+      const tex = this.d.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
       return { tex, view: tex.createView() };
     };
-    this.lowW = Math.max(1, Math.round((hw / this.dpr) * this.quality));
-    this.lowH = Math.max(1, Math.round((hh / this.dpr) * this.quality));
+    this.lowW = Math.max(1, Math.round((w / this.dpr) * this.quality));
+    this.lowH = Math.max(1, Math.round((h / this.dpr) * this.quality));
     const mkLow = (): Target => {
       const tex = this.d.createTexture({ size: [this.lowW, this.lowH], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
       return { tex, view: tex.createView() };
@@ -408,6 +430,18 @@ export class Renderer {
       tp.draw(4, Math.round(n * this.quality));
       tp.end();
       fullPass(this.p.blit, this.bg.blit);
+    } else if (layer === 'ink') {
+      const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
+      const run = (pipe: string, bg: string, n: number) => { cp.setPipeline(this.c[pipe]); cp.setBindGroup(0, this.bg[bg]); cp.dispatchWorkgroups(n / 16, n / 16); };
+      run('ink_force', 'ink_force', INK_VEL);
+      run('ink_divergence', 'ink_divergence', INK_VEL);
+      for (let k = 0; k < INK_JACOBI; k++) run('ink_jacobi', k % 2 ? 'ink_jacobiB' : 'ink_jacobiA', INK_VEL);
+      run('ink_project', 'ink_project', INK_VEL);
+      run('ink_dye', 'ink_dye', INK_DYE);
+      cp.end();
+      enc.copyTextureToTexture({ texture: this.inkDye[1] }, { texture: this.inkDye[0] }, [INK_DYE, INK_DYE]);
+      enc.copyTextureToTexture({ texture: this.inkFib[1] }, { texture: this.inkFib[0] }, [INK_DYE, INK_DYE]);
+      fullPass(this.p.ink, this.bg.ink);
     } else if (layer === 'solids') {
       const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);
       cp.setPipeline(this.c.solidsSetup); cp.setBindGroup(0, this.bg.solidsSetup); cp.dispatchWorkgroups(1);
@@ -473,7 +507,7 @@ export class Renderer {
 
   /** Draw every layer once so no pipeline compiles mid-performance. */
   warmUp(frame: Float32Array) {
-    for (const l of ['room', 'appraisal', 'relief', 'sand', 'data', 'solids', ...PLUGIN_NAMES, 'black'] as Layer[]) this.render(l, frame, l === 'appraisal');
+    for (const l of ['room', 'appraisal', 'relief', 'sand', 'data', 'ink', 'solids', ...PLUGIN_NAMES, 'black'] as Layer[]) this.render(l, frame, l === 'appraisal');
   }
 
 }
