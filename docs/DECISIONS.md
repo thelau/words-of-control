@@ -4,6 +4,13 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-26
 
+- **The verdict is the atlas** ("yea good suggestions", after Ikeda's data-verse): the word as a scientific specimen —
+  four annotated plates (grid of every answer as an instrument, the most distinctive answer in focus, the crowd of
+  every answer against the reference words, the map of valence × arousal with its nearest words), the answers that
+  set it apart in red, heard as test tones, clicks and a sub (no beds). It compares against the piece's own reference
+  lexicon (src/jev/lexicon.json, scripts/lexicon.ts), never against what visitors typed (nothing typed is kept).
+  Particles, solids and ink remain reachable from the picker for comparison.
+
 - **Back to the previous iteration** (solids, particles, ink, full viewport; "looks like crap … go back full viewport
   … if necessary let's go back to solids and particles and ink"). Removed: the film-replay sequence, the 9:16 / square
   frame, the sculpture prototype, pins and strata. New reference for "proper Ryoji work": Data-verse (High Museum,

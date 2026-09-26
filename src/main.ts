@@ -17,6 +17,8 @@ import { analyze } from './jev/client.ts';
 import { buildAppraisal, type Appraisal } from './jev/appraisal.ts';
 import type { Answers } from './jev/types.ts';
 import { CUT_MODES, DATA_CLIPS, direct, type Plan, type Species } from './show/director.ts';
+import { atlasModel } from './show/atlas.ts';
+import { paintAtlas } from './render/atlasPaint.ts';
 import { momentAt, type Moment } from './show/timeline.ts';
 import { seedFromText } from './core/rng.ts';
 import { showSupport, hideSupport } from './support.ts';
@@ -34,7 +36,7 @@ const engineOld = query.get('engine') === 'old' ? 1 : 0;
 // grading per layer: neutral bloom, film halation (only the brightest light), flat = data (true black)
 const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = {
   room: { bloom: 0.06, halation: 0, flat: 0 }, black: { bloom: 0, halation: 0, flat: 0 },
-  appraisal: { bloom: 0.02, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
+  appraisal: { bloom: 0.02, halation: 0, flat: 1 }, atlas: { bloom: 0.012, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
   sand: { bloom: 0.05, halation: 0.03, flat: 0 },
   data: { bloom: 0.05, halation: 0.02, flat: 0 },
   ink: { bloom: 0.03, halation: 0.02, flat: 1 }, // (more glow made fresh ink a lamp)
@@ -133,22 +135,29 @@ async function boot() {
     if (audio && drone) playPerformance(audio, drone, A, plan, t0);
   }
 
-  // the species picker (testing): random, or one species every time (kept in memory only)
+  // the species picker (testing): the atlas, or one of the earlier species (kept in memory only)
   const picker = document.getElementById('species') as HTMLButtonElement;
-  const PICKS: (Species | null)[] = [null, 'points', 'ink', 'solids', ...PLUGIN_NAMES.filter((n) => READY[n])];
+  // (the atlas is the piece; the earlier species stay reachable here for comparison)
+  const PICKS: Species[] = ['atlas', 'points', 'ink', 'solids', ...PLUGIN_NAMES.filter((n) => READY[n])];
   const LABEL: Record<string, string> = { points: 'particles' };
   let pick = 0;
   picker.addEventListener('mousedown', (e) => e.preventDefault()); // (the typing keeps its focus)
   picker.addEventListener('click', () => {
     pick = (pick + 1) % PICKS.length;
     const s = PICKS[pick];
-    picker.textContent = s ? LABEL[s] ?? s : 'random';
+    picker.textContent = LABEL[s] ?? s;
   });
 
   function perform(answers: Answers, text: string) {
     const A = buildAppraisal(answers, text, typing.trace(), seedFromText(text));
     renderer.setWord(text);
-    performPlan(A, direct(A, undefined, PICKS[pick] ?? undefined));
+    const plan = direct(A, undefined, PICKS[pick]);
+    // the atlas's plates, painted once for this performance (as the typed line fades)
+    if (plan.species === 'atlas') {
+      const { plates, rects } = paintAtlas(A, text, atlasModel(A), renderer.width, renderer.height);
+      renderer.setAtlas(plates, rects);
+    }
+    performPlan(A, plan);
   }
 
   async function submit(text: string) {
@@ -319,7 +328,7 @@ async function boot() {
         // how many points the formation uses: all for the dense geometric ones, fewer for the costly soft ones
         renderer.dataShare = m.clip === 'cloud' || m.clip === 'tube' ? 0.7 : m.clip === 'landscape' || m.clip === 'hall' ? 0.85 : 1;
         // variant2: which data formation; for ink, which reading it is poured from (1: a question's line)
-        f('variant2', layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : layer === 'ink' && show.plan.drama === 'question' ? 1 : 0);
+        f('variant2', layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : layer === 'atlas' ? m.seed : layer === 'ink' && show.plan.drama === 'question' ? 1 : 0);
       }
     }
     if (layer === 'room') {
@@ -331,7 +340,7 @@ async function boot() {
     const wb = show && layer !== 'appraisal' ? whiteBalance(show.A) : [1, 1, 1];
     f('wbR', wb[0]); f('wbG', wb[1]); f('wbB', wb[2]);
     // text and lines are drawn at native resolution; everything soft (and scatter's dots) at CSS resolution
-    const hi = layer === 'appraisal' && moment?.mode !== CUT_MODES.indexOf('scatter');
+    const hi = layer === 'atlas' || (layer === 'appraisal' && moment?.mode !== CUT_MODES.indexOf('scatter'));
     f('hiRes', hi ? 1 : 0);
     f('resX', hi ? renderer.width : renderer.lowW); f('resY', hi ? renderer.height : renderer.lowH); f('dpr', hi ? renderer.dpr : 1);
     renderer.render(layer, frame.f32, hi);

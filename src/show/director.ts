@@ -7,7 +7,8 @@
 import type { Appraisal } from '../jev/appraisal.ts';
 import { mulberry32 } from '../core/rng.ts';
 import type { Layer } from '../render/gpu.ts';
-import { PLUGINS, PLUGIN_NAMES, READY, isPlugin, type PluginName } from './species/index.ts';
+import { PLUGINS, isPlugin, type PluginName } from './species/index.ts';
+import { atlasModel } from './atlas.ts';
 
 /** The verdict vocabulary. The appraisal gone 3D — data formations (field.wgsl), each the spatial form of
  *  a 2D reading, and drift, the void — and two matters the data acts on: the relief (data → surface) and
@@ -16,7 +17,7 @@ import { PLUGINS, PLUGIN_NAMES, READY, isPlugin, type PluginName } from './speci
  *  Ink and solids are other species (the reading gone liquid, ink.wgsl; made matter, solids.wgsl), each a
  *  whole performance of its own. */
 export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall', 'curtain'] as const;
-export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink', 'solids', 'threads'] as const;
+export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink', 'solids', 'threads', 'atlas'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
 /** Which renderer layer draws a clip. */
@@ -47,7 +48,7 @@ export type Shot = { clip: ClipId; start: number; dur: number; seed: number; abo
 
 /** What a performance is made of, seen at a glance: the points (the data formations, the relief, the sand), ink,
  *  or solids. Two performances in a row are never the same species — the second word must not look like the first. */
-export type Species = 'points' | 'ink' | 'solids' | PluginName;
+export type Species = 'atlas' | 'points' | 'ink' | 'solids' | PluginName;
 
 /** The performance's form, chosen from the reading (see direct()). */
 export type Drama = 'storm' | 'barrage' | 'endless' | 'misreading' | 'bloom' | 'measure' | 'shrug' | 'name' | 'greeting' | 'question' | 'void';
@@ -105,6 +106,7 @@ function affinity(A: Appraisal): Record<ClipId, number> {
       + d.nature * 0.3 + A.c.sense.p.hearing * 0.3 + 0.3,
     // (their own species: never mixed into a performance of points)
     ink: 0,
+    atlas: 0,
     solids: 0,
     threads: 0,
   };
@@ -115,23 +117,6 @@ const recent: ClipId[] = [];
 /** The operator combinations of the last performances: never built the same way twice in a row. */
 const recentOps: string[] = [];
 const openers: ClipId[] = [];
-let lastSpecies: Species | null = null;
-/** How much each species suits the reading: ink the liquid (feeling, fluids, flowing, spreading), solids the
- *  material (objects and bodies, hard and heavy matter, round and jagged forms), points the data (the machine,
- *  order, nonsense, the abstract, the idle). */
-function suits(A: Appraisal): Record<Species, number> {
-  const plugins = Object.fromEntries(PLUGIN_NAMES.map((n) => [n, PLUGINS[n].suits(A)])) as Record<PluginName, number>;
-  const m = A.c.material.p, sh = A.c.shape.p, tx = A.c.texture.p, mo = A.c.motion.p, d = A.c.domain.p, k = A.c.kind.p;
-  return {
-    ink: (1 - A.mood.neu) + m.water + m.smoke + m.fire * 0.7 + m.light * 0.5 + sh.flowing + tx.liquid + tx.soft * 0.3
-      + mo.spreading * 0.5 + mo.drifting * 0.5 + mo.circling * 0.4 + A.n.closeness * 0.3 + (k.feeling ?? 0),
-    solids: (k.object ?? 0) * 1.5 + (k['living being'] ?? 0) + m.metal + m.stone + m.glass + m.wood + m.ice + m.flesh * 0.5
-      + A.s.hardness + A.s.weight + sh.round * 0.6 + sh.jagged * 0.6 + sh.point * 0.5 + d.body * 0.5,
-    points: d.machine + d.mind * 0.5 + A.s.order + A.c.act.p.nonsense + (k['abstract idea'] ?? 0) + A.s.strangeness
-      + d.city * 0.5 + tx.crystalline * 0.5 + A.lazy * 0.5 + (k.sound ?? 0) * 0.5,
-    ...plugins,
-  };
-}
 
 /** `salt` makes every performance of the same answers a little different (the room is live, never a replay);
  *  `force` picks the species (the picker, for testing). */
@@ -157,19 +142,9 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
     : md.neu >= md.neg ? 'measure'
     : 'storm';
 
-  // ---- the species (a name too: it is performed as one long held take, see the forms below)
-  // among the others, the reading chooses — mostly the one that suits it best, sometimes the next
-  // never the last one; among the others, chance — the reading only leans on it (Laurent: the surprise matters
-  // more than the fit)
-  const fit = suits(A);
-  // (a plug-in not yet built is never drawn)
-  const pool = (['points', 'ink', 'solids', ...PLUGIN_NAMES] as Species[]).filter((x) => x !== lastSpecies && (!isPlugin(x) || READY[x]));
-  const wsp = pool.map((x) => Math.exp(1.5 * fit[x]));
-  let rs = rand() * wsp.reduce((x, y) => x + y, 0);
-  let species: Species = pool[pool.length - 1];
-  for (let i = 0; i < pool.length; i++) { rs -= wsp[i]; if (rs <= 0) { species = pool[i]; break; } }
-  if (force) species = force;
-  lastSpecies = species;
+  // ---- the species: the atlas (the word as a specimen, after Ikeda's data-verse); the earlier species only when
+  // the picker asks for them
+  const species: Species = force ?? 'atlas';
 
   // ---- appraisal: rapid cuts, faster when the word is charged
   const appraisalDur = lerp(1.7, 2.6, clamp01(A.tape.length / 180)) * lerp(1.1, 0.85, aro);
@@ -370,6 +345,17 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
 
   const shots: Shot[] = [];
   t += 0.15;
+  if (species === 'atlas') {
+    // the atlas: its plates, cut hard, a frame of black between them (show/atlas.ts); shot.seed = the plate
+    atlasModel(A).plates.forEach((p, k) => {
+      shots.push({ clip: 'atlas', start: t, dur: p.dur, seed: k, aborted: false, angles: [WIDE], ops: STILL });
+      t += p.dur + 0.1;
+    });
+    t -= 0.1;
+    cuts.push({ start: t, dur: 1.1, mode: 'word', variant: 2 });
+    t += 1.1;
+    return { drama, species, cuts, shots, fade: 0, blackAt: t, end: t + form.tail };
+  }
   // low confidence (outside the misreading itself): a false start — a shot begins, is cut off, and the machine starts again
   if (conf < 0.5 && lazy < 0.7 && drama === 'storm' && species === 'points') {
     const alt = ranked[1 + Math.floor(rand() * 2)];

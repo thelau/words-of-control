@@ -15,6 +15,8 @@ import sandWGSL from './shaders/sand.wgsl?raw';
 import sandDrawWGSL from './shaders/sand_draw.wgsl?raw';
 import inkWGSL from './shaders/ink.wgsl?raw';
 import solidsWGSL from './shaders/solids.wgsl?raw';
+import atlasWGSL from './shaders/atlas.wgsl?raw';
+import { MAX_ITEMS } from './atlasPaint.ts';
 import threadsWGSL from './shaders/threads.wgsl?raw';
 import { PLUGINS, PLUGIN_NAMES, type PluginName } from '../show/species/index.ts';
 import blitWGSL from './shaders/blit.wgsl?raw';
@@ -23,7 +25,7 @@ import bloomWGSL from './shaders/bloom.wgsl?raw';
 import compositeWGSL from './shaders/composite.wgsl?raw';
 import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
 
-export type Layer = 'room' | 'black' | 'appraisal' | 'relief' | 'sand' | 'data' | 'ink' | 'solids' | PluginName;
+export type Layer = 'room' | 'black' | 'appraisal' | 'atlas' | 'relief' | 'sand' | 'data' | 'ink' | 'solids' | PluginName;
 
 const PLUGIN_WGSL: Record<PluginName, string> = { threads: threadsWGSL };
 
@@ -72,6 +74,10 @@ export class Renderer {
   private inkDye: GPUTexture[] = [];
   private inkFib: GPUTexture[] = [];
   private solidsBuf!: GPUBuffer;
+  /** The atlas's plates (painted per performance at native resolution: white in r, red in g, item in b) and their items. */
+  private atlasTex: GPUTexture | null = null;
+  private atlasRects!: GPUBuffer;
+  static readonly ATLAS_PLATES = 4;
   /** The plug-in species (src/show/species): pipelines, state, and their own last two frames (trails). */
   private plug: Partial<Record<PluginName, { setup: GPUComputePipeline; draw: GPURenderPipeline; bgSetup: GPUBindGroup; state: GPUBuffer; hist: Target[]; bgDraw: GPUBindGroup[]; bgDof: GPUBindGroup[]; flip: number }>> = {};
   private drawLayout!: GPUBindGroupLayout;
@@ -164,6 +170,8 @@ export class Renderer {
 
     this.p.room = full('room', roomWGSL);
     this.p.appraisal = full('appraisal', appraisalWGSL);
+    this.p.atlas = full('atlas', atlasWGSL);
+    this.atlasRects = d.createBuffer({ size: Renderer.ATLAS_PLATES * MAX_ITEMS * 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.p.blit = full('blit', blitWGSL);
     this.p.dof = full('dof', dofWGSL);
     this.p.composite = full('composite', compositeWGSL, this.format);
@@ -292,6 +300,13 @@ export class Renderer {
     this.d.queue.copyExternalImageToTexture({ source: c }, { texture: this.wordTex }, [WORD_W, WORD_H]);
   }
 
+  /** Upload the atlas's plates (atlasPaint.ts) for this performance. */
+  setAtlas(plates: OffscreenCanvas[], rects: Float32Array) {
+    plates.slice(0, Renderer.ATLAS_PLATES).forEach((c, k) =>
+      this.d.queue.copyExternalImageToTexture({ source: c }, { texture: this.atlasTex!, origin: [0, 0, k] }, [Math.min(c.width, this.width), Math.min(c.height, this.height)]));
+    this.d.queue.writeBuffer(this.atlasRects, 0, rects);
+  }
+
   setTape(tape: Float32Array) {
     this.d.queue.writeBuffer(this.tapeBuf, 0, tape.length > TAPE_MAX ? tape.subarray(0, TAPE_MAX) : tape);
   }
@@ -334,6 +349,12 @@ export class Renderer {
         { binding: 5, resource: pl.hist[1 - k].view }, { binding: 6, resource: this.sampler }] }));
       pl.bgDof = [0, 1].map((k) => this.d.createBindGroup({ layout: this.p.dof.getBindGroupLayout(0), entries: [{ binding: 0, resource: pl.hist[k].view }] }));
     }
+    // the atlas's plates, at the screen's size
+    this.atlasTex?.destroy();
+    this.atlasTex = this.d.createTexture({ size: [w, h, Renderer.ATLAS_PLATES], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+    this.bg.atlas = this.d.createBindGroup({ layout: this.p.atlas.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: this.fBuf } }, { binding: 1, resource: this.atlasTex.createView({ dimension: '2d-array' }) },
+      { binding: 2, resource: { buffer: this.atlasRects } }] });
     this.bg.composite = this.d.createBindGroup({
       layout: this.p.composite.getBindGroupLayout(0),
       entries: [
@@ -459,8 +480,8 @@ export class Renderer {
       pl.flip = 1 - k;
       fullPass(pl.draw, pl.bgDraw[k], pl.hist[k].view, {});
       fullPass(this.p.dof, pl.bgDof[k], this.scene.view, {});
-    } else if (layer === 'appraisal' && hi) {
-      fullPass(this.p.appraisal, this.bg.appraisal, this.sceneHi.view);
+    } else if ((layer === 'appraisal' || layer === 'atlas') && hi) {
+      fullPass(this.p[layer], this.bg[layer], this.sceneHi.view);
       enc.beginRenderPass({ colorAttachments: [{ view: this.scene.view, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] }).end();
     } else {
       fullPass(this.p[layer], this.bg[layer]);
@@ -507,7 +528,7 @@ export class Renderer {
 
   /** Draw every layer once so no pipeline compiles mid-performance. */
   warmUp(frame: Float32Array) {
-    for (const l of ['room', 'appraisal', 'relief', 'sand', 'data', 'ink', 'solids', ...PLUGIN_NAMES, 'black'] as Layer[]) this.render(l, frame, l === 'appraisal');
+    for (const l of ['room', 'appraisal', 'atlas', 'relief', 'sand', 'data', 'ink', 'solids', ...PLUGIN_NAMES, 'black'] as Layer[]) this.render(l, frame, l === 'appraisal' || l === 'atlas');
   }
 
 }

@@ -17,13 +17,14 @@ import { plateModes } from '../show/chladni.ts';
 import { DATA_CLIPS } from '../show/director.ts';
 import { loud } from './score.ts';
 import { mulberry32 } from '../core/rng.ts';
+import { atlasModel } from '../show/atlas.ts';
 import { PLUGINS, isPlugin } from '../show/species/index.ts';
 import { VOICES } from './species/index.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
-const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, hall: 5, curtain: 6, ink: 4, solids: 4,
+const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, hall: 5, curtain: 6, ink: 4, solids: 4, atlas: 2,
   threads: PLUGINS.threads.cal };
 
 /** One shot's voice: `strike` — it carries the verdict's strike; `pos` — a positive word (its beats sit high, no sub);
@@ -146,6 +147,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
   const v: V = { a, drone, A, shot, start, end, tail, off, out: gate, rand: mulberry32(shot.seed), strike, pos };
   // (strike: the ink's voice is scheduled from its first shot, which is the strike's shot)
   switch (shot.clip) {
+    case 'atlas': return atlas(v);
     case 'ink': return ink(v, plan);
     case 'solids': return solids(v);
     case 'threads': return VOICES[shot.clip](kit(v, plan));
@@ -452,6 +454,57 @@ function data(v: V): number[] {
     sines(v, [fs, fs + 0.9], g);
   }
   return [f0];
+}
+
+// ------------------------------------------------------------------ atlas: the plates heard as they are drawn
+/** Every element of an atlas plate (show/atlas.ts, the same reveal times as the image) is heard as it appears —
+ *  Ikeda's palette: test tones, clicks, a sub — and nothing else. The grid: a short rectangular test tone per
+ *  cell, its pitch the answer's value (half-octaves of 1 kHz), a red cell with a deep thump; the focus: a pure tone
+ *  gliding up with the wipe to the answer's own pitch, and a thump as it lands; the crowd: each row a rain of
+ *  clicks (the reference words, placed in time by their value), this word's own louder and pitched; the map: a soft
+ *  ping per word, lower the nearer it is to this one. */
+function atlas(v: V): number[] {
+  const m = atlasModel(v.A);
+  const plate = m.plates[v.shot.seed] ?? m.plates[0];
+  const pitch = (x: number) => 1000 * 2 ** (Math.round((x - 0.5) * 6) / 2);
+  const src = rendered(v, (L, R, sr) => {
+    const n = L.length;
+    const tone = (t: number, f: number, dur: number, amp: number, pan = 0) => {
+      const s0 = Math.floor(t * sr);
+      for (let i = 0; i < dur * sr && s0 + i < n; i++) { const x = Math.sin((2 * Math.PI * f * i) / sr) * amp; L[s0 + i] += x * (1 - pan); R[s0 + i] += x * (1 + pan); }
+    };
+    const thump = (t: number, amp: number) => {
+      const s0 = Math.floor(t * sr);
+      let ph = 0;
+      for (let i = 0; i < sr * 0.6 && s0 + i < n; i++) { const u = i / sr; ph += (2 * Math.PI * (44 + 60 * Math.exp(-u / 0.02))) / sr; const x = Math.sin(ph) * Math.exp(-u / 0.25) * amp; L[s0 + i] += x; R[s0 + i] += x; }
+    };
+    const click = (t: number, amp: number, pan: number) => { const s0 = Math.floor(t * sr); if (s0 < n) { L[s0] += amp * (1 - pan); R[s0] += amp * (1 + pan); } };
+    if (plate.kind === 'grid') plate.items.forEach((it, k) => {
+      const pan = (k % 7) / 3 - 1;
+      tone(it.t, pitch(it.value), 0.025, 0.08, pan * 0.7);
+      if (it.red) thump(it.t, 0.5);
+    });
+    if (plate.kind === 'focus') {
+      const it = plate.items[0];
+      let ph = 0;
+      const f1 = pitch(it.value), s0 = Math.floor(it.t * sr), len = Math.floor((it.dur + 1.2) * sr);
+      for (let i = 0; i < len && s0 + i < n; i++) {
+        const u = i / sr, g = Math.min(1, u / it.dur);
+        ph += (2 * Math.PI * (200 * (f1 / 200) ** g)) / sr;
+        const x = Math.sin(ph) * 0.07 * Math.min(1, u / 0.02) * (u > it.dur ? Math.exp(-(u - it.dur) / 0.6) : 1);
+        L[s0 + i] += x; R[s0 + i] += x;
+      }
+      thump(it.t + it.dur, 0.7);
+    }
+    if (plate.kind === 'crowd') plate.items.forEach((it, k) => {
+      const d = m.dims[k];
+      d.lex.forEach((x) => click(it.t + x * it.dur, 0.12, x * 1.4 - 0.7));
+      tone(it.t + d.value * it.dur, pitch(d.value), 0.02, it.red ? 0.14 : 0.06, d.value * 1.4 - 0.7);
+    });
+    if (plate.kind === 'map') plate.items.forEach((it) => tone(it.t, 3000 + it.value * 5000, 0.012, 0.03, (it.x0 - 0.5) * 1.4));
+  });
+  src.connect(v.out);
+  return [];
 }
 
 // ------------------------------------------------------------------ ink: each drop heard as it blooms
