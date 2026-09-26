@@ -36,7 +36,7 @@ const FIELD_N = 250_000;
 const SAND_N = 512;
 /** The ink's velocity and dye grids (keep in step with ink.wgsl VN, DN), and its pressure iterations. */
 const INK_VEL = 256;
-const INK_DYE = 1024;
+const INK_DYE = 1536;
 const INK_JACOBI = 24;
 const WORD_W = 2048;
 const WORD_H = 160;
@@ -70,6 +70,7 @@ export class Renderer {
   private inkP: GPUTexture[] = [];
   private inkDiv!: GPUTexture;
   private inkDye: GPUTexture[] = [];
+  private inkFib: GPUTexture[] = [];
   private solidsBuf!: GPUBuffer;
   /** The plug-in species (src/show/species): pipelines, state, and their own last two frames (trails). */
   private plug: Partial<Record<PluginName, { setup: GPUComputePipeline; draw: GPURenderPipeline; bgSetup: GPUBindGroup; state: GPUBuffer; hist: Target[]; bgDraw: GPUBindGroup[]; bgDof: GPUBindGroup[]; flip: number }>> = {};
@@ -137,6 +138,7 @@ export class Renderer {
     this.inkP = [inkTex(INK_VEL), inkTex(INK_VEL)];
     this.inkDiv = inkTex(INK_VEL);
     this.inkDye = [inkTex(INK_DYE), inkTex(INK_DYE)];
+    this.inkFib = [inkTex(INK_DYE), inkTex(INK_DYE)];
     this.solidsBuf = d.createBuffer({ size: (6 + 4 * 96) * 16, usage: GPUBufferUsage.STORAGE }); // camera, bound, count, 96 spheres + their physics (solids.wgsl)
     this.heightTex = d.createTexture({
       size: [RELIEF_RES, RELIEF_RES], format: HDR,
@@ -246,8 +248,9 @@ export class Renderer {
     group('ink_jacobiA', this.c.ink_jacobi, [{ binding: 0, resource: uni }, { binding: 4, resource: v(pA) }, { binding: 5, resource: v(pB) }, { binding: 6, resource: v(this.inkDiv) }]);
     group('ink_jacobiB', this.c.ink_jacobi, [{ binding: 0, resource: uni }, { binding: 4, resource: v(pB) }, { binding: 5, resource: v(pA) }, { binding: 6, resource: v(this.inkDiv) }]);
     group('ink_project', this.c.ink_project, [{ binding: 2, resource: v(vB) }, { binding: 3, resource: v(vA) }, { binding: 4, resource: v(pA) }]);
-    group('ink_dye', this.c.ink_dye, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: v(vA) }, { binding: 8, resource: v(dA) }, { binding: 9, resource: v(dB) }, lin]);
-    group('ink', this.p.ink, [{ binding: 0, resource: uni }, { binding: 8, resource: v(dA) }, lin]);
+    const [fA, fB] = this.inkFib;
+    group('ink_dye', this.c.ink_dye, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: v(vA) }, { binding: 8, resource: v(dA) }, { binding: 9, resource: v(dB) }, lin, { binding: 11, resource: v(fA) }, { binding: 12, resource: v(fB) }]);
+    group('ink', this.p.ink, [{ binding: 0, resource: uni }, { binding: 8, resource: v(dA) }, lin, { binding: 11, resource: v(fA) }]);
     group('solidsSetup', this.c.solidsSetup, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 2, resource: { buffer: this.solidsBuf } }]);
     group('solids', this.p.solids, [{ binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } }, { binding: 3, resource: { buffer: this.solidsBuf } }]);
     // the plug-in species: one fixed contract (explicit layouts, so a shader may leave any binding unused)
@@ -437,6 +440,7 @@ export class Renderer {
       run('ink_dye', 'ink_dye', INK_DYE);
       cp.end();
       enc.copyTextureToTexture({ texture: this.inkDye[1] }, { texture: this.inkDye[0] }, [INK_DYE, INK_DYE]);
+      enc.copyTextureToTexture({ texture: this.inkFib[1] }, { texture: this.inkFib[0] }, [INK_DYE, INK_DYE]);
       fullPass(this.p.ink, this.bg.ink);
     } else if (layer === 'solids') {
       const cp = enc.beginComputePass(stamp() as GPUComputePassDescriptor);

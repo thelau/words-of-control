@@ -383,7 +383,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
     let seed = (rand() * 2 ** 31) | 0;
     // (the dye is a 1024² field: a closer view than 2.5× would show its grain)
     // and it opens wide, so its first dye is the barcode just seen
-    if (clip === 'ink') cover = cover.map((x, k) => (i === 0 && k === 0 ? { ...x, zoom: 1, offX: 0, offY: 0 } : { ...x, zoom: Math.min(x.zoom, 2.5) }));
+    if (clip === 'ink') cover = cover.map((x, k) => (i === 0 && k === 0 ? { ...x, zoom: 1, offX: 0, offY: 0 } : { ...x, zoom: Math.min(x.zoom, 1.8) }));
     // solids open dead frontal, so the spheres stand where the bits just were
     else if (clip === 'solids' || isPlugin(clip)) {
       if (isPlugin(clip)) cover = cover.map((x) => ({ ...x, zoom: Math.min(x.zoom, PLUGINS[clip].maxZoom) }));

@@ -16,9 +16,14 @@
 @group(0) @binding(8) var dyeIn: texture_2d<f32>;
 @group(0) @binding(9) var dyeOut: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(10) var lin: sampler;
+// the fibres: coordinates carried by the flow (two staggered phases, each re-seeded in turn so none stretches to
+// nothing) — they give the dye its fine organic detail, tendrils drawn out by the current itself
+@group(0) @binding(11) var fibIn: texture_2d<f32>;
+@group(0) @binding(12) var fibOut: texture_storage_2d<rgba16float, write>;
+const FIB_PERIOD = 4.0;
 
 const VN = 256.0;  // velocity grid (keep in step with gpu.ts INK_VEL)
-const DN = 1024.0; // dye grid (gpu.ts INK_DYE)
+const DN = 1536.0; // dye grid (gpu.ts INK_DYE)
 
 fn tv(i: i32) -> f32 {
   let n = max(i32(F.tapeLen), 1);
@@ -102,18 +107,21 @@ fn splat(p: vec2f) -> vec2f {
   let lb = lastBeat();
   if (lb.x < 0.0) { return vec2f(0.0, -1.0); }
   let k = i32(lb.x) % sources();
-  let r = mix(0.012, 0.03, F.s_scale) * mix(1.0, 0.55, F.mo_trembling);
-  let d = p - srcPos(k);
+  let r = mix(0.008, 0.018, F.s_scale) * mix(1.0, 0.6, F.mo_trembling); // (fine: the view is macro)
+  // the source travels along its push while it pours: each beat draws a moving stroke of ink, never a blob that
+  // piles up in place (a still word's drop stays where it falls)
+  let pd0 = normalize(push(srcPos(k), lb.x) + vec2f(1e-4, 0.0));
+  let d = p - srcPos(k) - pd0 * min(lb.y, 0.6) * 0.16 * (1.0 - F.mo_still);
   let env = exp(-lb.y / mix(0.45, 0.15, F.mo_breaking + F.mo_trembling * 0.5) * (1.0 - 0.6 * F.mo_still)) * ss(0.0, 0.03, lb.y);
   let x = dot(d, d) / (r * r);
   if (x > 100.0) { return vec2f(0.0, f32(k)); } // far from the drop (and from a still drop's widest front)
   // a jet, not a ball: the drop is drawn out along its push, a short streak trailing behind the source (a round
   // blob of fresh dye read as a glowing bokeh light)
-  let pd = normalize(push(srcPos(k), lb.x) + vec2f(1e-4, 0.0));
+  let pd = pd0;
   let along = dot(d, pd) + r * 1.2;
   let across = dot(d, vec2f(-pd.y, pd.x));
   let xj = (across * across * 2.2 + along * along / 4.0) / (r * r);
-  let drop = exp(-xj * xj);
+  let drop = exp(-xj * xj * xj); // (a crisp edge: a soft one read as an out-of-focus glowing oval)
   // a still word does not push: its drop opens where it falls, like ink on wet paper — a crisp front spreading
   // out, feathered unevenly (each drop its own fringe), leaving growth rings and a faint wash behind it
   let R = r * (1.0 + 2.6 * sqrt(min(lb.y, 1.6)));
@@ -208,6 +216,8 @@ fn force(@builtin(global_invocation_id) id: vec3u) {
     let k = i32(sp.y);
     let strength = mix(1.5, 5.0, F.s_intensity * 0.5 + F.s_arousal * 0.5) * mix(1.0, 0.08, F.mo_still);
     v += push(srcPos(k), floor(lastBeat().x)) * sp.x * strength * dt;
+    // ink billows as it enters: a small turbulence where it pours, so it never lands as a smooth shape
+    v += curl(p * 70.0, F.vt * 2.5) * sp.x * mix(0.004, 0.012, F.s_arousal) * (1.0 - F.mo_still);
     // and its matter moves its own way (the second material's sources are another substance)
     v.y += matLift(srcMat(k)) * sp.x * 1.2 * dt;
   }
@@ -285,9 +295,15 @@ fn reading(p: vec2f) -> vec4f {
 fn dye(@builtin(global_invocation_id) id: vec3u) {
   let c = vec2i(id.xy);
   let p = (vec2f(id.xy) + 0.5) / DN;
-  if (fresh()) { textureStore(dyeOut, c, reading(p)); return; }
+  if (fresh()) { textureStore(dyeOut, c, reading(p)); textureStore(fibOut, c, vec4f(p, p)); return; }
   let dt = stepDt();
-  var d = textureSampleLevel(dyeIn, lin, p - dt * velAt(p), 0.0);
+  let back = p - dt * velAt(p);
+  var d = textureSampleLevel(dyeIn, lin, back, 0.0);
+  // the fibres ride the same current; each phase starts over (at rest) when its clock wraps
+  var fib = textureSampleLevel(fibIn, lin, back, 0.0);
+  if (fract(F.vt / FIB_PERIOD) < F.dt / FIB_PERIOD) { fib = vec4f(p, fib.zw); }
+  if (fract(F.vt / FIB_PERIOD + 0.5) < F.dt / FIB_PERIOD) { fib = vec4f(fib.xy, p); }
+  textureStore(fibOut, c, fib);
   // the dye thins: smoke and void vanish, fire burns away, a dwindling word empties; the rest stays
   let fade = 0.09 + F.m_smoke * 0.3 + F.m_void * 0.6 + F.m_fire * 0.2 + F.rh_dwindling * 0.25 * F.vu;
   d *= exp(-dt * fade);
@@ -296,10 +312,17 @@ fn dye(@builtin(global_invocation_id) id: vec3u) {
   let sp = splat(p);
   if (sp.y >= 0.0) {
     let k = i32(sp.y);
-    let add = sp.x * dt * 4.0 * (1.0 - 0.6 * F.mo_still) * cracks(p);
+    // (pouring eases where the ink is already thick: it never builds into a solid glowing blob)
+    let add = sp.x * dt * 2.6 * (1.0 - 0.6 * F.mo_still) * cracks(p) * (1.0 - ss(0.5, 1.4, d.a));
     d += vec4f(pigment(tv(k + 5 + i32(lastBeat().x) * 3)) * add, add);
   }
   textureStore(dyeOut, c, min(d, vec4f(4.0)));
+}
+
+/** Ridged noise, 0..1: thin bright ridges (the fibres) in darker ground. */
+fn fibreAt(x: vec2f) -> f32 {
+  let n = gnoise(x) + 0.5 * gnoise(x * 2.13 + vec2f(5.1, 1.7));
+  return 1.0 - clamp(abs(n) * 2.2, 0.0, 1.0);
 }
 
 // ---------------------------------------------------------------- drawing (the dye lit as a surface)
@@ -313,18 +336,33 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let near = mix(1.0, 1.6, F.who_i) * mix(1.0, 0.7, F.who_they * ss(0.35, 0.8, F.s_distance));
   let turn = F.who_we * F.vt * 0.06;
   q = vec2f(q.x * cos(turn) - q.y * sin(turn), q.x * sin(turn) + q.y * cos(turn));
-  q = q * 0.84 / (F.zoom * near) + vec2f(F.offX, F.offY) * 0.25 * select(0.0, 1.0, F.zoom > 1.0) + vec2f(0.5);
+  // (macro: the camera is close in the liquid — the fibres make the closeness hold); each angle is its own framing
+  // — a place in the fluid, a closeness, a slow drift — whatever the word (the hand-off, angle < 0, stays centred)
+  let ah = hash22(vec2f(F.angle * 113.0, F.seed * 0.01));
+  let framed = select(1.0, 0.0, F.angle < 0.0);
+  let place = ah * 0.17 * framed + vec2f(F.offX, F.offY) * 0.15;
+  let closer = 1.0 + 0.45 * (0.5 + 0.5 * ah.x * ah.y) * framed;
+  let drift = normalize(ah.yx + vec2f(1e-3)) * (F.lt - F.angleAt) * 0.005 * framed;
+  q = q * 0.46 / (F.zoom * near * closer) + place + drift + vec2f(0.5);
 
   let e = 1.5 / DN / F.zoom;
-  let a0 = textureSampleLevel(dyeIn, lin, q, 0.0).a;
   let gx = textureSampleLevel(dyeIn, lin, q + vec2f(e, 0.0), 0.0).a - textureSampleLevel(dyeIn, lin, q - vec2f(e, 0.0), 0.0).a;
   let gy = textureSampleLevel(dyeIn, lin, q + vec2f(0.0, e), 0.0).a - textureSampleLevel(dyeIn, lin, q - vec2f(0.0, e), 0.0).a;
-  // the dye's surface: its density as height (steeper for heavy matter), refracting what lies under it
-  let relief = mix(6.0, 16.0, F.s_hardness) * F.zoom;
-  let n = normalize(vec3f(-gx * relief, -gy * relief, 1.0));
+  // the fibres: ridged noise at the coordinates the flow has carried — stretched along the current into tendrils
+  // and filaments (two phases cross-faded, each weighted away from its reset)
+  let fb = textureSampleLevel(fibIn, lin, q, 0.0);
+  let wA = 1.0 - abs(2.0 * fract(F.vt / FIB_PERIOD) - 1.0);
+  let fscale = mix(70.0, 130.0, F.s_density) * mix(1.0, 0.6, F.tx_soft);
+  let fibre = mix(fibreAt(fb.zw * fscale), fibreAt(fb.xy * fscale), wA);
+  let det = mix(1.0, 0.5 + 1.3 * pow(fibre, 2.5), mix(0.8, 0.45, F.tx_soft)); // (on average about as dense as without)
+  // the dye's surface: its density as height (steeper for heavy matter), the fibres as its fine relief
+  // (gentle: a strong relief shaded every dense drop as a lit dome — a glowing ball)
+  let relief = mix(1.5, 5.0, F.s_hardness) * F.zoom;
+  let n = normalize(vec3f(-gx * relief - dpdx(det) * 0.8, -gy * relief + dpdy(det) * 0.8, 1.0));
   let d = textureSampleLevel(dyeIn, lin, q + n.xy * 0.004 / F.zoom, 0.0);
   let wall = min(min(q.x, 1.0 - q.x), min(q.y, 1.0 - q.y));
-  var dens = (1.0 - exp(-d.a * 1.6)) * ss(0.02, 0.1, wall) * ss(0.0, 0.08, 0.72 - length(q - 0.5) * F.who_they);
+  // (the fibres also run through the dense ink: a thick drop is never a smooth glowing blob)
+  var dens = (1.0 - exp(-d.a * 1.6 * det)) * mix(1.0, det, 0.65) * ss(0.02, 0.1, wall) * ss(0.0, 0.08, 0.72 - length(q - 0.5) * F.who_they);
   // stone is crisp-edged; a grainy word (or sand) granulates, its pigment settling into the grain
   // ice and glass freeze: the edges set hard, and catch cold points of light
   let fz = frozen();
@@ -351,15 +389,14 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   if (lo == 3) { col = hue * ss(0.05, 0.6, fold) * 1.4 + hue * dens * 0.05; }
   // metal: a mercury skin, the room's light sliding over it; fire and light glow from within (fire's glow
   // dies with its colour: the soot stays dark)
-  let env = mix(0.08, 0.9, pow(1.0 - n.z, 0.6)) * (0.6 + 0.4 * n.y);
+  let env = mix(0.35, 1.0, pow(1.0 - n.z, 0.6)) * (0.7 + 0.3 * n.y); // (a floor: the gentler relief left mercury dark)
   col = mix(col, (vec3f(0.78, 0.8, 0.84) * env + vec3f(1.0) * spec * 2.0) * dens, F.m_metal * 0.85);
-  col += hue * dens * (F.m_fire * 0.7 + F.m_light * 0.6);
-  let ice = hash41(floor(fc.xy / 2.0), 7.0 + floor(F.vt * 1.5));
-  col += vec3f(0.8, 0.9, 1.0) * step(0.985, ice.x) * ss(0.2, 0.8, length(vec2f(gx, gy)) * DN * 0.05) * fz * 1.2;
+  // (the glow lives where the ink thins at its edges — dense fresh ink glowing whole read as a lamp)
+  col += hue * dens * (1.0 - dens) * 2.4 * (F.m_fire * 0.7 + F.m_light * 0.6);
 
   // the mood, in the pigment (never an inversion): negative is colourless and contracted — grey dye, hard
   // contrast; neutral is clinical — cool, with the density's isolines drawn exact, like a reading; positive keeps
-  // its colours and glows warm, with points of glitter along its folds
+  // its colours and glows warm (no glitter: the ink's own forming is the texture)
   let lum = dot(col, vec3f(0.2126, 0.7152, 0.0722));
   let neg = clamp(1.0 - F.moodPos - F.moodNeu, 0.0, 1.0);
   col = mix(col, vec3f(pow(lum, 1.25) * 1.3), neg);
@@ -367,9 +404,7 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let iso = abs(fract(d.a * 6.0) - 0.5);
   let lineW = fwidth(d.a * 6.0) * 1.2;
   col += vec3f(0.8, 0.9, 1.0) * ss(lineW, 0.0, iso) * ss(0.05, 0.2, d.a) * F.moodNeu * 0.35;
-  let tw = hash41(floor(fc.xy / 2.0), floor(F.time * 3.0));
-  let glitter = step(0.992, tw.x) * ss(0.2, 0.8, fold) * (0.5 + 0.5 * sin(F.time * 5.0 + tw.y * TAU));
-  col += (vec3f(1.0, 0.85, 0.6) * glitter * 1.4 + hue * dens * 0.25) * F.moodPos;
+  col += hue * dens * 0.25 * F.moodPos;
 
   // the beat as light through the dye (steady and stuttering words), in time with the sound's tick
   let lb = lastBeat();
@@ -378,5 +413,8 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   col *= 1.0 + 0.45 * F.rh_pulsing * (0.5 - 0.5 * cos(F.vt * PI / beatP()));
   // light glows; void is barely there
   col *= (1.0 + F.m_light * 0.8) * (1.0 - 0.5 * F.m_void);
+  // absorption, last: the thick core of the ink goes deeper, its thin edges carry the light (a dense drop lit
+  // brightest read as a glowing ball)
+  col *= mix(1.0, 0.35, ss(0.45, 0.95, dens));
   return vec4f(col * ss(0.0, 0.08, F.lt + F.vt), 1.0);
 }

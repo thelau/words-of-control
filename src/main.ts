@@ -37,7 +37,7 @@ const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = 
   appraisal: { bloom: 0.02, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
   sand: { bloom: 0.05, halation: 0.03, flat: 0 },
   data: { bloom: 0.05, halation: 0.02, flat: 0 },
-  ink: { bloom: 0.06, halation: 0.03, flat: 1 },
+  ink: { bloom: 0.03, halation: 0.02, flat: 1 }, // (more glow made fresh ink a lamp)
   solids: { bloom: 0.015, halation: 0, flat: 1 }, // (crisp: a glow round the spheres read as fog)
   ...Object.fromEntries(PLUGIN_NAMES.map((n) => [n, { bloom: PLUGINS[n].bloom, halation: PLUGINS[n].halation, flat: 1 }])) as Record<(typeof PLUGIN_NAMES)[number], { bloom: number; halation: number; flat: number }>,
 };
