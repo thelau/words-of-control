@@ -1,5 +1,5 @@
 /**
- * A verdict species (docs/SPECIES.md): what a whole performance is made of, seen at a glance. Points, ink and
+ * A verdict species (docs/SPECIES.md): what a whole performance is made of, seen at a glance. Points and
  * solids are built into the director; the species here are plug-ins, each in its own files:
  *   src/show/species/<name>.ts   — this definition (how it suits a word, its hand-off, its construction)
  *   src/render/shaders/<name>.wgsl — its image: setup() (compute) and fs() (the frame, its blur in alpha)

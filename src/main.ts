@@ -37,7 +37,6 @@ const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = 
   appraisal: { bloom: 0.02, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
   sand: { bloom: 0.05, halation: 0.03, flat: 0 },
   data: { bloom: 0.05, halation: 0.02, flat: 0 },
-  ink: { bloom: 0.03, halation: 0.02, flat: 1 }, // (more glow made fresh ink a lamp)
   solids: { bloom: 0.015, halation: 0, flat: 1 }, // (crisp: a glow round the spheres read as fog)
   ...Object.fromEntries(PLUGIN_NAMES.map((n) => [n, { bloom: PLUGINS[n].bloom, halation: PLUGINS[n].halation, flat: 1 }])) as Record<(typeof PLUGIN_NAMES)[number], { bloom: number; halation: number; flat: number }>,
 };
@@ -135,7 +134,7 @@ async function boot() {
 
   // the species picker (testing): random, or one species every time (kept in memory only)
   const picker = document.getElementById('species') as HTMLButtonElement;
-  const PICKS: (Species | null)[] = [null, 'points', 'ink', 'solids', ...PLUGIN_NAMES.filter((n) => READY[n])];
+  const PICKS: (Species | null)[] = [null, 'points', 'solids', ...PLUGIN_NAMES.filter((n) => READY[n])];
   const LABEL: Record<string, string> = { points: 'particles' };
   let pick = 0;
   picker.addEventListener('mousedown', (e) => e.preventDefault()); // (the typing keeps its focus)
@@ -310,9 +309,9 @@ async function boot() {
         f('seed', (show.A.seed % 100000) + m.variant * 1000);
         // a fresh layer of sand, or particles placed at once — when the matter changes, not on every flash of it
         if (m.key !== lastKey && (layer === 'sand' || layer === 'data') && m.clip !== lastClip) f('mode', 1);
-        // ink (one continuous fluid) and solids (spheres with momentum) carry across their shots (and the black
-        // between them): fresh only as their first shot begins
-        if ((layer === 'ink' || layer === 'solids' || isPlugin(layer)) && m.key !== lastKey && si === show.plan.shots.findIndex((x) => x.clip === m.clip)) f('mode', 1);
+        // solids (spheres with momentum) and the plug-ins carry across their shots (and the black between them):
+        // fresh only as their first shot begins
+        if ((layer === 'solids' || isPlugin(layer)) && m.key !== lastKey && si === show.plan.shots.findIndex((x) => x.clip === m.clip)) f('mode', 1);
         if (m.clip === 'chladni') {
           const [mm, nn] = plateMode(show.A, m.seed, m.lt / m.dur);
           f('modeM', mm); f('modeN', nn);
@@ -320,9 +319,9 @@ async function boot() {
         lastKey = m.key;
         if (m.clip) lastClip = m.clip;
         // how many points the formation uses: all for the dense geometric ones, fewer for the costly soft ones
-        renderer.dataShare = m.clip === 'cloud' || m.clip === 'tube' ? 0.85 : m.clip === 'landscape' ? 0.92 : 1;
-        // variant2: which data formation; for ink, which reading it is poured from (1: a question's line)
-        f('variant2', layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : layer === 'ink' && show.plan.drama === 'question' ? 1 : 0);
+        renderer.dataShare = m.clip === 'cloud' || m.clip === 'tube' ? 0.7 : m.clip === 'landscape' ? 0.85 : 1;
+        // variant2: which data formation
+        f('variant2', layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : 0);
       }
     }
     if (layer === 'room') {

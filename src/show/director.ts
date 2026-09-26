@@ -8,15 +8,15 @@ import type { Appraisal } from '../jev/appraisal.ts';
 import { mulberry32 } from '../core/rng.ts';
 import type { Layer } from '../render/gpu.ts';
 import { PLUGINS, PLUGIN_NAMES, READY, isPlugin, type PluginName } from './species/index.ts';
+import { CYCLE, FILM, FRAME, runs, type FilmSection } from './film.ts';
 
 /** The verdict vocabulary. The appraisal gone 3D — data formations (field.wgsl), each the spatial form of
  *  a 2D reading, and drift, the void — and two matters the data acts on: the relief (data → surface) and
  *  chladni (the word's bytes as sound shaping sand). One language: monochrome, one accent,
  *  every mark from the word's data; each family answers to different dimensions of the reading.
- *  Ink and solids are other species (the reading gone liquid, ink.wgsl; made matter, solids.wgsl), each a
- *  whole performance of its own. */
+ *  Solids and the plug-ins (src/show/species) are other species: materials the sequence's scenes use. */
 export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall', 'curtain'] as const;
-export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink', 'solids', 'threads', 'pins', 'strata'] as const;
+export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'solids', 'threads', 'pins', 'strata'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
 /** Which renderer layer draws a clip. */
@@ -37,9 +37,8 @@ export type Cut = { start: number; dur: number; mode: CutMode; variant: number; 
 export type Angle = { at: number; seed: number; zoom: number; offX: number; offY: number };
 export const WIDE: Angle = { at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 };
 
-/** How a data shot is built (field.wgsl shape()): echo 0–5, warp 0–6, flow 0–3.
- *  An ink shot (ink.wgsl) uses flow as its current (none, shear, one turn, two cells) and warp as its light
- *  (key, behind, raking, dark-field); echo is unused. */
+/** How a data shot is built (field.wgsl shape()): echo 0–5, warp 0–6, flow 0–3. Solids and the plug-ins use warp
+ *  as their light and flow as their camera move; echo is unused. */
 export type Ops = { echo: number; warp: number; flow: number };
 export const STILL: Ops = { echo: 0, warp: 0, flow: 0 };
 
@@ -47,9 +46,9 @@ export const STILL: Ops = { echo: 0, warp: 0, flow: 0 };
  *  `flip`: it is played in the opposite mood (a misreading, corrected later). */
 export type Shot = { clip: ClipId; start: number; dur: number; seed: number; aborted: boolean; angles: Angle[]; ops: Ops; flash?: boolean; flip?: boolean; hold?: boolean };
 
-/** What a performance is made of, seen at a glance: the points (the data formations, the relief, the sand), ink,
- *  or solids. Two performances in a row are never the same species — the second word must not look like the first. */
-export type Species = 'points' | 'ink' | 'solids' | PluginName;
+/** What a performance is made of, seen at a glance: the points (the data formations, the relief, the sand), solids,
+ *  or a plug-in. Two performances in a row are never the same species — the second word must not look like the first. */
+export type Species = 'points' | 'solids' | PluginName;
 
 /** The performance's form, chosen from the reading (see direct()). */
 export type Drama = 'storm' | 'barrage' | 'endless' | 'misreading' | 'bloom' | 'measure' | 'shrug' | 'name' | 'greeting' | 'question' | 'void';
@@ -58,7 +57,7 @@ export type Drama = 'storm' | 'barrage' | 'endless' | 'misreading' | 'bloom' | '
  *  a hold, and a black tail; `scene`: what it shows (the matter, the word's data, or the break's black); the hold's
  *  `clip`: its matter (null: its data). The music is built on these (audio/music.ts). */
 export type Cycle = {
-  start: number; dur: number; section: 'A' | 'break' | 'B'; scene: 'matter' | 'data' | 'break';
+  start: number; dur: number; section: FilmSection; scene: 'matter' | 'data' | 'break';
   flashes: { start: number; dur: number }[]; hold: { start: number; dur: number; clip: ClipId | null };
 };
 
@@ -115,7 +114,6 @@ function affinity(A: Appraisal): Record<ClipId, number> {
     curtain: mo.falling * 0.8 + m.water * 0.7 + s.density * 0.5 + rh.steady * 0.3 + em.calm * 0.3 + em.sadness * 0.3
       + d.nature * 0.3 + A.c.sense.p.hearing * 0.3 + 0.3,
     // (their own species: never mixed into a performance of points)
-    ink: 0,
     solids: 0,
     threads: 0,
     pins: 0,
@@ -129,15 +127,13 @@ const recent: ClipId[] = [];
 const recentOps: string[] = [];
 const openers: ClipId[] = [];
 let lastSpecies: Species | null = null;
-/** How much each species suits the reading: ink the liquid (feeling, fluids, flowing, spreading), solids the
+/** How much each species suits the reading: solids the
  *  material (objects and bodies, hard and heavy matter, round and jagged forms), points the data (the machine,
  *  order, nonsense, the abstract, the idle). */
 function suits(A: Appraisal): Record<Species, number> {
   const plugins = Object.fromEntries(PLUGIN_NAMES.map((n) => [n, PLUGINS[n].suits(A)])) as Record<PluginName, number>;
-  const m = A.c.material.p, sh = A.c.shape.p, tx = A.c.texture.p, mo = A.c.motion.p, d = A.c.domain.p, k = A.c.kind.p;
+  const m = A.c.material.p, sh = A.c.shape.p, tx = A.c.texture.p, d = A.c.domain.p, k = A.c.kind.p;
   return {
-    ink: (1 - A.mood.neu) + m.water + m.smoke + m.fire * 0.7 + m.light * 0.5 + sh.flowing + tx.liquid + tx.soft * 0.3
-      + mo.spreading * 0.5 + mo.drifting * 0.5 + mo.circling * 0.4 + A.n.closeness * 0.3 + (k.feeling ?? 0),
     solids: (k.object ?? 0) * 1.5 + (k['living being'] ?? 0) + m.metal + m.stone + m.glass + m.wood + m.ice + m.flesh * 0.5
       + A.s.hardness + A.s.weight + sh.round * 0.6 + sh.jagged * 0.6 + sh.point * 0.5 + d.body * 0.5,
     points: d.machine + d.mind * 0.5 + A.s.order + A.c.act.p.nonsense + (k['abstract idea'] ?? 0) + A.s.strangeness
@@ -176,7 +172,7 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
   // more than the fit)
   const fit = suits(A);
   // (a plug-in not yet built is never drawn)
-  const pool = (['points', 'ink', 'solids', ...PLUGIN_NAMES] as Species[]).filter((x) => x !== lastSpecies && (!isPlugin(x) || READY[x]));
+  const pool = (['points', 'solids', ...PLUGIN_NAMES] as Species[]).filter((x) => x !== lastSpecies && (!isPlugin(x) || READY[x]));
   const wsp = pool.map((x) => Math.exp(1.5 * fit[x]));
   let rs = rand() * wsp.reduce((x, y) => x + y, 0);
   let species: Species = pool[pool.length - 1];
@@ -217,8 +213,8 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
   const READING_OF: Partial<Record<ClipId, CutMode>> = { city: 'barcode', cloud: 'scatter', landscape: 'spectrum', lattice: 'bits' };
   const shown = new Map<ClipId, number>();
   for (const c of cuts) { const k = COUNTERPART[c.mode]; if (k) shown.set(k, (shown.get(k) ?? 0) + c.dur); }
-  // (ink opens on the barcode: its bars become the first dye; solids on the bits: each 1-bit becomes a sphere)
-  const handOff = species === 'ink' ? 'city' : species === 'solids' ? 'lattice' : isPlugin(species) ? PLUGINS[species].handOff : [...shown.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).find((k) => !openers.includes(k));
+  // (solids open on the bits: each 1-bit becomes a sphere)
+  const handOff = species === 'solids' ? 'lattice' : isPlugin(species) ? PLUGINS[species].handOff : [...shown.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).find((k) => !openers.includes(k));
   // (a barcode hand-off ends on the vertical-bar style — appraisal.wgsl style = ⌊fract(variant·13.7)·4⌋ = 0 —
   // the one the echo rebuilds, so the last flat frame and the first 3D frame are the same image)
   let lastVariant = rand();
@@ -337,20 +333,6 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
     return { echo: Math.floor(rand() * 6), warp: Math.floor(rand() * 7), flow: Math.floor(rand() * 4) };
   };
 
-  // an ink shot's construction: its current and its light, from the reading, never one just used
-  const inkOps = (): Ops => {
-    for (let tries = 0; tries < 12; tries++) {
-      const ops: Ops = {
-        echo: 0,
-        flow: draw([0.4 + mo.still + md.neu * 0.6, md.neu * 0.8 + mo.drifting + A.lazy * 0.5 + 0.2, mo.circling + md.pos * 0.6 + 0.2, md.neg * 0.6 + A.s.tension * 0.5 + 0.1]),
-        warp: draw([0.5 + md.neu * 0.3, md.pos * 0.8 + A.c.material.p.light + A.c.material.p.glass * 0.5 + 0.2, A.s.hardness + md.neg * 0.6 + 0.1, md.neu + A.c.domain.p.machine * 0.5 + 0.1]),
-      };
-      const key = `ink${ops.warp}${ops.flow}`;
-      if (!recentOps.includes(key)) { recentOps.push(key); recentOps.splice(0, Math.max(0, recentOps.length - 24)); return ops; }
-    }
-    return { echo: 0, warp: Math.floor(rand() * 4), flow: Math.floor(rand() * 4) };
-  };
-
   // a solids shot's construction: its light (studio, rim, one hard spot, clinical) and its camera move
   // (push in, orbit, crane down, locked), from the reading, never one just used
   const solidsOps = (): Ops => {
@@ -379,91 +361,65 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
 
   const shots: Shot[] = [];
   t += 0.15;
-  // ---- the sequence: after the film (Ikeda, data.matrix / illusor), measured frame by frame. It turns on a strict
-  // cycle (the film's: 3.0 s). Each cycle opens with an ATTACK — the image flickering in a code of one- and two-frame
-  // flashes (the film's ##.##.####.##.#) — then HOLDS, then may fall to black. The flicker is also the music: every
-  // flash is a burst of noise and sub (audio/music.ts), so a cut is a beat. Section A flickers in the code, a break of
-  // black, section B strobes frame by frame, and the last cycle holds. The word writes it: its cycle (arousal,
-  // idleness), its code (its own bits), how long it attacks (intensity, tension), how much black (idleness, void,
-  // sadness), whether it breaks and strobes (tension, anger, anxiety, darkness), its data (its readings), and its
-  // matter: the species are materials the scenes use — the performance's own, and a second one it turns to
-  const C = lerp(3.4, 2.5, aro) * lerp(1, 1.2, lazy);
-  const unit = 1 / 30; // one flicker step: a frame of the film
-  const rp = A.c.rhythm.p;
-  const bits: number[] = [];
-  for (const b of A.bytes) for (let k = 7; k >= 0; k--) bits.push((b >> k) & 1);
-  if (!bits.length) bits.push(1, 0, 1, 1);
-  let bi = 0;
-  // the code: each bit of the word, ON for two frames (1) or one (0), then OFF for one — a stutter drops some
-  const code = (len: number): { start: number; dur: number }[] => {
-    const out: { start: number; dur: number }[] = [];
-    for (let x = 0; x < len - unit;) {
-      const on = (bits[bi++ % bits.length] ? 2 : 1) * unit;
-      if (!(rp.stuttering > 0.35 && rand() < 0.2)) out.push({ start: x, dur: Math.min(on, len - x) });
-      x += on + unit;
-    }
-    return out;
-  };
-  // the strobe: one frame on, one off
-  const strobe = (len: number) => Array.from({ length: Math.floor(len / (2 * unit)) }, (_, k) => ({ start: k * 2 * unit, dur: unit }));
+  // ---- the sequence: the film's own score, replayed frame by frame (show/film.ts — Ikeda, data.matrix, measured
+  // from the reference). Its cycles keep their figures and their order: section A (the matter flickering in its code,
+  // then held), a break of black, section B (a white slab of data strobing, the matter strobing), the return. The
+  // word fills them — its matter in every '#', its readings on every slab ('W') and in every dim flash ('+') — and
+  // decides which of the film's cycles it reaches: a charged word goes through the break into B, an idle one stays in
+  // A; its own bytes choose which of A's cycles play. The flicker is also the music (audio/music.ts): a cut is a beat.
   const breakHard = clamp01(A.s.tension * 0.6 + em.anger * 0.7 + em.anxiety * 0.6 + dark * 0.5 + aro * 0.3 - lazy * 0.6 - em.calm * 0.4);
-  const attackShare = clamp01(lerp(0.18, 0.5, A.s.intensity * 0.5 + A.s.tension * 0.3 + aro * 0.3));
-  const tailShare = clamp01(lazy * 0.25 + em.sadness * 0.15 + A.c.material.p.void * 0.25 + A.n.loss * 0.1);
-  const pData = clamp01(0.2 + A.s.order * 0.25 + A.c.domain.p.machine * 0.3 + A.s.density * 0.15);
-  const whiteSlab = () => rand() < 0.2 + A.s.intensity * 0.35 + A.s.dominance * 0.2;
-  const nCycles = Math.max(4, Math.round(form.dur / C));
-  const breakAt = nCycles >= 6 && drama !== 'void' && breakHard > 0.2 ? Math.round(nCycles * 0.55) : -1;
-  // the materials: the performance's species, and a second the scenes turn to (more often in section B)
+  const n = Math.max(4, Math.min(10, Math.round(lerp(5, 9, charge * 0.6 + A.s.intensity * 0.4) - lazy * 2)));
+  const pick = <T,>(pool: T[], k: number, salt: number): T[] => {
+    // k of the pool, in the film's order, chosen by the word's own bytes
+    const key = (i: number) => ((A.bytes[(i + salt) % Math.max(1, A.bytes.length)] ?? i) * 2654435761 + i * 97) % 1000;
+    return pool.map((x, i) => ({ x, i, k: key(i) })).sort((a, b) => a.k - b.k).slice(0, k).sort((a, b) => a.i - b.i).map((e) => e.x);
+  };
+  const filmA = FILM.filter((c) => c.section === 'A'), filmB = FILM.filter((c) => c.section === 'B');
+  const filmBreak = FILM.find((c) => c.section === 'break')!, filmR = FILM.filter((c) => c.section === 'R');
+  const withB = breakHard > 0.3 && n >= 7;
+  const nB = withB ? Math.min(filmB.length, n >= 9 ? 4 : n >= 8 ? 3 : 2) : 0;
+  const nR = n >= 6 ? 2 : 1;
+  const nA = Math.max(1, n - nR - nB - (withB ? 1 : 0));
+  const order = [
+    filmA[0], ...pick(filmA.slice(1), nA - 1, 1),
+    ...(withB ? [filmBreak, ...filmB.slice(0, nB)] : []),
+    ...(nR > 1 ? pick(filmR.slice(0, 2), 1, 3) : []), filmR[2],
+  ];
+  // the materials: the performance's species, and a second the return turns to
   const matOf = (sp: Species): ClipId => sp === 'points' ? (picks.length ? picks[0] : ranked.find((c) => (DATA_CLIPS as readonly string[]).includes(c) && c !== 'drift') ?? 'landscape') : sp;
-  const others = (['points', 'ink', 'solids', ...PLUGIN_NAMES] as Species[]).filter((x) => x !== species && (!isPlugin(x) || READY[x]));
+  const others = (['points', 'solids', ...PLUGIN_NAMES] as Species[]).filter((x) => x !== species && (!isPlugin(x) || READY[x]));
   const second = matOf(others[Math.floor(rand() * others.length)] ?? species);
-  const opsOf = (clip: ClipId): Ops => clip === 'ink' ? inkOps() : clip === 'solids' ? solidsOps() : isPlugin(clip) ? pluginOps(clip) : chooseOps();
+  const opsOf = (clip: ClipId): Ops => clip === 'solids' ? solidsOps() : isPlugin(clip) ? pluginOps(clip) : chooseOps();
   const cycles: Cycle[] = [];
   let pointsPick = 0;
-  for (let c = 0; c < nCycles; c++) {
-    const cs = t, u = c / nCycles, last = c === nCycles - 1;
-    const section = c === breakAt ? 'break' : breakAt >= 0 && c > breakAt && breakHard > 0.3 ? 'B' : 'A';
-    const dur = last ? C * (drama === 'endless' || drama === 'bloom' ? 1.8 : 1.3) : C;
-    if (section === 'break') {
-      // the break: black, one frame of data in it
-      cuts.push({ start: cs + C * 0.5, dur: unit * 2, mode: drawReading(), variant: rand(), inv: false });
-      cycles.push({ start: cs, dur, section, scene: 'break', flashes: [], hold: { start: cs + C, dur: 0, clip: null } });
-      t = cs + dur;
-      continue;
-    }
-    const scene = c === 0 ? 'matter' : rand() < pData ? 'data' : 'matter';
-    const attack = (c === 0 ? 0.3 : section === 'B' ? 1.2 : 1) * attackShare * C * (1 + rp.swelling * (u - 0.3));
-    const tail = last ? 0 : C * tailShare * (1 + rp.dwindling * u);
-    const holdDur = Math.max(0.3, dur - attack - tail);
-    // the cycle's matter: its own or the second (a points performance walks through its formations)
-    let clip = rand() < (section === 'B' ? 0.5 : 0.2) && c > 0 ? second : matOf(species);
+  order.forEach((film, c) => {
+    const cs = t, u = c / order.length;
+    let clip = film.section === 'R' && rand() < 0.5 ? second : matOf(species);
     if (species === 'points' && clip === matOf(species)) clip = picks[Math.floor(pointsPick++ / 2) % picks.length];
-    let cover: Angle = { ...(angles(holdDur)[0] ?? WIDE), at: 0 };
+    let cover: Angle = { ...(angles(CYCLE)[0] ?? WIDE), at: 0 };
+    if (isPlugin(clip)) cover = { ...cover, zoom: Math.min(cover.zoom, PLUGINS[clip].maxZoom) };
     let seed = (rand() * 2 ** 31) | 0;
-    if (clip === 'ink') cover = { ...cover, zoom: Math.min(cover.zoom, 1.8) };
-    else if (isPlugin(clip)) cover = { ...cover, zoom: Math.min(cover.zoom, PLUGINS[clip].maxZoom) };
     if (c === 0) {
       // the hand-off: the reading itself, frontal (angle seed −1), with the appraisal's last variant
       cover = { ...WIDE, seed: -1 };
       seed = seed - (seed % 1000) + Math.round(lastVariant * 999);
     }
-    if (drama === 'greeting' && last) cover = { ...WIDE, seed: -2 };
+    if (drama === 'greeting' && c === order.length - 1) cover = { ...WIDE, seed: -2 };
     const ops = opsOf(clip);
-    const mat = (start: number, d: number) => shots.push({ clip, start, dur: d, seed, aborted: false, angles: [cover], ops, flip: drama === 'misreading' && u < 0.5, hold });
-    const mode = drawReading(), inv = whiteSlab();
-    const flashes = (section === 'B' ? strobe(attack) : code(attack)).map((f) => ({ start: cs + f.start, dur: f.dur }));
-    for (const f of flashes) {
-      if (scene === 'matter') mat(f.start, f.dur);
-      else cuts.push({ start: f.start, dur: f.dur, mode, variant: rand(), inv });
+    const slab = drawReading(), dim: CutMode = rand() < 0.5 ? 'numbers' : 'bits';
+    const flashes: { start: number; dur: number }[] = [];
+    let hold = { start: cs + CYCLE, dur: 0, clip: null as ClipId | null };
+    for (const r of runs(film.frames)) {
+      if (r.sym === '.') continue;
+      const start = cs + r.at * FRAME, dur = r.len * FRAME;
+      if (r.sym === '#') shots.push({ clip, start, dur, seed, aborted: false, angles: [cover], ops, flip: drama === 'misreading' && u < 0.5, hold: true });
+      else cuts.push({ start, dur, mode: r.sym === 'W' ? slab : dim, variant: rand(), inv: r.sym === 'W' });
+      if (r.len <= 3) flashes.push({ start, dur });
+      else if (dur > hold.dur) hold = { start, dur, clip: r.sym === '#' ? clip : null };
     }
-    // the hold: the matter (a data cycle holds its data half the time)
-    const hs = cs + attack;
-    const holdMatter = scene === 'matter' || rand() < 0.5;
-    if (holdMatter) mat(hs, holdDur);
-    else cuts.push({ start: hs, dur: holdDur, mode: rand() < 0.5 ? mode : drawReading(), variant: rand(), inv: rand() < 0.3 });
-    cycles.push({ start: cs, dur, section, scene, flashes, hold: { start: hs, dur: holdDur, clip: holdMatter ? clip : null } });
-    t = cs + dur;
-  }
+    cycles.push({ start: cs, dur: CYCLE, section: film.section, scene: film.section === 'break' ? 'break' : hold.clip ? 'matter' : 'data', flashes, hold });
+    t = cs + CYCLE;
+  });
 
   if (species === 'points') {
     openers.push(picks[0]);

@@ -4,6 +4,14 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-26
 
+- **Exactly the film** ("if you can make it exactly as the video … great"): the verdict replays the film's own score,
+  measured frame by frame (show/film.ts: 15 cycles of 3.0 s, one character per frame: black, matter, white data slab,
+  dim data) — its figures and its order (A, break, B, return). The word fills it (its matter, its readings) and picks
+  which cycles it reaches. The random composers are gone.
+- **Format: 9:16, the full height of the screen** (works on a phone as is); no border, no reflection ("skeuomorphic").
+- **Ink removed** ("it's terrible"). The mood beds are removed from the verdict (the film has no drones: its lows come
+  only with its bursts).
+
 - **Clone the film's speed, cuts and format** ("try to clone this on speed of sequence, cut, format"). **Square**, not a
   portrait slab. The sequence turns on the film's cycle (~3 s): an attack of coded flicker (the word's own bits),
   a hold, a black tail; section A, a break, section B strobing, a held last cycle.

@@ -9,7 +9,7 @@
  *   word was typed.
  * - Voices: robot voices read the digits on screen (voice.ts, in a worker).
  * - Verdict: music on the sequence's cycles (music.ts) — the flicker is its beat, each hold its material's voice
- *   (clips.ts) — over one to three beds drawn from the judgement, every cycle landing with an accent (beds.ts).
+ *   (clips.ts); nothing under it but its own common tones (the film's lows come only with its bursts).
  * - Release: the hall blooms once at the cut to black; the drone ducks.
  */
 import type { Appraisal } from '../jev/appraisal.ts';
@@ -17,7 +17,6 @@ import type { Cut, Plan } from '../show/director.ts';
 import { D2, dbToGain, type AudioEngine } from './audio.ts';
 import type { Drone } from './drone.ts';
 import { playMusic } from './music.ts';
-import { playBeds } from './beds.ts';
 import type { VoiceSpec } from './voice.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -43,7 +42,6 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, plan
   const v0 = plan.shots[0]?.start ?? plan.blackAt;
   voices(a, A, plan.cuts.filter((c) => c.start < v0), t0);
   const residue = playMusic(a, drone, A, plan, t0);
-  playBeds(a, A, plan, t0);
   a.cutAt(t0 + plan.blackAt, t0 + plan.end);
   drone.duck(t0 + plan.blackAt);
   drone.remember({
