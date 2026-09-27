@@ -8,7 +8,7 @@
  *                 lengths, drifting in and out of phase (sine through a wavefolder and a filter), bent by the word's
  *                 mood (see renderSteps); each step re-patches it (fold, octave, gate, density: the space on screen sets them);
  *                 noise ticks and sub hits on euclidean patterns; a full-frame step a burst of white noise and a high
- *                 sine; the last step, the pitch of the answer that sets the word most apart, alone
+ *                 sine; the last step the pitch of the answer that sets the word most apart, alone, briefly
  * Pitches on the house's D, in a mode from the mood.
  */
 import type { Appraisal } from '../jev/appraisal.ts';
@@ -146,7 +146,14 @@ export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
   for (const st of g.steps) {
     const p = PATCH[st.viz];
     if (st.full) { T.noise(st.t, 0.04, 0.3, 0, 0.02); T.tone(st.t, 9000 + 3000 * top, 0.04, 0.03); }
-    if (st.viz === 'stand') { T.tone(st.t, note(top, 1), st.dur, 0.08); continue; }
+    if (st.viz === 'stand') {
+      // where the word stands: the pitch of that answer, alone — held a second at most, and never high (folded down
+      // below ~500 Hz: a pure tone up there is piercing)
+      let f = note(top, 1);
+      while (f > 520) f /= 2;
+      T.tone(st.t, f, Math.min(1, st.dur), 0.08);
+      continue;
+    }
     const count = Math.round(st.dur / sixteenth);
     for (let i = 0; i < count; i++, n16++) {
       const t = st.t + i * sixteenth;
@@ -154,8 +161,8 @@ export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
       if (neu < 0.5 && n16 % 2 === 0 && subs[(n16 / 2) % 8]) T.sub(t, 48, 0.3 + 0.15 * neg, 0.03 + 0.05 * (1 - neg));
       // the negative side, after Ikeda: clicks in 32nd rolls, glitch bursts, high sine stabs
       if (neg > 0.3) {
-        for (const h of [0, 1]) if (rolls[(n16 * 2 + h) % 32]) T.click(t + (h * sixteenth) / 2, 0.3 * neg, h ? 0.6 : -0.6);
-        if (rand() < 0.3 * neg) for (let k = 0, m = 3 + Math.floor(rand() * 5); k < m; k++) T.noise(t + (k * sixteenth) / 4, 0.003, 0.35 * neg, k % 2 ? 0.9 : -0.9, 0.001);
+        for (const h of [0, 1]) if (rolls[(n16 * 2 + h) % 32]) T.click(t + (h * sixteenth) / 2, 0.2 * neg, h ? 0.6 : -0.6);
+        if (rand() < 0.3 * neg) for (let k = 0, m = 3 + Math.floor(rand() * 5); k < m; k++) T.noise(t + (k * sixteenth) / 4, 0.003, 0.24 * neg, k % 2 ? 0.9 : -0.9, 0.001);
         if (rand() < 0.3 * neg) T.tone(t, 6000 + 8000 * vals[n16 % vals.length], 0.012 + 0.018 * rand(), 0.05 * neg, rand() * 1.6 - 0.8);
       }
       if (!p || rand() > p.dens * (1 - 0.4 * neu)) continue;
