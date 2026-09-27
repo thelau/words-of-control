@@ -8,7 +8,7 @@
  *   network  — the reference words, each joined to its three nearest; the word joined to its six
  *   terrain  — the density of the reference words over two marked measurements, as a field of points, its rows drawn
  *   map      — the same density as contour lines on a plane, the reference words as points, the word a cross
- *   globe    — all 43 measurements as meridian bands of a sphere, bulging with their value; the marked ones in colour
+ *   globe    — every measurement as a meridian band of a sphere, bulging with their value; the marked ones in colour
  *   lattice  — a cube of points, each lit by chance at the value of its measurement
  *   ridges   — every measurement's spread over the reference words, as a ridge line, stacked in depth; the word's
  *              value a tick

@@ -4,6 +4,10 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
+- **Two more measurements: ambiguity and concreteness** (chosen among four, "so we have a perfect grid"): "How many
+  different meanings could the words have?" and "How abstract or concrete are the words?" — 45 answers, a full
+  9 × 5 grid. Test words re-recorded (scripts/fixtures.ts), reference lexicon rebuilt (scripts/lexicon.ts).
+
 - **Labels only; the room a line; the ring accompanies; the mood from pleasant to epileptic** ("things pass by so
   fast … anything more than labels is pointless"; the grid before the input "clashes with the input … could be a
   simple oscillating sine in sync with the drone"; "the score at the end is a bit lame" → where it stands (chosen

@@ -307,6 +307,15 @@ export const APPRAISAL = {
     lv('Utterly familiar, everyday', 'table', 'hello'), lv('Familiar', 'mother', 'banana'), lv('Neither', 'maybe', 'almost'),
     lv('Unusual', 'lichen', 'vertigo'), lv('Deeply strange, alien, uncanny', 'asdfgh', 'glossolalia'),
   ]),
+  // ---- how the words hold meaning
+  ambiguity: score('How many different meanings could the words in `text` have?', [
+    lv('One clear meaning', 'spoon', 'table'), lv('Mostly one meaning', 'mother', 'rain'), lv('A few meanings', 'home', 'light'),
+    lv('Many meanings', 'love', 'nothing'), lv('Endlessly open: many readings, no fixed sense', 'maybe', 'almost'),
+  ]),
+  concreteness: score('How abstract or concrete are the words in `text`?', [
+    lv('Purely abstract: an idea, a concept', 'truth', 'maybe'), lv('Mostly abstract', 'hope', 'time'), lv('Between the two', 'home', 'music'),
+    lv('Concrete', 'rain', 'mother'), lv('Tangible: a thing you can touch', 'spoon', 'stone'),
+  ]),
   // ---- speech act
   act: choice('What kind of utterance is `text`?', {
     word: 'A single word naming something', statement: 'A statement', question: 'A question', command: 'A command or plea',
