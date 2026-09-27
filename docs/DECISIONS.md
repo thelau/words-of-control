@@ -2,6 +2,14 @@
 
 Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
+## 2026-09-27
+
+- **The atlas shows the machine's certainty** ("what the machine is sure of and what the machine is confidently not
+  knowing or doesn't want to make a call on"): a certainty plate (SURE / NO CALL, the near-ties with what it almost
+  said, heard as two tones beating), doubtful answers drawn out of focus and wavering everywhere. Also built, as
+  recommended: the hand (how the word was typed, replayed at the visitor's pace — nothing kept) and the sigil (the
+  word's mark: every answer a ray, its bytes at the centre; it closes the performance, replacing the caption).
+
 ## 2026-09-26
 
 - **No theatrical intro for the atlas** ("we don't need most of the intro, only the analysis part"): no title card of

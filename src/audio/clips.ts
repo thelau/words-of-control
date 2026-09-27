@@ -457,7 +457,10 @@ function data(v: V): number[] {
 }
 
 // ------------------------------------------------------------------ atlas: the plates heard as they are drawn
-/** Every element of an atlas plate (show/atlas.ts, the same reveal times as the image) is heard as it appears —
+/** Every element of an atlas plate (show/atlas.ts, the same reveal times as the image) is heard as it appears
+ *  (the certainty plate: the sure answers as pure tones, each one it will not call as two tones beating — what it said
+ *  and what it almost said; the hand: the visitor's keystrokes clicked back at their pace; the sigil: a chord of every
+ *  answer) —
  *  Ikeda's palette: test tones, clicks, a sub — and nothing else. The grid: a short rectangular test tone per
  *  cell, its pitch the answer's value (half-octaves of 1 kHz), a red cell with a deep thump; the focus: a pure tone
  *  gliding up with the wipe to the answer's own pitch, and a thump as it lands; the crowd: each row a rain of
@@ -502,8 +505,39 @@ function atlas(v: V): number[] {
       tone(it.t + d.value * it.dur, pitch(d.value), 0.02, it.red ? 0.14 : 0.06, d.value * 1.4 - 0.7);
     });
     if (plate.kind === 'map') plate.items.forEach((it) => tone(it.t, 3000 + it.value * 5000, 0.012, 0.03, (it.x0 - 0.5) * 1.4));
+    if (plate.kind === 'certainty') plate.items.forEach((it, k) => {
+      const sure = k < m.sure.length, d = sure ? m.sure[k] : m.nocall[k - m.sure.length];
+      const f = pitch(d.value);
+      if (sure) tone(it.t, f, 0.18, 0.06, -0.5);
+      else {
+        // no call: what it said and what it almost said, sounding together — they beat, undecided
+        const f2 = f * (1 + 0.012 + 0.03 * (1 - d.conf));
+        tone(it.t, f, 0.9, 0.035, 0.5); tone(it.t, f2, 0.9, 0.035, 0.5);
+      }
+    });
+    // hand: the visitor's own keystrokes, clicked back at their pace (the longest pause lands with a thump)
+    if (plate.kind === 'hand') plate.items.forEach((it) => { click(it.t, 0.35, (it.x0 - 0.5) * 1.2); if (it.red) thump(it.t, 0.4); });
   });
   src.connect(v.out);
+  if (plate.kind === 'sigil') {
+    // the mark's chord: every answer a partial of D, as loud as its value, the doubtful ones faint; it swells as the
+    // rays are drawn and rings on into the black (oscillators: a sample loop here stalled the page at Enter)
+    const c = v.a.ctx;
+    m.dims.forEach((d, k) => {
+      const f = D2 * 2 * (1 + k * 0.5);
+      if (f > 12000) return;
+      const o = c.createOscillator();
+      o.frequency.value = f;
+      const g = c.createGain();
+      const on = v.start + plate.items[k].t;
+      g.gain.setValueAtTime(0, on);
+      g.gain.linearRampToValueAtTime(0.012 * d.value * (0.3 + 0.7 * d.conf), on + 0.3);
+      const pan = c.createStereoPanner();
+      pan.pan.value = k % 2 ? 0.3 : -0.3;
+      o.connect(g).connect(pan).connect(v.out);
+      o.start(on); o.stop(v.end + v.tail);
+    });
+  }
   return [];
 }
 

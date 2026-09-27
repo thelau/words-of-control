@@ -39,6 +39,8 @@ const sample = (ms: number) => page.evaluate((ms) => new Promise<{ dt: number[];
   requestAnimationFrame(f);
 }), ms);
 
+// (progress, as each row is measured: a slow or hung step shows where it is)
+const progress = (label: string) => process.stderr.write(`  … ${label}\n`);
 const q = (d: number[], p: number) => { const x = [...d].sort((a, b) => a - b); return x[Math.min(x.length - 1, Math.floor(p * x.length))] ?? 0; };
 const stats = (r: { dt: number[]; gpu: number[] }) => ({
   frames: r.dt.length,
@@ -51,12 +53,14 @@ const stats = (r: { dt: number[]; gpu: number[] }) => ({
 
 const fixtures = JSON.parse(readFileSync('src/jev/fixtures.json', 'utf8'));
 const rows: [string, ReturnType<typeof stats>][] = [];
+progress('room');
 rows.push(['room (rest)', stats(await sample(2000))]);
 // one performance per clip family, sampled through its verdict
 for (const [word, label] of [['fuck', 'verdict (fuck)'], ['mother', 'verdict (mother)'], ['dust', 'verdict (dust)'], ['nothing', 'drift (nothing)']] as const) {
   await page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [fixtures[word], word]);
   const plan = await page.evaluate(() => (window as any).__woc.show().plan);
   await page.waitForFunction((t) => { const w = (window as any).__woc; const s = w.show(); return !s || w.audioClock() - s.t0 >= t; }, plan.shots[0].start, { polling: 'raf' });
+  progress(label);
   rows.push([`appraisal→verdict ${label} ${plan.species}`, stats(await sample(Math.min(4000, (plan.blackAt - plan.shots[0].start) * 1000)))]);
   await page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 200, timeout: 40000 });
 }
@@ -73,6 +77,7 @@ const solo = (clip: string, mode: string) => page.evaluate(([a, clip, mode]) => 
 for (const clip of ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall', 'relief', 'chladni', 'ink', 'solids', 'threads']) {
   await solo(clip, '');
   await page.waitForTimeout(700);
+  progress(clip);
   layers.push([`clip ${clip}`, stats(await sample(2000))]);
   await page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 100, timeout: 10000 });
 }

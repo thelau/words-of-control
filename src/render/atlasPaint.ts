@@ -2,7 +2,8 @@
  * Paints the atlas's plates (show/atlas.ts) once per performance, at the screen's native resolution, as precise
  * as a printed plate: monospace, hairlines, scales and ticks. Two inks, packed in an rgba8 texture: white in the red
  * channel, red in the green channel (atlas.wgsl colours them); the blue channel holds each item's number + 1 over its
- * rect (0: an annotation), so the image finds a pixel's item in one read. Returns the plates and their reveal rects.
+ * rect (0: an annotation), so the image finds a pixel's item in one read (and blurs the doubtful ones: no canvas
+ * filters here — per-draw blurs at native resolution take seconds). Returns the plates and their reveal rects.
  */
 import type { Appraisal } from '../jev/appraisal.ts';
 import { MAP, mapPos, onMap, type AtlasModel, type Dim } from '../show/atlas.ts';
@@ -11,7 +12,7 @@ export const MAX_ITEMS = 64;
 const WHITE = 'rgb(255,0,0)', RED = 'rgb(0,255,0)';
 const FONT = '"IBM Plex Mono", ui-monospace, monospace';
 
-export function paintAtlas(A: Appraisal, text: string, m: AtlasModel, W: number, H: number): { plates: OffscreenCanvas[]; rects: Float32Array } {
+export function paintAtlas(A: Appraisal, text: string, m: AtlasModel, W: number, H: number, serial: number): { plates: OffscreenCanvas[]; rects: Float32Array } {
   const u = H / 1100; // one design unit
   const plates = m.plates.map(() => new OffscreenCanvas(W, H));
   const g = plates.map((c) => c.getContext('2d')!);
@@ -61,11 +62,12 @@ export function paintAtlas(A: Appraisal, text: string, m: AtlasModel, W: number,
     x.globalAlpha = 1;
   };
   const rects = new Float32Array(m.plates.length * MAX_ITEMS * 8);
-  m.plates.forEach((p, pi) => p.items.slice(0, MAX_ITEMS).forEach((it, k) => rects.set([it.x0, it.y0, it.x1, it.y1, it.t, it.dur, it.red ? 1 : 0, 1], (pi * MAX_ITEMS + k) * 8)));
+  m.plates.forEach((p, pi) => p.items.slice(0, MAX_ITEMS).forEach((it, k) => rects.set([it.x0, it.y0, it.x1, it.y1, it.t, it.dur, it.red ? 1 : 0, it.doubt], (pi * MAX_ITEMS + k) * 8)));
 
+  const plateOf = (kind: string) => m.plates.findIndex((p) => p.kind === kind);
   // ---- grid
   {
-    const x = g[0], p = m.plates[0];
+    const x = g[plateOf('grid')], p = m.plates[plateOf('grid')];
     header(x, `SPECIMEN  ${text}`, `${m.dims.length} READINGS · ${m.ref.length} REFERENCE WORDS · JEV`);
     p.items.forEach((it, k) => {
       const X0 = it.x0 * W, Y0 = it.y0 * H, X1 = it.x1 * W, Y1 = it.y1 * H, cw = X1 - X0, ch = Y1 - Y0;
@@ -118,7 +120,7 @@ export function paintAtlas(A: Appraisal, text: string, m: AtlasModel, W: number,
 
   // ---- focus
   {
-    const x = g[1], d = m.focus, it = m.plates[1].items[0];
+    const x = g[plateOf('focus')], d = m.focus, it = m.plates[plateOf('focus')].items[0];
     header(x, `FOCUS  ${text}`, 'THE READING THAT SETS IT APART');
     ink(x, false, 1); font(x, 64, 300); x.textAlign = 'left';
     x.fillText(d.kind === 'choice' ? `${label(d.id)} · ${(d.top ?? '').toUpperCase()}` : label(d.id), W * 0.08, H * 0.25);
@@ -135,9 +137,9 @@ export function paintAtlas(A: Appraisal, text: string, m: AtlasModel, W: number,
 
   // ---- crowd
   {
-    const x = g[2];
+    const x = g[plateOf('crowd')];
     header(x, `CROWD  ${text}`, `${m.dims.length} READINGS × ${m.ref.length} WORDS`);
-    m.plates[2].items.forEach((it, k) => {
+    m.plates[plateOf('crowd')].items.forEach((it, k) => {
       const d = m.dims[k], y = (it.y0 + it.y1) / 2 * H, a0 = W * 0.2, a1 = W * 0.94;
       font(x, 9); ink(x, false, 0.7); x.textAlign = 'right'; x.fillText(label(d.id), a0 - 10 * u, y + 3 * u);
       ink(x, false, 0.18); line(x, a0, y, a1, y);
@@ -150,7 +152,7 @@ export function paintAtlas(A: Appraisal, text: string, m: AtlasModel, W: number,
 
   // ---- map
   {
-    const x = g[3];
+    const x = g[plateOf('map')];
     header(x, `MAP  ${text}`, `VALENCE × AROUSAL · NEAREST: ${m.nearest.map(([w, d]) => `${w} ${d.toFixed(2)}`).join('  ')}`);
     const X = (v: number) => v * W, Y = (v: number) => v * H;
     ink(x, false, 0.35); x.strokeRect(X(MAP.x0), Y(MAP.y0), X(MAP.x1 - MAP.x0), Y(MAP.y1 - MAP.y0));
@@ -184,6 +186,90 @@ export function paintAtlas(A: Appraisal, text: string, m: AtlasModel, W: number,
     });
     ink(x, true, 1); x.beginPath(); x.arc(X(mx), Y(my), 5 * u, 0, Math.PI * 2); x.fill();
     font(x, 14, 600); x.textAlign = 'left'; x.fillText(text, X(mx) + 10 * u, Y(my) - 8 * u);
+    x.globalAlpha = 1;
+  }
+  // ---- certainty: what it is sure of, and what it will not call
+  {
+    const x = g[plateOf('certainty')], items = m.plates[plateOf('certainty')].items;
+    const undecided = m.dims.filter((d) => d.conf < 0.5).length;
+    header(x, `CERTAINTY  ${text}`, `UNDECIDED ON ${undecided} OF ${m.dims.length}`);
+    ink(x, false, 1); font(x, 22, 300); x.textAlign = 'left';
+    x.fillText('SURE', W * 0.06, H * 0.19); x.fillText('NO CALL', W * 0.53, H * 0.19);
+    const row = (d: Dim, it: typeof items[number], doubtful: boolean) => {
+      const X0 = it.x0 * W, X1 = it.x1 * W, Y0 = it.y0 * H, Y1 = it.y1 * H;
+      ink(x, false, 0.85); font(x, 12); x.textAlign = 'left'; x.fillText(label(d.id), X0, Y0 + 16 * u);
+      const said = d.kind === 'choice' ? `${d.top} ${d.value.toFixed(2)}` : d.value.toFixed(2);
+      // the near-tie: what it said, and what it almost said
+      const almost = doubtful && d.second ? (d.kind === 'choice' ? `   ·   or ${d.second[0]} ${d.second[1].toFixed(2)}` : `   ·   or ${d.second[0]} (p ${d.second[1].toFixed(2)})`) : '';
+      ink(x, false, doubtful ? 0.7 : 1); font(x, 12); x.fillText(said + almost, X0 + (X1 - X0) * 0.36, Y0 + 16 * u);
+      x.textAlign = 'right'; x.fillText(`c ${d.conf.toFixed(2)}`, X1, Y0 + 16 * u);
+      // the confidence as a bar: solid when sure, a dotted trace when it will not call
+      const by = Y1 - 8 * u;
+      ink(x, false, 0.25); line(x, X0, by, X1, by);
+      ink(x, false, doubtful ? 0.6 : 1);
+      if (doubtful) for (let px = X0; px < X0 + (X1 - X0) * d.conf; px += 5 * u) x.fillRect(px, by - 2 * u, 2 * u, 4 * u);
+      else x.fillRect(X0, by - 2 * u, (X1 - X0) * d.conf, 4 * u);
+      x.globalAlpha = 1;
+    };
+    m.sure.forEach((d, k) => row(d, items[k], false));
+    m.nocall.forEach((d, k) => row(d, items[m.sure.length + k], true));
+    ink(x, false, 0.35); line(x, W * 0.5, H * 0.16, W * 0.5, H * 0.92); x.globalAlpha = 1;
+  }
+
+  // ---- hand: how it was typed
+  {
+    const x = g[plateOf('hand')], items = m.plates[plateOf('hand')].items;
+    const iv = A.typing.intervals.slice(0, items.length);
+    const total = iv.reduce((a, b) => a + b, 0) / 1000;
+    header(x, `HAND  ${text}`, 'HOW IT WAS TYPED');
+    const base = H * 0.75;
+    ink(x, false, 0.5); line(x, W * 0.06, base, W * 0.94, base);
+    for (let k = 0; k <= 10; k++) { const y = base - (H * 0.45 * k) / 10; line(x, W * 0.06, y, W * 0.06 + 8 * u, y); }
+    ink(x, false, 0.6); font(x, 10); x.textAlign = 'left'; x.fillText('1.2 s', W * 0.06 + 12 * u, base - H * 0.45 + 4 * u);
+    if (!iv.length) { ink(x, false, 0.8); font(x, 16); x.textAlign = 'center'; x.fillText('NO KEYSTROKES RECORDED', W / 2, H * 0.5); }
+    const longest = Math.max(...iv, 0);
+    items.forEach((it, k) => {
+      const px = ((it.x0 + it.x1) / 2) * W, h = H * 0.45 * it.value;
+      ink(x, it.red, 1); x.lineWidth = Math.max(1, 2 * u); line(x, px, base, px, base - h); x.lineWidth = Math.max(1, u);
+      x.beginPath(); x.arc(px, base - h, 2.5 * u, 0, Math.PI * 2); x.fill();
+      ink(x, false, 0.55); font(x, 9); x.textAlign = 'center'; x.fillText(String(Math.round(iv[k])), px, base + 16 * u);
+      if (it.red) { ink(x, true, 1); font(x, 12); x.fillText(`PAUSE ${(iv[k] / 1000).toFixed(2)} s`, px, base - h - 14 * u); }
+    });
+    ink(x, false, 0.85); font(x, 13); x.textAlign = 'left';
+    x.fillText(`KEYSTROKES ${iv.length}   ·   BACKSPACES ${A.typing.backspaces}   ·   TYPED IN ${total.toFixed(2)} s   ·   LONGEST PAUSE ${(longest / 1000).toFixed(2)} s`, W * 0.06, H * 0.88);
+    x.globalAlpha = 1;
+  }
+
+  // ---- sigil: the word's mark
+  {
+    const x = g[plateOf('sigil')], items = m.plates[plateOf('sigil')].items;
+    header(x, `SIGIL  ${text}`, `NO. ${String(serial).padStart(4, '0')}`);
+    const cx = W / 2, cy = H / 2, r0 = H * 0.07, R = H * 0.18;
+    // the bytes, as rings of bits around the centre
+    [...A.bytes].slice(0, 8).forEach((b, i) => {
+      const r = r0 * (0.35 + 0.08 * i);
+      for (let bit = 0; bit < 8; bit++) {
+        if (!((b >> (7 - bit)) & 1)) continue;
+        const a0 = (bit / 8) * Math.PI * 2 - Math.PI / 2;
+        ink(x, false, 0.7); x.beginPath(); x.arc(cx, cy, r, a0 + 0.06, a0 + Math.PI / 4 - 0.06); x.stroke();
+      }
+    });
+    ink(x, false, 0.3); x.beginPath(); x.arc(cx, cy, r0, 0, Math.PI * 2); x.stroke(); x.beginPath(); x.arc(cx, cy, R + r0 * 0.2, 0, Math.PI * 2); x.stroke();
+    // the answers, as rays: length the value, weight the certainty (a doubtful one only dotted)
+    m.dims.forEach((d, k) => {
+      const it = items[k];
+      const a = (k / m.dims.length) * Math.PI * 2 - Math.PI / 2;
+      const r1 = r0 + (R - r0) * Math.max(0.04, d.value);
+      ink(x, it.red, 1);
+      if (it.doubt > 0.5) {
+        for (let r = r0; r < r1; r += 5 * u) x.fillRect(cx + Math.cos(a) * r - u, cy + Math.sin(a) * r - u, 2 * u, 2 * u);
+      } else {
+        x.lineWidth = Math.max(1, (1 + 2.5 * d.conf) * u); line(x, cx + Math.cos(a) * r0, cy + Math.sin(a) * r0, cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); x.lineWidth = Math.max(1, u);
+      }
+      x.globalAlpha = 1;
+    });
+    ink(x, false, 1); font(x, 28, 300); x.textAlign = 'center'; x.fillText(text, cx, cy + R + H * 0.09);
+    ink(x, false, 0.6); font(x, 11); x.fillText(hex.slice(0, 72), cx, cy + R + H * 0.125);
     x.globalAlpha = 1;
   }
   return { plates, rects };

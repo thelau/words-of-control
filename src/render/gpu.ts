@@ -77,7 +77,7 @@ export class Renderer {
   /** The atlas's plates (painted per performance at native resolution: white in r, red in g, item in b) and their items. */
   private atlasTex: GPUTexture | null = null;
   private atlasRects!: GPUBuffer;
-  static readonly ATLAS_PLATES = 4;
+  static readonly ATLAS_PLATES = 7;
   /** The plug-in species (src/show/species): pipelines, state, and their own last two frames (trails). */
   private plug: Partial<Record<PluginName, { setup: GPUComputePipeline; draw: GPURenderPipeline; bgSetup: GPUBindGroup; state: GPUBuffer; hist: Target[]; bgDraw: GPUBindGroup[]; bgDof: GPUBindGroup[]; flip: number }>> = {};
   private drawLayout!: GPUBindGroupLayout;
@@ -301,7 +301,7 @@ export class Renderer {
   }
 
   /** Upload the atlas's plates (atlasPaint.ts) for this performance. */
-  setAtlas(plates: OffscreenCanvas[], rects: Float32Array) {
+  setAtlas(plates: ImageBitmap[], rects: Float32Array) {
     plates.slice(0, Renderer.ATLAS_PLATES).forEach((c, k) =>
       this.d.queue.copyExternalImageToTexture({ source: c }, { texture: this.atlasTex!, origin: [0, 0, k] }, [Math.min(c.width, this.width), Math.min(c.height, this.height)]));
     this.d.queue.writeBuffer(this.atlasRects, 0, rects);

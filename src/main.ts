@@ -17,8 +17,6 @@ import { analyze } from './jev/client.ts';
 import { buildAppraisal, type Appraisal } from './jev/appraisal.ts';
 import type { Answers } from './jev/types.ts';
 import { CUT_MODES, DATA_CLIPS, direct, type Plan, type Species } from './show/director.ts';
-import { atlasModel } from './show/atlas.ts';
-import { paintAtlas } from './render/atlasPaint.ts';
 import { momentAt, type Moment } from './show/timeline.ts';
 import { seedFromText } from './core/rng.ts';
 import { showSupport, hideSupport } from './support.ts';
@@ -148,14 +146,22 @@ async function boot() {
     picker.textContent = LABEL[s] ?? s;
   });
 
+  const atlasWorker = new Worker(new URL('./render/atlas.worker.ts', import.meta.url), { type: 'module' });
+  let atlasJob = 0;
+
   function perform(answers: Answers, text: string) {
     const A = buildAppraisal(answers, text, typing.trace(), seedFromText(text));
     renderer.setWord(text);
     const plan = direct(A, undefined, PICKS[pick]);
-    // the atlas's plates, painted once for this performance (as the typed line fades)
+    // the atlas's plates, painted once for this performance in a worker (they arrive during the analysis, well
+    // before the first plate; a late answer from an earlier performance is ignored)
     if (plan.species === 'atlas') {
-      const { plates, rects } = paintAtlas(A, text, atlasModel(A), renderer.width, renderer.height);
-      renderer.setAtlas(plates, rects);
+      const id = ++atlasJob;
+      atlasWorker.onmessage = (e: MessageEvent<{ id: number; bitmaps: ImageBitmap[]; rects: Float32Array }>) => {
+        if (e.data.id === atlasJob) renderer.setAtlas(e.data.bitmaps, e.data.rects);
+        e.data.bitmaps.forEach((b) => b.close());
+      };
+      atlasWorker.postMessage({ id, A, text, W: renderer.width, H: renderer.height, serial: serial + 1 });
     }
     performPlan(A, plan);
   }

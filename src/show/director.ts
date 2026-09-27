@@ -354,9 +354,8 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
       shots.push({ clip: 'atlas', start: t, dur: p.dur, seed: k, aborted: false, angles: [WIDE], ops: STILL });
       t += p.dur + 0.1;
     });
+    // (the sigil is its signature: no caption after it)
     t -= 0.1;
-    cuts.push({ start: t, dur: 1.1, mode: 'word', variant: 2 });
-    t += 1.1;
     return { drama, species, cuts, shots, fade: 0, blackAt: t, end: t + form.tail };
   }
   // low confidence (outside the misreading itself): a false start — a shot begins, is cut off, and the machine starts again
