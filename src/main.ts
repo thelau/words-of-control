@@ -298,6 +298,7 @@ async function boot() {
         f('angle', m.angle); f('angleAt', m.angleAt);
         f('engineOld', engineOld);
         f('hold', m.hold ? 1 : 0);
+        f('secT', m.secT); f('secU', m.secU);
         const v0 = show.plan.shots[0]?.start ?? 0;
         const vt = Math.max(0, clock() - show.t0 - v0);
         f('vt', vt); f('vu', Math.min(1, vt / Math.max(0.1, show.plan.blackAt - v0)));
@@ -331,7 +332,10 @@ async function boot() {
       f('layerFade', roomFade * roomFade);
     }
     const g = GRADE[layer];
-    f('bloom', g.bloom); f('halation', g.halation); f('flat', g.flat);
+    // the matrix is pure: white on true black, its black frames 0 (no room tone, no vignette, no grain)
+    const pure = show?.plan.species === 'matrix';
+    f('bloom', g.bloom); f('halation', g.halation); f('flat', pure ? 1 : g.flat);
+    if (pure) f('grain', 0);
     const wb = show && layer !== 'appraisal' ? whiteBalance(show.A) : [1, 1, 1];
     f('wbR', wb[0]); f('wbG', wb[1]); f('wbB', wb[2]);
     // text and lines are drawn at native resolution; everything soft (and scatter's dots) at CSS resolution

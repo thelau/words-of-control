@@ -58,7 +58,9 @@ rows.push(['room (rest)', stats(await sample(2000))]);
 // one performance per clip family, sampled through its verdict
 for (const [word, label] of [['fuck', 'verdict (fuck)'], ['mother', 'verdict (mother)'], ['dust', 'verdict (dust)'], ['nothing', 'drift (nothing)']] as const) {
   await page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [fixtures[word], word]);
-  const plan = await page.evaluate(() => (window as any).__woc.show().plan);
+  // (the appraisal is kept for the per-layer rows below: a throwaway performance per row would stack its sound
+  // under every later row)
+  const plan = await page.evaluate(() => { const W = (window as any).__woc; (window as any).__A ??= W.show().A; return W.show().plan; });
   await page.waitForFunction((t) => { const w = (window as any).__woc; const s = w.show(); return !s || w.audioClock() - s.t0 >= t; }, plan.shots[0].start, { polling: 'raf' });
   progress(label);
   rows.push([`appraisal→verdict ${label} ${plan.species}`, stats(await sample(Math.min(4000, (plan.blackAt - plan.shots[0].start) * 1000)))]);
@@ -66,14 +68,13 @@ for (const [word, label] of [['fuck', 'verdict (fuck)'], ['mother', 'verdict (mo
 }
 // per layer, alone, on the most charged word: where the GPU time goes
 const layers: [string, ReturnType<typeof stats>][] = [];
-const solo = (clip: string, mode: string) => page.evaluate(([a, clip, mode]) => {
+const solo = (clip: string, mode: string) => page.evaluate(([clip, mode]) => {
   const W = (window as any).__woc;
-  W.perform(a, 'fuck');
-  const A = W.show().A;
+  const A = (window as any).__A;
   const cuts = mode ? [{ start: 0, dur: 3.2, mode, variant: 0.3 }] : [];
   const shots = clip ? [{ clip, start: 0.05, dur: 3.2, seed: 7, aborted: false, angles: [{ at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 }], ops: { echo: 0, warp: 0, flow: 0 } }] : [];
   W.performPlan(A, { cuts, shots, blackAt: 3.3, end: 3.9 });
-}, [fixtures.fuck, clip, mode]);
+}, [clip, mode]);
 for (const clip of ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall', 'relief', 'chladni', 'ink', 'solids', 'threads']) {
   await solo(clip, '');
   await page.waitForTimeout(700);

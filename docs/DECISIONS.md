@@ -4,6 +4,15 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
+- **The matrix cuts at the film's rhythm** ("can't you record videos to check on timing", after "clone this on speed
+  of sequence, cut"). Filmed and measured against the Ikeda film: it cut 4 times a second with 3–4 s uncut sections;
+  Ikeda's cuts 10.4/s, flashes of 1–2 frames, 28% black, on a ~3 s pulse. Now each section is one or two ~3 s cycles
+  (faster for an aroused word): an attack of flicker written by the word's own bits (1 = two frames on, 0 = one; then
+  one off; some flashes inverted white, more for an intense word), a hold, a black tail (longer for a sad or lazy
+  word); the section's own clock runs on through its flicker. Each flash is heard as a burst of noise over a sub;
+  cuts are hard (no ring-out). Blacks are true black (no grain, no vignette). Measured on "war", inside the verdict:
+  10.9 cuts/s, 34% black, 1–2 frame intervals dominant.
+
 - **The atlas read as an annual report** ("act as Ryoji Ikeda and his team … it feels like a cheap far away clone …
   more like an annual report"). Replaced by the matrix: no sentences, no charts, no labels but numbers — white on
   black, 1 px, digits from the glyph atlas; six sections cut on frames: scan (the reading as one bit stream), matrix

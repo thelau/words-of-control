@@ -25,6 +25,8 @@ const FRAME = [
   'charge', 'kick', 'flash', 'invert', 'exposure', 'bloom', 'grain',
   // the output (canvas) size; scenes may render smaller (resX/resY) and be upscaled
   'outX', 'outY', 'outDpr', 'hiRes',
+  // the matrix's section clock (s, 0..1): it runs on through the flicker of the section's cycles
+  'secT', 'secU',
   // the performance's number in this session (the signature)
   'serial',
   // grading per layer: white balance, halation, flat (data: pure black, no vignette)

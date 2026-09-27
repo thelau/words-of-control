@@ -10,7 +10,8 @@
  *               noise; a playhead sweeps them and each band sounds as it passes (sine or noise)
  *   4 field   — the 61 words as points in space (valence, arousal, dominance), rotating; the word a hard white point
  *   5 end     — every band collapses into one line, one sine; black
- * The reading's numbers go to the GPU as one buffer (pack()); the same numbers make the sound (clips.ts matrix()).
+ * Cut after the film's own rhythm (score()). The reading's numbers go to the GPU as one buffer (pack()); the same
+ * numbers make the sound (clips.ts matrix()).
  * Compared against the piece's own reference lexicon (src/jev/lexicon.json, scripts/lexicon.ts) — never what
  * visitors typed.
  */
@@ -36,7 +37,11 @@ export const SECTIONS = ['scan', 'matrix', 'zoom', 'signal', 'field', 'end'] as 
 /** The lexicon's slot count per answer in the GPU buffer. */
 export const REF_MAX = 64;
 
+const READ = new WeakMap<Appraisal, Reading>(); // one reading per appraisal (the sound asks once per shot)
+
 export function reading(A: Appraisal): Reading {
+  const hit = READ.get(A);
+  if (hit) return hit;
   const text = new TextDecoder().decode(A.bytes).trim().toLowerCase();
   const words = Object.keys(LEX).filter((w) => w !== text);
   const dim = (id: string, value: number, lex: number[]): Dim => {
@@ -51,7 +56,9 @@ export function reading(A: Appraisal): Reading {
   ];
   const vad = (s: Record<string, number>): [number, number, number] => [s.valence ?? 0.5, s.arousal ?? 0.5, s.dominance ?? 0.5];
   const focus = dims.reduce((b, d, k) => (d.z > dims[b].z ? k : b), 0);
-  return { dims, ref: words.map((w) => ({ w, v: vad(LEX[w].s) })), me: vad(A.s), focus };
+  const r = { dims, ref: words.map((w) => ({ w, v: vad(LEX[w].s) })), me: vad(A.s), focus };
+  READ.set(A, r);
+  return r;
 }
 
 /** The reading as the shader's buffer: a header [dims, refs, focus, 0], then per answer (value, conf, z, 0), then
@@ -71,12 +78,45 @@ export function pack(r: Reading): Float32Array {
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
-/** The score: each section's length (s) — a charged word is played faster — cut into shots on frames, with a few
- *  frames of black between sections and single inverted frames at the cuts of a tense word. */
-export function score(A: Appraisal): { section: number; dur: number; gap: number }[] {
+export type Cue = { section: number; start: number; dur: number; inv: boolean; span: { start: number; dur: number } };
+
+/** The score, after the film's rhythm (measured: ~10 cuts a second, flicker of one- and two-frame flashes, holds on
+ *  a ~3 s pulse, a quarter of the time black). Each section is one or two cycles; each cycle opens with an ATTACK —
+ *  the section flickering in a code written by the word's own bits (a 1: two frames on, a 0: one; then one off;
+ *  some frames inverted, white slabs, for an intense word) — then HOLDS, then may fall to black. The section's
+ *  clock runs on through its flicker (its span). Times from the verdict's start (s). */
+export function score(A: Appraisal): Cue[] {
   const pace = Math.min(1, Math.max(0, A.s.arousal * 0.7 + A.s.intensity * 0.3 - A.lazy * 0.4));
-  const k = lerp(1.2, 0.8, pace);
-  const len = [2.0, 3.2, 2.8, 4.2, 3.0, 2.2].map((x) => x * k);
+  const C = lerp(3.1, 2.4, pace);
   const frame = 1 / 30;
-  return len.map((dur, section) => ({ section, dur, gap: section === len.length - 1 ? 0 : frame * (2 + ((A.bytes[section % A.bytes.length] ?? 0) % 5)) }));
+  const bits: number[] = [];
+  for (const b of A.bytes) for (let k = 7; k >= 0; k--) bits.push((b >> k) & 1);
+  if (!bits.length) bits.push(1, 0, 1, 1);
+  let bi = 0;
+  const invP = 0.1 + A.s.intensity * 0.3 + A.s.tension * 0.15;
+  const attackShare = lerp(0.15, 0.45, Math.min(1, A.s.intensity * 0.5 + A.s.tension * 0.3 + A.s.arousal * 0.3));
+  const tailShare = Math.min(0.35, 0.08 + A.lazy * 0.2 + A.n.loss * 0.1 + (A.c.emotion.p.sadness ?? 0) * 0.1);
+  // cycles per section: scan, matrix ×2, zoom, signal ×2, field, end
+  const CYCLES = [1, 2, 1, 2, 1, 1];
+  const out: Cue[] = [];
+  let t = 0, cyc = 0;
+  CYCLES.forEach((n, section) => {
+    const last = section === CYCLES.length - 1;
+    const span = { start: t, dur: n * C - (last ? 0 : C * tailShare) };
+    for (let c = 0; c < n; c++, cyc++) {
+      const cs = t;
+      const attack = last ? 0 : C * attackShare * (0.6 + 0.8 * ((A.bytes[cyc % A.bytes.length] ?? 128) / 255));
+      // the attack: flashes in the word's code
+      for (let x = 0; x < attack - frame;) {
+        const on = (bits[bi++ % bits.length] ? 2 : 1) * frame;
+        out.push({ section, start: cs + x, dur: on, inv: ((bi * 0.618) % 1) < invP, span });
+        x += on + frame;
+      }
+      // the hold, then (not after the last cycle of a section) a black tail
+      const tail = c === n - 1 && !last ? C * tailShare : 0;
+      out.push({ section, start: cs + attack, dur: C - attack - tail, inv: false, span });
+      t = cs + C;
+    }
+  });
+  return out;
 }

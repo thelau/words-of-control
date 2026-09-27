@@ -44,7 +44,9 @@ export const STILL: Ops = { echo: 0, warp: 0, flow: 0 };
 
 /** One verdict clip, its operators and its coverage (angles, in order). `flash`: it lands with a white beat;
  *  `flip`: it is played in the opposite mood (a misreading, corrected later). */
-export type Shot = { clip: ClipId; start: number; dur: number; seed: number; aborted: boolean; angles: Angle[]; ops: Ops; flash?: boolean; flip?: boolean; hold?: boolean };
+/** `inv`: drawn inverted (a white slab); `span`: the section this shot belongs to (the matrix: its clock runs across
+ *  the section's flashes and holds). */
+export type Shot = { clip: ClipId; start: number; dur: number; seed: number; aborted: boolean; angles: Angle[]; ops: Ops; flash?: boolean; flip?: boolean; hold?: boolean; inv?: boolean; span?: { start: number; dur: number } };
 
 /** What a performance is made of, seen at a glance: the points (the data formations, the relief, the sand), ink,
  *  or solids. Two performances in a row are never the same species — the second word must not look like the first. */
@@ -349,12 +351,11 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
   const shots: Shot[] = [];
   t += 0.15;
   if (species === 'matrix') {
-    // the matrix: its sections, cut on frames, a few frames of black between them (show/matrix.ts); shot.seed =
-    // the section
-    for (const x of score(A)) {
-      shots.push({ clip: 'matrix', start: t, dur: x.dur, seed: x.section, aborted: false, angles: [WIDE], ops: STILL });
-      t += x.dur + x.gap;
-    }
+    // the matrix: its sections in cycles of flicker and hold (show/matrix.ts score()); shot.seed = the section
+    const cues = score(A);
+    for (const x of cues) shots.push({ clip: 'matrix', start: t + x.start, dur: x.dur, seed: x.section, aborted: false, angles: [WIDE], ops: STILL, inv: x.inv, span: { start: t + x.span.start, dur: x.span.dur } });
+    const lastCue = cues[cues.length - 1];
+    t += lastCue.start + lastCue.dur;
     return { drama, species, cuts, shots, fade: 0, blackAt: t, end: t + form.tail };
   }
   // low confidence (outside the misreading itself): a false start — a shot begins, is cut off, and the machine starts again

@@ -1,5 +1,6 @@
 // MATRIX — the verdict as a score of pure data (show/matrix.ts): white on black, 1-pixel lines, digits only. Drawn
-// at native resolution; F.variant2 = the section, F.lt / F.u its clock. Every mark is a number of the reading.
+// at native resolution; F.variant2 = the section, F.secT / F.secU its clock (it runs on through the section's
+// flicker). Every mark is a number of the reading.
 
 @group(0) @binding(0) var<uniform> F: FrameU;
 @group(0) @binding(1) var<storage, read> tape: array<f32>;
@@ -59,7 +60,7 @@ fn scan(px: vec2f, res: vec2f) -> f32 {
   let band = floor(px.y / res.y * 4.0);
   let w = F.dpr * (1.0 + band);
   let speed = (900.0 + 2600.0 * F.s_arousal) * F.dpr * select(1.0, -1.0, band % 2.0 == 1.0) * (0.5 + 0.25 * band);
-  let b = i32(floor((px.x + floor(F.lt * speed)) / w)) + i32(band) * 4096;
+  let b = i32(floor((px.x + floor(F.secT * speed)) / w)) + i32(band) * 4096;
   let seam = step(fract(px.y / res.y * 4.0), 0.985);
   return bitAt(abs(b)) * seam;
 }
@@ -79,7 +80,7 @@ fn sheet(p: vec2f, scroll: bool) -> f32 {
   let ci = i32(floor(lx / cw));
   if (ci > 4) { return 0.0; }
   let rows = f32(nRefs() + 1u);
-  let sp = select(0.0, floor(F.lt * ch * (2.0 + 9.0 * fract(f32(k) * 0.618)) * select(1.0, -1.0, k % 2u == 1u)), scroll);
+  let sp = select(0.0, floor(F.secT * ch * (2.0 + 9.0 * fract(f32(k) * 0.618)) * select(1.0, -1.0, k % 2u == 1u)), scroll);
   let rowf = (p.y + sp) / ch;
   let r = u32(((i32(floor(rowf)) % i32(rows)) + i32(rows)) % i32(rows));
   let uv = vec2f(fract(lx / cw), fract(rowf));
@@ -88,7 +89,7 @@ fn sheet(p: vec2f, scroll: bool) -> f32 {
   let g = glyph(digitOf(v, ci), vec2f(uv.x * 1.15 - 0.07, uv.y));
   // the word's own values burn; a column the machine is unsure of flickers
   let fl = select(1.0, step(0.35 * doubt(k), h1(vec2f(f32(k), floor(F.time * 24.0)))), doubt(k) > 0.05);
-  return g * select(0.32, 1.0, me) * fl;
+  return g * select(0.55, 1.0, me) * fl;
 }
 
 // ---------------------------------------------------------------- 2 zoom: into the number that sets it apart
@@ -96,7 +97,7 @@ fn zoom(px: vec2f, res: vec2f) -> f32 {
   let k = focus();
   // the focus cell: column k, the word's row (at scroll 0)
   let cell = vec2f((f32(k) * 7.0 + 2.5) * cellW(), (f32(nRefs()) + 0.5) * cellH());
-  let s = exp(F.u * F.u * 6.5); // 1 → ~665×
+  let s = exp(F.secU * F.secU * 6.5); // 1 → ~665×
   let p = cell + (px - res * 0.5) / s;
   var c = sheet(p, false);
   // the readout of where we are (corner, native size)
@@ -123,13 +124,13 @@ fn signal(px: vec2f, res: vec2f) -> f32 {
   // the trace: a sine, as many cycles across the screen as the value says, travelling; its amplitude the value
   let cyc = 2.0 + 38.0 * v;
   let x = px.x / res.x;
-  let y = 0.38 * (0.25 + 0.75 * v) * sin((x * cyc - F.lt * (0.5 + v)) * TAU);
+  let y = 0.38 * (0.25 + 0.75 * v) * sin((x * cyc - F.secT * (0.5 + v)) * TAU);
   let dist = abs(ly - y) * bh;
   let line = (1.0 - smoothstep(0.5 * F.dpr, 1.2 * F.dpr, dist)) * (1.0 - d);
   // noise: dots, as dense as the doubt, redrawn every frame
   let noise = step(1.0 - d * 0.55, h1(floor(px / F.dpr) + vec2f(floor(F.time * 60.0) * 17.0, 0.0))) * step(abs(ly), 0.44);
   // the playhead sweeping the bands, top to bottom: the band it is on is lit
-  let head = F.u * n;
+  let head = F.secU * n;
   let on = 1.0 - smoothstep(0.0, 1.0, abs(f32(k) + 0.5 - head));
   let seam = step(F.dpr, (ly + 0.5) * bh); // (a pixel of black between bands)
   return max(line, noise * 0.8) * (0.45 + 0.55 * on) * seam + step(abs(px.y - head * bh), 0.5 * F.dpr) * 0.7;
@@ -137,7 +138,7 @@ fn signal(px: vec2f, res: vec2f) -> f32 {
 
 // ---------------------------------------------------------------- 4 field: the words as points in space
 fn field(px: vec2f, res: vec2f) -> f32 {
-  let a = F.lt * mix(0.6, 1.6, F.s_arousal);
+  let a = F.secT * mix(0.6, 1.6, F.s_arousal);
   let ca = cos(a); let sa = sin(a);
   let cb = cos(0.45); let sb = sin(0.45);
   let sc = res.y * 0.62;
@@ -182,16 +183,16 @@ fn scr(q: vec3f, ca: f32, sa: f32, cb: f32, sb: f32, sc: f32, res: vec2f) -> vec
 // ---------------------------------------------------------------- 5 end: every band into one line, one sine
 fn end(px: vec2f, res: vec2f) -> f32 {
   let n = f32(nDims());
-  let t = smoothstep(0.0, 0.7, F.u);
+  let t = smoothstep(0.0, 0.7, F.secU);
   let k = u32(clamp(floor(px.x / res.x * n), 0.0, n - 1.0));
   // the answers as vertical lines (a spectrum), shrinking into the centre line
   let x0 = (f32(k) + 0.5) / n * res.x;
   let hgt = val(k) * res.y * 0.4 * (1.0 - t);
   let bar = step(abs(px.x - x0), 0.5 * F.dpr) * step(abs(px.y - res.y * 0.5), hgt);
   let v = val(focus());
-  let y = res.y * 0.5 + res.y * 0.12 * t * (1.0 - smoothstep(0.75, 1.0, F.u)) * sin(px.x / res.x * (2.0 + 38.0 * v) * TAU - F.lt * 3.0);
+  let y = res.y * 0.5 + res.y * 0.12 * t * (1.0 - smoothstep(0.75, 1.0, F.secU)) * sin(px.x / res.x * (2.0 + 38.0 * v) * TAU - F.secT * 3.0);
   let line = (1.0 - smoothstep(0.5 * F.dpr, 1.2 * F.dpr, abs(px.y - y))) * t;
-  return max(bar, line) * (1.0 - smoothstep(0.9, 1.0, F.u));
+  return max(bar, line) * (1.0 - smoothstep(0.9, 1.0, F.secU));
 }
 
 @fragment

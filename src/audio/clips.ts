@@ -17,7 +17,7 @@ import { plateModes } from '../show/chladni.ts';
 import { DATA_CLIPS } from '../show/director.ts';
 import { loud } from './score.ts';
 import { mulberry32 } from '../core/rng.ts';
-import { reading } from '../show/matrix.ts';
+import { reading, SECTIONS } from '../show/matrix.ts';
 import { PLUGINS, isPlugin } from '../show/species/index.ts';
 import { VOICES } from './species/index.ts';
 
@@ -102,7 +102,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
   const end = start + shot.dur;
   // how loud the word is, as Jev heard it: −20 dB for an indifferent word, 0 for a scream
   const level = dbToGain(lerp(-7, 0, loud(A)) + CAL[shot.clip]); // a narrow range: intensity is density and sub, not volume
-  const tail = shot.aborted ? 0.25 : TAIL;
+  const tail = shot.aborted ? 0.25 : shot.clip === 'matrix' ? 0.03 : TAIL; // the matrix cuts hard: no ring-out
   const off = shot.start - plan.shots[0].start;
   const gate = c.createGain();
   gate.gain.setValueAtTime(0, start - 0.001);
@@ -461,56 +461,73 @@ function data(v: V): number[] {
  *  nothing else: the scan is its bit stream as a pulse train (the word's own bytes first); the matrix, its numbers as
  *  blips of sine (the word's own loudest); the zoom, a glissando rising with the scale; the signal, a playhead
  *  sounding each band in turn — a sure answer a sine, one the machine will not call noise; the field, a click as
- *  each point turns past the front, a ping for the word; the end, the answers' chord collapsing into one sine. */
+ *  each point turns past the front, a ping for the word; the end, the answers' chord collapsing into one sine.
+ *  The attack's flashes are bursts of noise over a sub, each as long as its flash. */
 function matrix(v: V): number[] {
   const r = reading(v.A);
   const dims = r.dims, n = dims.length;
   const sec = v.shot.seed, dur = v.shot.dur;
+  // the section's clock: a hold picks up where the section is (its flicker included), not from zero
+  const span = v.shot.span ?? { start: v.shot.start, dur };
+  const o = v.shot.start - span.start;
   const f = (x: number) => 150 * 2 ** (x * 5); // a value → 150 Hz … 4.8 kHz
-  const rand = mulberry32((v.A.seed ^ (sec * 7919)) >>> 0);
+  const rand = mulberry32((v.A.seed ^ (sec * 7919) ^ Math.round(o * 30)) >>> 0);
   const src = rendered(v, (L, R, sr) => {
     const len = Math.min(L.length, Math.floor(dur * sr));
     const put = (i: number, x: number, pan = 0) => { if (i >= 0 && i < L.length) { L[i] += x * (1 - pan); R[i] += x * (1 + pan); } };
-    // every section opens with a cut: one hard click
+    const su = (i: number) => Math.min(1, (o + i / sr) / span.dur); // where the section is, 0…1
+    // every shot opens with a cut: one hard click
     put(0, 0.5); put(1, -0.5);
+    if (dur < 0.09) {
+      // a flash of the attack: a burst of noise over a sub, as long as the flash (an inverted one, white: louder, harder)
+      const g = v.shot.inv ? 0.22 : 0.12, sub = 40 + 20 * v.A.s.weight;
+      for (let i = 0; i < len + sr * 0.01; i++) {
+        const e = i < len ? 1 : Math.exp(-(i - len) / (sr * 0.003));
+        put(i, ((rand() * 2 - 1) * g + Math.sin((2 * Math.PI * sub * i) / sr) * 0.25) * e);
+      }
+      return;
+    }
     if (sec === 0) {
       // the stream, as the first band draws it: word bytes, then values and confidences as bytes
       const bytes = [...v.A.bytes, ...dims.flatMap((d) => [Math.round(d.value * 255), Math.round(d.conf * 255)])];
       const rate = 900 + 2600 * v.A.s.arousal;
       for (let i = 0; i < len; i++) {
-        const b = Math.floor((i / sr) * rate);
+        const b = Math.floor((o + i / sr) * rate);
         const bit = (bytes[Math.floor(b / 8) % bytes.length] >> (7 - (b % 8))) & 1;
         put(i, bit ? (b % 2 ? 0.07 : -0.07) : 0);
       }
     } else if (sec === 1) {
       // the numbers streaming by: 60 blips a second, column after column, the word's own value louder
-      for (let e = 0; e * (1 / 60) < dur; e++) {
+      for (let e = Math.ceil(o * 60); e / 60 < o + dur; e++) {
         const k = e % n, j = Math.floor(e / n) % (r.ref.length + 1), me = j === r.ref.length;
         const x = me ? dims[k].value : dims[k].lex[j] ?? 0;
-        const s0 = Math.floor((e / 60) * sr), fr = f(x), pan = (k / n) * 1.6 - 0.8;
+        const s0 = Math.floor((e / 60 - o) * sr), fr = f(x), pan = (k / n) * 1.6 - 0.8;
         for (let i = 0; i < sr * 0.014; i++) put(s0 + i, Math.sin((2 * Math.PI * fr * i) / sr) * (me ? 0.09 : 0.03), pan);
       }
     } else if (sec === 2) {
       // the fall into one number: a sine rising with the scale, and noise thickening under it
+      // (the phase of a glide is its integral: 60·∫ exp(0.62·6.5·u²) — summed from the section's start)
       let ph = 0;
+      const step = 1 / sr;
+      for (let t = 0; t < o; t += step * 8) ph += (2 * Math.PI * 60 * Math.exp(0.62 * 6.5 * (t / span.dur) ** 2)) * step * 8;
       for (let i = 0; i < len; i++) {
-        const u = i / len;
-        const scale = Math.exp(u * u * 6.5);
-        ph += (2 * Math.PI * 60 * Math.pow(scale, 0.62)) / sr;
+        const u = su(i);
+        ph += (2 * Math.PI * 60 * Math.exp(0.62 * 6.5 * u * u)) / sr;
         put(i, Math.sin(ph) * 0.06 + (rand() * 2 - 1) * 0.02 * u * u);
       }
-      put(len - 1, 0.6);
+      if (o + dur >= span.dur - 0.01) put(len - 1, 0.6);
     } else if (sec === 3) {
       // the playhead: each band in turn — a sine if sure, noise if not
       const phs = new Float64Array(n);
+      const inc = dims.map((d) => (2 * Math.PI * f(d.value)) / sr);
+      const doubt = dims.map((d) => Math.min(1, Math.max(0, (0.75 - d.conf) / 0.6)));
       for (let i = 0; i < len; i++) {
-        const head = (i / len) * n;
+        const head = su(i) * n;
         for (let k = Math.max(0, Math.floor(head - 1)); k <= Math.min(n - 1, Math.floor(head + 1)); k++) {
           const w = Math.max(0, 1 - Math.abs(k + 0.5 - head));
           if (w <= 0) continue;
-          const doubt = Math.min(1, Math.max(0, (0.75 - dims[k].conf) / 0.6));
-          phs[k] += (2 * Math.PI * f(dims[k].value)) / sr;
-          put(i, (Math.sin(phs[k]) * (1 - doubt) * 0.08 + (rand() * 2 - 1) * doubt * 0.06) * w, (k / n) * 1.2 - 0.6);
+          phs[k] += inc[k];
+          put(i, (Math.sin(phs[k]) * (1 - doubt[k]) * 0.08 + (rand() * 2 - 1) * doubt[k] * 0.06) * w, (k / n) * 1.2 - 0.6);
         }
       }
     } else if (sec === 4) {
@@ -519,9 +536,10 @@ function matrix(v: V): number[] {
       const pts = [r.me, ...r.ref.map((x) => x.v)];
       pts.forEach((p, j) => {
         const qx = p[0] - 0.5, qz = p[2] - 0.5;
-        let last = qx;
-        for (let i = 1; i < len; i += 48) {
-          const a = (i / sr) * omega, x = qx * Math.cos(a) + qz * Math.sin(a);
+        const xAt = (i: number) => { const a = (o + i / sr) * omega; return qx * Math.cos(a) + qz * Math.sin(a); };
+        let last = xAt(0);
+        for (let i = 48; i < len; i += 48) {
+          const x = xAt(i);
           if (Math.sign(x) !== Math.sign(last)) {
             if (j === 0) for (let q = 0; q < sr * 0.08; q++) put(i + q, Math.sin((2 * Math.PI * 2000 * q) / sr) * 0.08 * Math.exp(-q / (sr * 0.02)));
             else put(i, 0.3 * (p[1] - 0.2));
@@ -531,16 +549,29 @@ function matrix(v: V): number[] {
       });
     } else {
       // the end: the answers' chord, shrinking, into one sine — the answer that sets the word apart
-      const fz = f(dims[r.focus].value);
+      // (the chord on oscillators: fifteen sines per sample stalled the Enter)
+      const wz = (2 * Math.PI * f(dims[r.focus].value)) / sr;
       for (let i = 0; i < len; i++) {
-        const u = i / len, t = Math.min(1, u / 0.7), out = 1 - Math.max(0, (u - 0.9) / 0.1);
-        let x = Math.sin((2 * Math.PI * fz * i) / sr) * 0.09 * t;
-        if (t < 1) for (let k = 0; k < n; k += 3) x += Math.sin((2 * Math.PI * f(dims[k].value) * i) / sr) * 0.012 * (1 - t);
-        put(i, x * out);
+        const u = su(i), t = Math.min(1, u / 0.7), out = 1 - Math.max(0, (u - 0.9) / 0.1);
+        put(i, Math.sin(wz * i) * 0.09 * t * out);
       }
     }
   });
   src.connect(v.out);
+  if (sec === SECTIONS.length - 1 && dur >= 0.09) {
+    const c = v.a.ctx, g = c.createGain();
+    const gone = v.start + Math.max(0.01, span.dur * 0.7 - o);
+    g.gain.setValueAtTime(0.012 * Math.max(0, 1 - o / (span.dur * 0.7)), v.start);
+    g.gain.linearRampToValueAtTime(0, gone);
+    g.connect(v.out);
+    dims.filter((_, k) => k % 3 === 0).forEach((d) => {
+      const s = c.createOscillator();
+      s.frequency.value = f(d.value);
+      s.connect(g);
+      s.start(v.start);
+      s.stop(gone + 0.01);
+    });
+  }
   return [];
 }
 
