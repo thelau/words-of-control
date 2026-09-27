@@ -2,6 +2,14 @@
 
 Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
+## 2026-09-28
+
+- **Reference words: ordinary language, 400 entries** ("can you pick a much larger set"; "yes, yes"): everyday things,
+  people, places, feelings, ideas, actions, short things people say, qualities, and 40 everyday sentences (so a
+  sentence is measured against sentences) — docs/reference-words.md, recorded by scripts/reference.ts (the test words
+  no longer serve as the norm). "What matters" by rarity among them (the same measure for scores and choices: choices
+  no longer win by default). The ending says the answer in plain words ("COMPLETELY SINCERE"). Tested with sentences.
+
 ## 2026-09-27
 
 - **Longer, for reading (after the round-10 reviews)** ("it feels all a bit short"; reviewers: time for reading, not

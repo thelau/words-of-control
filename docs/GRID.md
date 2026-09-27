@@ -32,8 +32,12 @@ invented: every caption is the score's own numbers and names. The word is shown 
 **The spaces** place the word among the piece's reference words, with the measurements that matter as axes (each
 axis spanning what the reference words cover): white points and hairlines, the word and the marked measurements in
 their colours, additive light, depth dimming what is far.
-**What matters:** how far an answer stands from the piece's reference words (src/jev/lexicon.json, built from the
-test words, never from visitors'), if Jev is sure enough of it (confidence ≥ 0.45). 4–7 cells, more for an intense word.
+**What matters:** how rare an answer is among the piece's reference words — the share of them at least as far out,
+the same measure for a score and a choice — if Jev is sure enough of it (confidence ≥ 0.45). **The reference words**
+(docs/reference-words.md → scripts/reference.ts → src/jev/reference.json → scripts/lexicon.ts → src/jev/lexicon.json):
+400 entries of ordinary language — everyday things, people, places, feelings, ideas, actions, short things people
+say, qualities, everyday sentences — never visitors' words. The ending says the answer in the battery's own words
+("COMPLETELY SINCERE", "AWE"), the measure and its value small beneath. 4–7 cells, more for an intense word.
 **The result:** their values, weighted by how much each matters; its colour, their colours mixed the same way.
 **The mode:** major-pentatonic for a positive word, a dark mode for a negative one, fourths for a neutral one, on D.
 

@@ -6,9 +6,9 @@
  */
 import type { Caption } from '../captions.ts';
 import type { Grid } from './grid.ts';
-import { layout, name, RING, stage } from './grid.ts';
+import { LABELS, layout, RING, stage } from './grid.ts';
 import type { Geometry, Space } from './space.ts';
-import type { Appraisal } from '../jev/appraisal.ts';
+import { plain, type Appraisal } from '../jev/appraisal.ts';
 
 /** The labels kept for the step on screen (see below). */
 const chosen = { step: '', keys: new Set<number>() };
@@ -54,7 +54,10 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
     const short = (w2: string) => (w2.length > 22 ? `${w2.slice(0, 21)}…` : w2);
     // (a long phrase is set smaller, to fit the stage: Plex Mono's advance is 0.6 em)
     out.push({ key: 'word', text: word, x: cx, y: cy - 96, align: 'c', size: 'big', colour, px: Math.min(64, (S[2] * 0.8) / (word.length * 0.6)) });
-    out.push({ key: 'answer', text: `${name(g, k)}  ${c.value.toFixed(2)}`, x: cx, y: cy - 40, align: 'c', size: 'mid', colour });
+    // the answer in the battery's own words ("COMPLETELY SINCERE", "AWE"), the measure and its value small beneath
+    const human = c.kind === 1 ? LABELS[c.opt] : plain(c.id, c.value);
+    out.push({ key: 'answer', text: human, x: cx, y: cy - 44, align: 'c', size: 'mid', colour });
+    out.push({ key: 'measure', text: `${c.id}  ${c.value.toFixed(2)}`, x: cx, y: cy - 22, align: 'c', colour });
     out.push({ key: 'rule', text: '', x: x0, y: ly, rule: x1 - x0 });
     out.push({ key: 'r0', text: '0', x: x0 - 16, y: ly, align: 'c' }, { key: 'r1', text: '1', x: x1 + 16, y: ly, align: 'c' });
     // (a stack never rises past 40 px: a tall one packs its dots closer)

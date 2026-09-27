@@ -9,8 +9,8 @@
  *             beat, a few beats bursting to the full frame; the last bar in halves; then a bar held on where the word
  *             stands: the answer that sets it most apart, placed among the reference words (show/notes.ts)
  *   black   — on the last step's end
- * "What matters": how far an answer stands from the piece's reference words (lexicon.json, never visitors' words),
- * if the machine is sure enough of it. Times are seconds from the verdict's start.
+ * "What matters": how rare an answer is among the piece's reference words (lexicon.json, never visitors' words) — the
+ * share of them at least as far out — if the machine is sure enough of it. Times are seconds from the verdict's start.
  */
 import type { Appraisal } from '../jev/appraisal.ts';
 import { CHOICE_IDS, NOUL_IDS, OPTIONS, SCORE_IDS } from '../jev/appraisal.ts';
@@ -34,7 +34,9 @@ export const VIZ = ['tiles', 'stand', ...SPACES] as const;
 export type Viz = (typeof VIZ)[number];
 
 export type Cell = {
-  id: string; kind: 0 | 1 | 2; value: number; conf: number; z: number;
+  id: string; kind: 0 | 1 | 2; value: number; conf: number;
+  /** How far from the reference words, in their spread (|σ|); how rare among them (bits: 1 = half as far out, 5 = 1 in 32). */
+  z: number; rare: number;
   /** Its label (index into LABELS); a choice's top option and its option probabilities. */
   label: number; opt: number; probs: number[];
   /** The same measurement for each reference word (lexicon.json, in the order of Grid.refs). */
@@ -77,8 +79,12 @@ export function grid(A: Appraisal): Grid {
     const lex = words.map((w) => (kind === 0 ? LEX[w].s[id] ?? 0.5 : kind === 1 ? LEX[w].c[id]?.[A.c[id].top] ?? 0 : LEX[w].n[id] ?? 0));
     const m = lex.reduce((a, b) => a + b, 0) / lex.length;
     const sd = Math.sqrt(lex.reduce((a, b) => a + (b - m) ** 2, 0) / lex.length) + 0.05;
+    // how rare: the share of reference words at least as far out on the same side (ties count), as surprise (bits) —
+    // the same measure for a score and a choice (a choice's confidence would otherwise always look extreme)
+    const up = value >= m, beyond = lex.filter((v) => (up ? v >= value - 1e-6 : v <= value + 1e-6)).length;
+    const rare = -Math.log2((beyond + 1) / (lex.length + 1));
     return {
-      id, kind, value, conf: A.k[id] ?? 1, z: Math.abs(value - m) / sd, label: k,
+      id, kind, value, conf: A.k[id] ?? 1, z: Math.abs(value - m) / sd, rare, label: k,
       opt: kind === 1 ? OPT0[id] + OPTIONS[id].indexOf(A.c[id].top) : -1,
       probs: kind === 1 ? OPTIONS[id].map((o) => A.c[id].p[o] ?? 0) : [], lex,
       arrive: 0, vanish: Infinity, key: -1, markAt: Infinity,
@@ -90,8 +96,8 @@ export function grid(A: Appraisal): Grid {
   const order = cells.map((_, k) => k).sort(() => rand() - 0.5);
   order.forEach((k, i) => (cells[k].arrive = 0.35 + (fill - 0.35) * Math.pow(i / cells.length, 0.75) + rand() * 0.04));
 
-  // what matters: far from the reference words, and sure enough
-  const rel = cells.map((c) => c.z * (c.conf >= 0.45 ? c.conf : 0));
+  // what matters: rare among the reference words, and sure enough
+  const rel = cells.map((c) => c.rare * (c.conf >= 0.45 ? c.conf : 0));
   const nKeys = 4 + Math.round(3 * clamp01(A.s.intensity * 0.6 + aro * 0.4));
   const rank = cells.map((_, k) => k).sort((a, b) => rel[b] - rel[a]);
   // (a category slot — who, act, kind… — never leads: it goes after the answers a person would say)

@@ -20,6 +20,17 @@ export const OPTIONS: Record<string, string[]> = Object.fromEntries(
   CHOICE_IDS.map((k) => [k, Object.keys(ALL[k].criteria as Record<string, string>)]),
 );
 
+/** A score's or a yes/no's value in the battery's own words: the level it falls on ("Completely sincere",
+ *  "Unbearably tense"), or the yes / no answer ("No memory or nostalgia") — its first phrase. */
+export function plain(id: string, value: number): string {
+  const c = ALL[id]?.criteria;
+  const first = (t: string) => t.split(/[:,]/)[0].trim();
+  if (Array.isArray(c)) return first((c as { what: string }[])[Math.round(Math.max(0, Math.min(1, value)) * (c.length - 1))].what);
+  const yn = c as { true?: string; false?: string } | undefined;
+  if (yn?.true && yn.false) return first(value >= 0.5 ? yn.true : yn.false);
+  return id;
+}
+
 export type Choice = { top: string; p: Record<string, number>; confidence: number };
 
 export type Appraisal = {

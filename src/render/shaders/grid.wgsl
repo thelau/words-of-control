@@ -128,7 +128,8 @@ fn figure(k: u32, p: vec2f, b: vec4f, grow: f32) -> f32 {
   let n = hist(k, bin);
   let base = b.y + b.w * 0.85;
   var c = line(p.y - base) * 0.3; // the axis
-  if (n > 0.0 && p.y <= base && p.y >= base - b.w * 0.7 * min(1.0, n / 4.0) * grow) { c = max(c, line(p.x - bx) * 0.7); }
+  // (a tick's height: its share of the reference words, full at 1 in 15)
+  if (n > 0.0 && p.y <= base && p.y >= base - b.w * 0.7 * min(1.0, n / max(4.0, D[3] / 15.0)) * grow) { c = max(c, line(p.x - bx) * 0.7); }
   let vx = b.x + clamp(cf(k, 0u), 0.0, 1.0) * b.z;
   if (p.y >= b.y + b.w * (1.0 - grow)) { c = max(c, clamp(F.dpr + 0.5 - abs(p.x - vx), 0.0, 1.0)); }
   if (doubt > 0.0) {
