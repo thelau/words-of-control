@@ -11,6 +11,8 @@ const FIELDS = [
   // the step on screen (show/grid.ts): which drawing (VIZ index), whether it fills the frame, how far through the
   // beat (0..1)
   'viz', 'full', 'beatU',
+  // a white frame (a negative word's strobe, main.ts)
+  'flash',
   // the room: how far it has come back from black, how much the typing has charged it, the last keystroke
   'fade', 'charge', 'kick',
 ] as const;

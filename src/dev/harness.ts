@@ -40,7 +40,7 @@ export async function mountHarness(app: App) {
     const s = app.show();
     if (!s) return;
     const { g } = s;
-    info.textContent = `“${w}” ${g.bpm} bpm · result ${g.result.toFixed(3)}\nmatters: ${g.keys.map((k) => g.cells[k].id).join(', ')}\nsteps: ${g.steps.map((x) => x.viz).join(' ')}\nblack at ${g.end.toFixed(1)}s`;
+    info.textContent = `“${w}” ${g.bpm} bpm\nmatters: ${g.keys.map((k) => g.cells[k].id).join(', ')}\nsteps: ${g.steps.map((x) => x.viz).join(' ')}\nblack at ${g.end.toFixed(1)}s`;
   };
 
   const btn = (label: string, fn: () => void) => {

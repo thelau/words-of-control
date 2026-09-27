@@ -8,16 +8,17 @@ export type Caption = {
   /** Stable per role ("head", "panel", "a3"…): the same element is reused while it lasts. */
   key: string; text: string;
   /** CSS px; `align`: which corner of the text sits there. */
-  x: number; y: number; align?: 'tl' | 'bl' | 'br';
-  /** A panel wraps at this width (CSS px). */
-  width?: number;
-  /** An anchor on the data: a dot before it, in this colour. */
-  anchor?: string;
+  x: number; y: number; align?: 'tl' | 'bl' | 'br' | 'c';
+  /** An anchor on the data (a dot before it). */
+  anchor?: boolean;
+  colour?: string;
+  /** Larger type (the last step). */
+  size?: 'big' | 'mid';
 };
 
 const root = document.getElementById('captions')!;
 const live = new Map<string, { el: HTMLDivElement; state: string }>();
-const SHIFT = { tl: '', bl: ' translateY(-100%)', br: ' translate(-100%, -100%)' };
+const SHIFT = { tl: '', bl: ' translateY(-100%)', br: ' translate(-100%, -100%)', c: ' translate(-50%, -50%)' };
 
 export function showCaptions(items: Caption[]) {
   const seen = new Set<string>();
@@ -30,15 +31,14 @@ export function showCaptions(items: Caption[]) {
       e = { el, state: '' };
       live.set(c.key, e);
     }
-    const state = `${c.text}|${Math.round(c.x)}|${Math.round(c.y)}|${c.align}|${c.width}|${c.anchor}`;
+    const state = `${c.text}|${Math.round(c.x)}|${Math.round(c.y)}|${c.align}|${c.anchor}|${c.colour}|${c.size}`;
     if (state === e.state) continue;
     e.state = state;
     const el = e.el;
-    el.className = c.anchor ? 'cap anchor' : c.width ? 'cap panel' : 'cap';
+    el.className = ['cap', c.anchor && 'anchor', c.size].filter(Boolean).join(' ');
     el.textContent = c.text;
     el.style.transform = `translate(${Math.round(c.x)}px, ${Math.round(c.y)}px)${SHIFT[c.align ?? 'tl']}`;
-    el.style.width = c.width ? `${Math.round(c.width)}px` : '';
-    el.style.color = c.anchor ?? '';
+    el.style.color = c.colour ?? '';
   }
   for (const [k, e] of live) if (!seen.has(k)) { e.el.remove(); live.delete(k); }
 }

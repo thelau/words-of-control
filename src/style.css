@@ -123,7 +123,8 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 #captions .cap { position: absolute; left: 0; top: 0; white-space: pre; }
-#captions .panel { white-space: normal; }
+#captions .big { font-size: 64px; line-height: 1; letter-spacing: 0; }
+#captions .mid { font-size: 16px; }
 #captions .anchor { color: rgba(237, 230, 220, 0.8); }
 #captions .anchor::before {
   content: '';

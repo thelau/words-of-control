@@ -28,8 +28,8 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, g: G
   // how loud: as Jev heard the word (a positive one never timid)
   const loud = Math.max(A.s.loudness * 0.5 + A.s.intensity * 0.5, A.mood.pos * 0.5);
   const out = c.createGain();
-  // (the mood changes the sound's density: a dark word's rumble and drive add up, a neutral word is sparse)
-  out.gain.value = dbToGain(lerp(0, 8, loud) - 3.5 * A.mood.neg + 7 * A.mood.neu);
+  // (the mood changes the sound's density: a dark word's rolls and bursts add up, a neutral word is sparse)
+  out.gain.value = dbToGain(lerp(0, 8, loud) - 2 * A.mood.neg + 7 * A.mood.neu);
   out.connect(a.perfDry);
   const send = c.createGain();
   send.gain.value = 0.12;

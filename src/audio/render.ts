@@ -8,7 +8,7 @@
  *                 lengths, drifting in and out of phase (sine through a wavefolder and a filter), bent by the word's
  *                 mood (see renderSteps); each step re-patches it (fold, octave, gate, density: the space on screen sets them);
  *                 noise ticks and sub hits on euclidean patterns; a full-frame step a burst of white noise and a high
- *                 sine; the last step, the result's pitch alone
+ *                 sine; the last step, the pitch of the answer that sets the word most apart, alone
  * Pitches on the house's D, in a mode from the mood.
  */
 import type { Appraisal } from '../jev/appraisal.ts';
@@ -91,28 +91,34 @@ const PATCH: Partial<Record<Viz, { fold: number; oct: number; gate: number; dens
 /** k onsets spread evenly over n steps (Bjorklund's rhythm). */
 const euclid = (k: number, n: number) => Array.from({ length: n }, (_, i) => Math.floor(((i + 1) * k) / n) - Math.floor((i * k) / n) === 1);
 
-/** The steps, as samples starting at g.seq. The mood bends the whole sequencer, continuously:
- *  negative — lower, folded harder and driven, the second voice detuned against the first (it beats), the filter
- *             kept dark, harsher ticks, more sub, a low rumble pumping with it;
+/** The steps, as samples starting at g.seq. The mood bends the whole sequencer, continuously — the more negative the
+ *  more rapid and broken (after Ikeda), the more positive the more pleasant:
+ *  negative — lower pitch for the arpeggio but in 32nds, short and clean, the second voice detuned against the first
+ *             (it beats); clicks in 32nd-note rolls, glitch bursts of 64th-note grains flung left and right, high sine
+ *             stabs; short sub pulses;
  *  neutral  — clinical: test-tone pitches (half-octaves of 1 kHz) instead of the mode, pure sines, sparser, no sub;
- *  positive — the mode (lydian), higher, lightly folded, the filter opening across the sequence. */
+ *  positive — the mode (lydian), higher, longer and softer notes, the filter opening, a quiet chord of the answers
+ *             that matter under it all. */
 export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
   const rand = mulberry32(A.seed ^ 0x2545f491);
   const T = tape(g.seq, g.end + 0.05, sr, rand);
   const { pos, neu, neg } = A.mood;
   const mode = tuning(A);
-  const lift = Math.round(0.6 * pos - 1.2 * neg); // octaves
+  const lift = Math.round(0.6 * pos - 0.6 * neg); // octaves
   const note = (v: number, oct: number) => {
     const f = mode(v, oct + lift);
     // neutral: the same place on a test-tone scale (1 kHz and its half-octaves)
     return neu > 0.5 ? 1000 * 2 ** (Math.round(Math.log2(f / 1000) * 2) / 2) : f;
   };
-  const foldBy = 1 + 1.6 * neg - 0.7 * neu, drive = 1 + 4 * neg, detune = 2 ** ((0.3 * neg) / 12);
+  const foldBy = 1 + 0.4 * neg - 0.7 * neu - 0.5 * pos, drive = 1 + 1.5 * neg, detune = 2 ** ((0.3 * neg) / 12);
+  const gateBy = 1 - 0.55 * neg + 0.8 * pos;
   const sixteenth = g.beat / 4;
   const vals = g.keys.map((k) => g.cells[k].value);
-  const seqA = vals, seqB = [...vals].reverse().concat(g.result); // lengths K and K + 1: they drift
-  const ticks = euclid(3 + Math.round(6 * A.s.arousal), 16), subs = euclid(3 + Math.round(2 * A.s.intensity + 3 * neg), 8);
-  let cut = 1800 - 1100 * neg; // the filter opens across the sequence — unless the word is dark
+  const top = vals[0]; // the answer that sets the word most apart
+  const seqA = vals, seqB = [...vals].reverse().concat(top); // lengths K and K + 1: they drift
+  const ticks = euclid(3 + Math.round(6 * A.s.arousal), 16), subs = euclid(3 + Math.round(2 * A.s.intensity + 2 * neg), 8);
+  const rolls = euclid(Math.round(4 + 24 * neg * (0.4 + 0.6 * A.s.arousal)), 32);
+  let cut = 1800 + 1500 * neg; // the filter opens across the sequence
   const open = 1 + 0.12 * (1 - neg);
   const lp = [0, 0];
   const voice = (t: number, f: number, gate: number, fold: number, pan: number, amp: number, which: 0 | 1) => {
@@ -127,31 +133,38 @@ export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
     }
     lp[which] = y0;
   };
-  // a negative word: a low rumble under the steps, pumped by the sub pattern
-  if (neg > 0.3) {
-    const s0 = T.at(g.seq), n = T.at(g.end) - s0, fc = 1 - Math.exp((-2 * Math.PI * 140) / sr);
-    let y = 0;
+  // a positive word: a quiet chord of the answers that matter under the steps, breathing with the bars
+  if (pos > 0.4) {
+    const fs = vals.slice(0, 4).map((v) => (2 * Math.PI * note(v, 0)) / sr), s0 = T.at(g.seq), n = T.at(g.end) - s0, bar = 4 * g.beat * sr;
     for (let i = 0; i < n; i++) {
-      const t = g.seq + i / sr, k = Math.floor((t - g.seq) / (sixteenth * 2));
-      const since = (t - g.seq) - k * sixteenth * 2;
-      y += fc * ((rand() * 2 - 1) - y);
-      const duck = subs[k % 8] ? Math.min(1, since / 0.12) : 1;
-      T.put(s0 + i, y * 0.5 * neg * duck, 0);
+      let x = 0;
+      for (const w of fs) x += Math.sin(w * i);
+      T.put(s0 + i, x * 0.012 * pos * (0.6 + 0.4 * Math.sin((Math.PI * i) / bar)) * Math.min(1, i / (sr * 0.3)), 0);
     }
   }
   let n16 = 0;
   for (const st of g.steps) {
     const p = PATCH[st.viz];
-    if (st.full) { T.noise(st.t, 0.06 + 0.1 * neg, 0.3, 0, 0.03 + 0.05 * neg); T.tone(st.t, 9000 + 3000 * g.result, 0.04, 0.03); }
-    if (st.viz === 'number') { T.tone(st.t, note(g.result, 1), st.dur, 0.08); continue; }
+    if (st.full) { T.noise(st.t, 0.04, 0.3, 0, 0.02); T.tone(st.t, 9000 + 3000 * top, 0.04, 0.03); }
+    if (st.viz === 'stand') { T.tone(st.t, note(top, 1), st.dur, 0.08); continue; }
     const count = Math.round(st.dur / sixteenth);
     for (let i = 0; i < count; i++, n16++) {
       const t = st.t + i * sixteenth;
-      if (ticks[n16 % 16]) T.noise(t, 0.008 + 0.01 * neg, 0.1 + 0.1 * neg, (n16 % 2) * 0.8 - 0.4, 0.002 + 0.004 * neg);
-      if (neu < 0.5 && n16 % 2 === 0 && subs[(n16 / 2) % 8]) T.sub(t, 38 + 8 * A.s.weight, 0.35 + 0.2 * neg, 0.07 + 0.08 * neg);
+      if (ticks[n16 % 16]) T.noise(t, 0.008, 0.1 * (1 - 0.6 * pos), (n16 % 2) * 0.8 - 0.4, 0.002);
+      if (neu < 0.5 && n16 % 2 === 0 && subs[(n16 / 2) % 8]) T.sub(t, 48, 0.3 + 0.15 * neg, 0.03 + 0.05 * (1 - neg));
+      // the negative side, after Ikeda: clicks in 32nd rolls, glitch bursts, high sine stabs
+      if (neg > 0.3) {
+        for (const h of [0, 1]) if (rolls[(n16 * 2 + h) % 32]) T.click(t + (h * sixteenth) / 2, 0.3 * neg, h ? 0.6 : -0.6);
+        if (rand() < 0.3 * neg) for (let k = 0, m = 3 + Math.floor(rand() * 5); k < m; k++) T.noise(t + (k * sixteenth) / 4, 0.003, 0.35 * neg, k % 2 ? 0.9 : -0.9, 0.001);
+        if (rand() < 0.3 * neg) T.tone(t, 6000 + 8000 * vals[n16 % vals.length], 0.012 + 0.018 * rand(), 0.05 * neg, rand() * 1.6 - 0.8);
+      }
       if (!p || rand() > p.dens * (1 - 0.4 * neu)) continue;
-      voice(t, note(seqA[n16 % seqA.length], p.oct), p.gate, p.fold * foldBy, -0.5, 0.07, 0);
-      voice(t + (n16 % 3 === 2 ? sixteenth / 2 : 0), note(seqB[n16 % seqB.length], p.oct + 1) * detune, p.gate * 0.7, p.fold * 0.7 * foldBy, 0.5, 0.045, 1);
+      // (a negative word's arpeggio runs in 32nds)
+      for (const h of neg > 0.5 ? [0, 1] : [0]) {
+        const th = t + (h * sixteenth) / 2, j = n16 * (neg > 0.5 ? 2 : 1) + h;
+        voice(th, note(seqA[j % seqA.length], p.oct), p.gate * gateBy, p.fold * foldBy, -0.5, 0.07, 0);
+        voice(th + (j % 3 === 2 && neg <= 0.5 ? sixteenth / 2 : 0), note(seqB[j % seqB.length], p.oct + 1) * detune, p.gate * 0.7 * gateBy, p.fold * 0.7 * foldBy, 0.5, 0.045, 1);
+      }
     }
     cut = Math.min(9000, cut * open);
   }

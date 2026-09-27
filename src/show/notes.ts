@@ -1,10 +1,8 @@
 /**
- * What the captions say (src/captions.ts), moment by moment — plain, factual, all from the score:
- *   grid     — above it, the word and where the reading stands (answers received, marked, cleared); below it, how to
- *              read a cell
- *   steps    — above the grid, the step, the tempo, the mood; under the stage (or in a corner, full frame) what is
- *              shown; on a space, labels on the data itself (axes, the word, its nearest reference words)
- * Positions in CSS px.
+ * What the captions say (src/captions.ts): labels only — it all passes too fast for sentences. Above the grid the
+ * word and where the reading stands (received, marked, cleared; then the step, the tempo, the mood); below it what a
+ * step shows; on a space, labels on the data itself (axes, the word, its nearest reference words); the last step,
+ * the answer that sets the word most apart and its rank among the reference words. Positions in CSS px.
  */
 import type { Caption } from '../captions.ts';
 import type { Grid } from './grid.ts';
@@ -21,28 +19,35 @@ export function notes(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w:
   const n = g.cells.length, K = g.keys.length, R = g.refs.length;
   const out: Caption[] = [];
   if (t < g.seq) {
-    out.push({ key: 'head', text: `${word} — ${n} answers from one call to Jev`, x: gx, y: gy - 10, align: 'bl' });
+    out.push({ key: 'head', text: `${word} · ${n} answers`, x: gx, y: gy - 10, align: 'bl' });
     const got = g.cells.filter((c) => c.arrive <= t).length;
     const marked = g.cells.filter((c) => c.markAt <= t).length;
     const gone = g.cells.filter((c) => c.vanish <= t).length;
-    const where = t < g.mark ? `received ${got} / ${n}`
-      : t < g.select ? `marked ${marked} / ${K} — furthest from ${R} reference words, among answers Jev is sure of`
-      : `cleared ${gone} / ${n - K}`;
+    const where = t < g.mark ? `received ${got} / ${n}` : t < g.select ? `marked ${marked} / ${K}` : `cleared ${gone} / ${n - K}`;
     out.push({ key: 'where', text: where, x: gx + gw, y: gy - 10, align: 'br' });
-    out.push({ key: 'foot', text: 'each cell: the question · Jev’s answer · its value 0–1 · a figure of it (a score a sine, a choice its options, yes/no dots) · noise where Jev is unsure', x: gx, y: gy + gh + 10 });
     return out;
   }
   const i = g.steps.findIndex((s) => t >= s.t && t < s.t + s.dur);
   const st = g.steps[i];
   if (!st) return out;
   const m = A.mood, mood = m.neg >= m.pos && m.neg >= m.neu ? 'negative' : m.pos >= m.neu ? 'positive' : 'neutral';
-  out.push({ key: 'head', text: `${word} — step ${i + 1} / ${g.steps.length} · ${g.bpm} bpm · mood ${mood} ${Math.max(m.pos, m.neu, m.neg).toFixed(2)}`, x: gx, y: gy - 10, align: 'bl' });
-  const text = st.viz === 'tiles' ? `THE ${K} ANSWERS THAT MATTER — of the answers Jev is sure of, those furthest from ${R} reference words: ${g.keys.map((k) => name(g, k)).join(', ')}.`
-    : st.viz === 'number' ? `RESULT ${g.result.toFixed(3)} — the ${K} answers that matter, averaged, each weighted by how far it stands from the reference words.`
-    : geo?.captions[st.viz] ?? '';
+  out.push({ key: 'head', text: `${word} · ${i + 1} / ${g.steps.length} · ${g.bpm} bpm · ${mood} ${Math.max(m.pos, m.neu, m.neg).toFixed(2)}`, x: gx, y: gy - 10, align: 'bl' });
   const S = stage(w, h).map((x) => x / dpr);
-  if (st.full) out.push({ key: 'panel', text, x: 16, y: h / dpr - 16, align: 'bl', width: Math.min(560, gw * 0.5) });
-  else out.push({ key: 'panel', text, x: S[0] + 12, y: S[1] + S[3] + 12, width: S[2] * 0.6 });
+  if (st.viz === 'stand') {
+    // the answer that sets the word most apart, ranked among the reference words
+    const k = g.keys[0], c = g.cells[k];
+    const mean = c.lex.reduce((a, b) => a + b, 0) / R;
+    const up = c.value >= mean, beyond = c.lex.filter((v) => (up ? v < c.value : v > c.value)).length;
+    const cx = S[0] + S[2] / 2, cy = S[1] + S[3] / 2;
+    out.push({ key: 'stand', text: `${name(g, k)}  ${c.value.toFixed(2)}`, x: cx, y: cy - 34, align: 'c', size: 'big', colour: srgb(g.colours[0]) });
+    out.push({ key: 'rank', text: `${up ? 'above' : 'below'} ${beyond} of ${R} words`, x: cx, y: cy + 26, align: 'c', size: 'mid' });
+    return out;
+  }
+  const text = st.viz === 'tiles' ? `${K} answers that matter`
+    : geo?.captions[st.viz as Space] ?? '';
+  // (below the grid, outside it: the grid's cells carry views of the space)
+  if (st.full) out.push({ key: 'panel', text, x: 16, y: h / dpr - 16, align: 'bl' });
+  else out.push({ key: 'panel', text, x: gx, y: gy + gh + 10 });
   // labels on the data: each anchor projected through the step's camera into its rectangle
   if (space && geo) {
     const [rx, ry, rw, rh] = space.rect, vp = space.vp;
@@ -52,7 +57,7 @@ export function notes(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w:
       if (cw <= 0.05) return;
       const nx = (vp[0] * x + vp[4] * y + vp[8] * z + vp[12]) / cw, ny = (vp[1] * x + vp[5] * y + vp[9] * z + vp[13]) / cw;
       if (Math.abs(nx) > 0.98 || Math.abs(ny) > 0.98) return;
-      out.push({ key: `a${k}`, text: a.text, x: (rx + (nx * 0.5 + 0.5) * rw) / dpr, y: (ry + (0.5 - ny * 0.5) * rh) / dpr - 7, anchor: a.c ? srgb(g.colours[a.c - 1]) : 'rgba(237,230,220,0.8)' });
+      out.push({ key: `a${k}`, text: a.text, x: (rx + (nx * 0.5 + 0.5) * rw) / dpr, y: (ry + (0.5 - ny * 0.5) * rh) / dpr - 7, anchor: true, colour: a.c ? srgb(g.colours[a.c - 1]) : undefined });
     });
   }
   return out;

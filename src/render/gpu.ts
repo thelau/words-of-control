@@ -1,7 +1,8 @@
 /**
  * WebGPU renderer: one render pass straight to the canvas at native resolution — a fullscreen triangle (grid.wgsl:
- * the room, the wait, the performance and the black are its modes), then, during a step that shows a space, its
- * points and lines (space.wgsl) in the step's rectangle. Text comes from two atlases painted once at boot: the
+ * the room — the drone's own waveform —, the wait, the performance and the black are its modes), then, during a step
+ * that shows a space, its points and lines (space.wgsl) once per view: the stage, and each cell around it, every view
+ * its own camera (a slot of one uniform buffer, bound at its offset). Text comes from two atlases painted once at boot: the
  * digits (twice: small and large), and every name the grid shows (show/grid.ts LABELS).
  */
 import commonWGSL from './shaders/common.wgsl?raw';
@@ -11,8 +12,15 @@ import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
 import { LABELS } from '../show/grid.ts';
 import type { Geometry } from '../show/space.ts';
 
-/** A space to draw this frame: its camera, palette and rectangle (device px), and which points and lines. */
-export type SpaceDraw = { cam: Float32Array; rect: [number, number, number, number]; points: [number, number]; lines: [number, number] };
+/** A camera block's size in the views buffer (space.wgsl Cam, padded to the uniform offset alignment), in floats. */
+export const CAM_SLOT = 64;
+export const VIEWS_MAX = 32;
+/** A space to draw this frame: its views (`cams`: one Cam block per view, CAM_SLOT floats apart; `rects`: each view's
+ *  rectangle, device px) and which points and lines. */
+/** Points of the drone's waveform the room draws. */
+export const WAVE_N = 256;
+
+export type SpaceDraw = { cams: Float32Array; rects: [number, number, number, number][]; points: [number, number]; lines: [number, number] };
 
 export class Renderer {
   /** Canvas size in device pixels. */
@@ -26,11 +34,13 @@ export class Renderer {
   private ctx!: GPUCanvasContext;
   private fBuf!: GPUBuffer;
   private scoreBuf!: GPUBuffer;
+  private waveBuf!: GPUBuffer;
   private pipe!: GPURenderPipeline;
   private bg!: GPUBindGroup;
   private camBuf!: GPUBuffer;
   private pointPipe!: GPURenderPipeline;
   private linePipe!: GPURenderPipeline;
+  private dotPipe!: GPURenderPipeline;
   private camBg!: GPUBindGroup;
   private pointBuf: GPUBuffer | null = null;
   private lineBuf: GPUBuffer | null = null;
@@ -65,7 +75,8 @@ export class Renderer {
 
     this.fBuf = d.createBuffer({ size: FRAME_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.scoreBuf = d.createBuffer({ size: 16 * 1024, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-    this.camBuf = d.createBuffer({ size: 60 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.waveBuf = d.createBuffer({ size: WAVE_N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.camBuf = d.createBuffer({ size: CAM_SLOT * 4 * VIEWS_MAX, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     await document.fonts.load('400 40px "IBM Plex Mono"');
     const m = d.createShaderModule({ label: 'grid', code: commonWGSL + '\n' + frameStructWGSL() + '\n' + gridWGSL });
     this.pipe = await d.createRenderPipelineAsync({
@@ -80,11 +91,12 @@ export class Renderer {
       { binding: 3, resource: atlas(d, 4, 512, 48, 34, LABELS, 'left').createView() },
       // (the same digits at three times the size, for the big number: sharp at any size)
       { binding: 4, resource: atlas(d, 16, 120, 180, 132, [...'0123456789ABCDEF.-x:'], 'center').createView() },
+      { binding: 5, resource: { buffer: this.waveBuf } },
     ] });
     // the spaces: additive light, no depth (points and lines add up where they crowd)
     const sm = d.createShaderModule({ label: 'space', code: spaceWGSL });
     const add: GPUBlendState = { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one' } };
-    const camLayout = d.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {} }] });
+    const camLayout = d.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { hasDynamicOffset: true } }] });
     const layout = d.createPipelineLayout({ bindGroupLayouts: [camLayout] });
     const vtx = (stepMode: GPUVertexStepMode): GPUVertexBufferLayout => ({ arrayStride: 16, stepMode, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }] });
     this.pointPipe = await d.createRenderPipelineAsync({
@@ -97,7 +109,13 @@ export class Renderer {
       vertex: { module: sm, entryPoint: 'vs_line', buffers: [vtx('vertex')] },
       fragment: { module: sm, entryPoint: 'fs_line', targets: [{ format, blend: add }] },
     });
-    this.camBg = d.createBindGroup({ layout: camLayout, entries: [{ binding: 0, resource: { buffer: this.camBuf } }] });
+    // (the small views around the stage: one-pixel points, one vertex each — 25 views of a cloud stay cheap)
+    this.dotPipe = await d.createRenderPipelineAsync({
+      label: 'dots', layout, primitive: { topology: 'point-list' },
+      vertex: { module: sm, entryPoint: 'vs_line', buffers: [vtx('vertex')] },
+      fragment: { module: sm, entryPoint: 'fs_line', targets: [{ format, blend: add }] },
+    });
+    this.camBg = d.createBindGroup({ layout: camLayout, entries: [{ binding: 0, resource: { buffer: this.camBuf, size: CAM_SLOT * 4 } }] });
   }
 
   resize() {
@@ -112,6 +130,11 @@ export class Renderer {
   /** This performance's score (show/grid.ts pack()). */
   setScore(data: Float32Array) {
     this.d.queue.writeBuffer(this.scoreBuf, 0, data);
+  }
+
+  /** The drone's waveform this frame (audio/drone.ts wave()), for the room. */
+  setWave(data: Float32Array) {
+    this.d.queue.writeBuffer(this.waveBuf, 0, data);
   }
 
   /** This performance's spaces (show/space.ts build()). */
@@ -140,17 +163,18 @@ export class Renderer {
     p.setBindGroup(0, this.bg);
     p.draw(3);
     if (space && this.pointBuf && this.lineBuf) {
-      const [x, y, w, h] = space.rect;
-      d.queue.writeBuffer(this.camBuf, 0, space.cam);
-      p.setViewport(x, y, w, h, 0, 1);
-      p.setScissorRect(x, y, w, h);
-      p.setBindGroup(0, this.camBg);
-      p.setPipeline(this.linePipe);
-      p.setVertexBuffer(0, this.lineBuf);
-      p.draw(space.lines[1], 1, space.lines[0]);
-      p.setPipeline(this.pointPipe);
-      p.setVertexBuffer(0, this.pointBuf);
-      p.draw(6, space.points[1], 0, space.points[0]);
+      d.queue.writeBuffer(this.camBuf, 0, space.cams, 0, space.rects.length * CAM_SLOT);
+      space.rects.forEach(([x, y, w, h], i) => {
+        p.setViewport(x, y, w, h, 0, 1);
+        p.setScissorRect(x, y, w, h);
+        p.setBindGroup(0, this.camBg, [i * CAM_SLOT * 4]);
+        p.setPipeline(this.linePipe);
+        p.setVertexBuffer(0, this.lineBuf);
+        p.draw(space.lines[1], 1, space.lines[0]);
+        p.setVertexBuffer(0, this.pointBuf);
+        if (i === 0) { p.setPipeline(this.pointPipe); p.draw(6, space.points[1], 0, space.points[0]); }
+        else { p.setPipeline(this.dotPipe); p.draw(space.points[1], 1, space.points[0]); }
+      });
     }
     p.end();
     if (timed) {

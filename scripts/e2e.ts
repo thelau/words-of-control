@@ -40,7 +40,7 @@ check('backspace edits', (await text()) === 'ocean');
 await page.keyboard.press('Enter');
 check('Enter performs', await waitState('performing', 5000));
 const g = await page.evaluate(() => (window as any).__woc.show()?.g);
-check('the score has its cells, what matters and its steps', !!g && g.cells.length === 43 && g.keys.length >= 4 && g.steps.length === 20, g ? `${g.keys.length} matter, ${g.bpm} bpm` : '');
+check('the score has its cells, what matters and its steps', !!g && g.cells.length === 43 && g.keys.length >= 4 && g.steps.length === 21 && g.steps[20].viz === 'stand', g ? `${g.keys.length} matter, ${g.bpm} bpm` : '');
 await page.waitForFunction(() => { const w = (window as any).__woc; (window as any).__seen = ((window as any).__seen ?? new Set()).add(w.phase()); return w.state() !== 'performing'; }, null, { timeout: 40000, polling: 40 }).catch(() => {});
 const phases = new Set<string>(await page.evaluate(() => [...((window as any).__seen ?? [])]));
 check('it passes through the grid and black', phases.has('grid') && phases.has('black'), [...phases].join(', '));

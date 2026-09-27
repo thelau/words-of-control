@@ -4,6 +4,16 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
+- **Labels only; the room a line; the ring accompanies; the mood from pleasant to epileptic** ("things pass by so
+  fast … anything more than labels is pointless"; the grid before the input "clashes with the input … could be a
+  simple oscillating sine in sync with the drone"; "the score at the end is a bit lame" → where it stands (chosen
+  among four options); "the inner empty cells should be … duplicating, accompanying what's in the middle"; no
+  cropping in the middle; "on the negative side … noise used like a bass … should be more rapid Ikeda-esque"; "the
+  more negative the more epileptic, the more positive the more pleasant"; "not the exact same when shown in the
+  cells around"). The room is the drone's waveform; the ring shows the same space as angles, scans, sections and
+  close-ups; every camera fits its space; negative words cut on sixteenths and strobe, and sound as clicks, 32nd
+  rolls, glitch bursts and high sine stabs; positive ones soft, larger points, a quiet chord.
+
 - **Small copy across the piece, a wider stage, the mood range back** ("have small copy across all to explain what the
   score is, nothing is fake but it's all abstract"; "the war version is more rapid but still feel positive, we should
   have this negative/neutral/positive range as we used to have but on this style"; "take 2 more cells on the left

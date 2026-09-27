@@ -4,9 +4,10 @@
  *             value, a small live figure of it (a score a sine, a choice its bars, a yes/no a field of dots)
  *   mark    — the cells that matter take the word's own colours (Jev's colour answer), one by one
  *   select  — every other cell goes out, staccato; the marked ones stay where they were
- *   steps   — cut: the marked cells as one block on the stage at the centre (7 × 3 cells: the result), then on every beat of a 4/4 at the
- *             word's tempo a new 3D space of the data (show/space.ts), a few beats bursting to the full frame; the
- *             last bar in halves; it ends on the result's number
+ *   steps   — cut: the marked cells as one block on the stage at the centre (7 × 3 cells), then on every beat of a
+ *             4/4 at the word's tempo a new 3D space of the data (show/space.ts), a few beats bursting to the full
+ *             frame; the last bar in halves; then a bar held on where the word stands: the answer that sets it
+ *             most apart, ranked among the reference words (show/notes.ts)
  *   black   — on the last step's end
  * "What matters": how far an answer stands from the piece's reference words (lexicon.json, never visitors' words),
  * if the machine is sure enough of it. Times are seconds from the verdict's start.
@@ -27,8 +28,9 @@ const OPT0 = Object.fromEntries(CHOICE_IDS.map((id) => [id, DIMS.length + CHOICE
 
 /** The 3D spaces of the data a step can show (show/space.ts). */
 export const SPACES = ['cloud', 'network', 'terrain', 'map', 'globe', 'lattice', 'ridges', 'planes'] as const;
-/** What a step shows: the merged square (tiles), the result's number (both grid.wgsl), or a space. */
-export const VIZ = ['tiles', 'number', ...SPACES] as const;
+/** What a step shows: the marked cells merged (tiles, grid.wgsl), where the word stands (stand, show/notes.ts), or a
+ *  space. */
+export const VIZ = ['tiles', 'stand', ...SPACES] as const;
 export type Viz = (typeof VIZ)[number];
 
 export type Cell = {
@@ -50,8 +52,6 @@ export type Grid = {
   colours: RGB[];
   mark: number; select: number; seq: number; end: number;
   bpm: number; beat: number; steps: Step[];
-  /** The result: the marked values, weighted by how much each matters. */
-  result: number;
 };
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -93,8 +93,6 @@ export function grid(A: Appraisal): Grid {
   const select = mark + 0.65;
   const out = cells.map((_, k) => k).filter((k) => cells[k].key < 0).sort(() => rand() - 0.5);
   out.forEach((k, i) => (cells[k].vanish = select + 0.9 * Math.pow(i / out.length, 0.85)));
-  const w = keys.map((k) => rel[k] + 1e-3);
-  const result = keys.reduce((a, k, i) => a + cells[k].value * w[i], 0) / w.reduce((a, b) => a + b, 0);
   const colours = keyColours(A, keys.length);
 
   // the steps: 4/4 at the word's tempo, cut in straight after the clearing — a beat each for three bars, the fourth
@@ -110,7 +108,6 @@ export function grid(A: Appraisal): Grid {
       const dur = b >= 12 ? beat / 2 : beat;
       let viz: Viz;
       if (b === 0) viz = 'tiles'; // the marked cells, merged
-      else if (b === 15 && half === 1) viz = 'number'; // it ends on the number
       else do viz = SPACES[Math.floor(rand() * SPACES.length)]; while (recent.includes(viz));
       const full = half === 0 && (b === 4 || b === 12 || (b === 8 && A.s.intensity > 0.6));
       steps.push({ t, dur, viz, full, cam: rand() });
@@ -119,7 +116,10 @@ export function grid(A: Appraisal): Grid {
       t += dur;
     }
   }
-  const g: Grid = { cells, keys, refs: words, colours, mark, select, seq, end: t, bpm, beat, steps, result };
+  // then a bar held on where the word stands (long enough to read)
+  steps.push({ t, dur: Math.max(2.4, 4 * beat), viz: 'stand', full: false, cam: 0 });
+  t += steps[steps.length - 1].dur;
+  const g: Grid = { cells, keys, refs: words, colours, mark, select, seq, end: t, bpm, beat, steps };
   GRIDS.set(A, g);
   return g;
 }
@@ -156,7 +156,7 @@ export function layout(w: number, h: number) {
   return { x: Math.floor((w - COLS * cs) / 2), y: Math.floor((h - ROWS * cs) / 2), cs };
 }
 
-/** The stage at the centre (7 × 3 cells, landscape), px: where the result plays. */
+/** The stage at the centre (7 × 3 cells, landscape), px: where the steps play. */
 export function stage(w: number, h: number): [number, number, number, number] {
   const L = layout(w, h);
   return [L.x + L.cs, L.y + L.cs, 7 * L.cs, 3 * L.cs];
@@ -175,7 +175,7 @@ function tiles(K: number): Float32Array {
 }
 
 const CELL = 28, OPT_MAX = 16, KEY_MAX = 8, KEY = 12, BYTE_MAX = 256;
-/** The score as the shader's buffer (grid.wgsl): a header (cells, keys, steps' start, result, its colour), then
+/** The score as the shader's buffer (grid.wgsl): a header (cells, keys, steps' start), then
  *  per cell (value, conf, kind,
  *  arrive, vanish, key, label, opt, nOpts, markAt, z, 0, then 16 option probabilities), then per key (cell, value,
  *  colour, its tile in the square, 0 ×3), then the word's bytes (their count, then each). The step on screen is a
@@ -184,10 +184,7 @@ export function pack(A: Appraisal, g: Grid): Float32Array {
   const n = g.cells.length;
   const k0 = 16 + n * CELL, b0 = k0 + KEY_MAX * KEY;
   const out = new Float32Array(b0 + 1 + BYTE_MAX);
-  // the result's colour: the marked colours, weighted as the result is
-  const w = g.keys.map((k) => g.cells[k].z * g.cells[k].conf + 1e-3), ws = w.reduce((a, b) => a + b, 0);
-  const mix = [0, 1, 2].map((j) => g.colours.reduce((a, c, i) => a + c[j] * w[i], 0) / ws);
-  out.set([n, g.keys.length, g.seq, g.result, ...mix], 0);
+  out.set([n, g.keys.length, g.seq], 0);
   g.cells.forEach((c, k) => {
     const o = 16 + k * CELL;
     out.set([c.value, c.conf, c.kind, c.arrive, Math.min(c.vanish, 1e4), c.key, c.label, c.opt, c.probs.length, Math.min(c.markAt, 1e4), c.z, 0], o);

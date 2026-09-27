@@ -1,13 +1,14 @@
-// GRID — the piece's 2D layer in one pass (show/grid.ts): the room is the empty grid, lit by the typing (F.mode 1;
-// waiting for the machine, 2); a performance (F.mode 0, clock F.lt) fills it, marks the cells that matter in the
-// word's colours, clears the rest, then cuts to the steps: the marked cells merged on the stage, the result's
-// number, or a black window where a 3D space is drawn (space.wgsl). Native resolution; linear colour → sRGB (out()).
+// GRID — the piece's 2D layer in one pass (show/grid.ts): the room is one line, the drone's own waveform, under the
+// word, swelling with the typing (F.mode 1; waiting for the machine, 2, it holds); a performance (F.mode 0, clock F.lt) fills it, marks the cells that matter in the
+// word's colours, clears the rest, then cuts to the steps: the marked cells merged on the stage, or a black window
+// (a 3D space is drawn there, space.wgsl; the last step's words are DOM text). Native resolution; linear → sRGB (out()).
 
 @group(0) @binding(0) var<uniform> F: FrameU;
 @group(0) @binding(1) var glyphs: texture_2d<f32>;
 @group(0) @binding(2) var<storage, read> D: array<f32>; // grid.ts pack()
 @group(0) @binding(3) var labels: texture_2d<f32>;
 @group(0) @binding(4) var glyphsBig: texture_2d<f32>; // the same digits, three times the size
+@group(0) @binding(5) var<storage, read> wave: array<f32, 256>; // the drone's waveform (audio/drone.ts wave())
 
 const CELL = 28u;
 const KEY_MAX = 8u;
@@ -17,7 +18,6 @@ const LABEL_W = 512.0; // label atlas slot (gpu.ts makeLabelAtlas)
 const LABEL_H = 48.0;
 const LABEL_PER_ROW = 4.0;
 const WHITE = vec3f(0.93, 0.92, 0.9);
-const N_DIMS = 43u; // the measurements (grid.ts DIMS): their names are the label atlas's first slots
 
 fn nCells() -> u32 { return u32(D[0]); }
 fn nKeys() -> u32 { return u32(D[1]); }
@@ -33,8 +33,6 @@ fn keyTile(i: u32) -> vec4f { let o = k0() + i * KEY + 5u; return vec4f(D[o], D[
 fn b0() -> u32 { return k0() + KEY_MAX * KEY; }
 /** The word's own bytes (after the keys: their count, then one each). */
 fn wordByte(i: u32) -> u32 { let n = max(u32(D[b0()]), 1u); return u32(D[b0() + 1u + i % n]); }
-fn result() -> f32 { return D[3]; }
-fn resultCol() -> vec3f { return vec3f(D[4], D[5], D[6]); }
 
 fn h2(p: vec2f, salt: u32) -> f32 { return f32(pcg((u32(p.x) * 1973u) ^ pcg(u32(p.y) * 9277u + salt))) / 4294967295.0; }
 fn h1(i: u32) -> f32 { return f32(pcg(i * 747796405u + 2891336453u)) / 4294967295.0; }
@@ -91,7 +89,7 @@ fn number(p: vec2f, org: vec2f, h: f32, v: f32, scramble: f32) -> f32 {
 struct Lay { org: vec2f, cs: f32 };
 fn lay() -> Lay { return Lay(vec2f(F.gridX, F.gridY), F.cs); } // (grid.ts layout())
 fn cellRect(k: u32, L: Lay) -> vec4f { return vec4f(L.org + vec2f(f32(k % 9u), f32(k / 9u)) * L.cs, L.cs, L.cs); }
-/** The stage at the centre (7 × 3 cells): where the result plays (grid.ts stage()). */
+/** The stage at the centre (7 × 3 cells): where the steps play (grid.ts stage()). */
 fn stage(L: Lay) -> vec4f { return vec4f(L.org + vec2f(1.0, 1.0) * L.cs, 7.0 * L.cs, 3.0 * L.cs); }
 // ---------------------------------------------------------------- the grid's lines
 fn gridLines(q: vec2f, L: Lay) -> f32 {
@@ -181,12 +179,11 @@ fn cellDraw(k: u32, p: vec2f, r: vec4f, t: f32) -> vec4f {
   return vec4f(c, cov);
 }
 
-// ---------------------------------------------------------------- the result, on the stage
-/** Step drawing `vz` (grid.ts VIZ) in rect r: 0 the marked cells merged (a tile each, its name and value), 1 the result's
- *  number; a space (≥ 2) is a black window for space.wgsl. */
-fn viz(vz: u32, p: vec2f, r: vec4f) -> vec3f {
+// ---------------------------------------------------------------- the marked cells, merged on the stage
+/** The step in rect r: the marked cells merged (a tile each, its name and value) when `tiles`; else a black window. */
+fn viz(tiles: bool, p: vec2f, r: vec4f) -> vec3f {
   var c = vec3f(0.0);
-  if (vz == 0u) {
+  if (tiles) {
     for (var i = 0u; i < nKeys(); i++) {
       let u = keyTile(i);
       let tr = vec4f(r.xy + u.xy * r.zw, u.zw * r.zw);
@@ -202,10 +199,6 @@ fn viz(vz: u32, p: vec2f, r: vec4f) -> vec3f {
         c *= 1.0 - line(edge) * 0.6;
       }
     }
-  } else if (vz == 1u) {
-    let h = min(r.z * 0.88 / 5.0 * 60.0 / 27.0, r.w * 0.6);
-    let w = h * 27.0 / 60.0 * 5.0;
-    c = resultCol() * number(p, vec2f(r.x + (r.z - w) * 0.5, r.y + (r.w - h) * 0.5), h, result(), 0.0);
   }
   return c;
 }
@@ -222,17 +215,15 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let L = lay();
   let p = fc.xy;
   if (F.mode > 2.5) { return vec4f(0.0, 0.0, 0.0, 1.0); }
-  // ---- the room: the empty form, lit by the typing; waiting for the machine, its names flicker
+  // ---- the room: the drone as one line across the screen, below the word; typing swells it, a key kicks it
   if (F.mode > 0.5) {
-    var c = WHITE * gridLines(p, L) * (0.05 + 0.1 * F.charge + 0.2 * F.kick) * F.fade;
-    let g = floor((p - L.org) / L.cs);
-    if (g.x >= 0.0 && g.y >= 0.0 && g.x < COLS && g.y < ROWS && F.mode > 1.5) {
-      let k = u32(g.x + g.y * COLS);
-      if (k < N_DIMS) {
-        let on = step(0.5, h1(k * 31u + u32(F.time * 12.0)));
-        c = max(c, WHITE * label(p, L.org + g * L.cs + 0.07 * L.cs, 0.075 * L.cs, f32(k), L.cs * 0.86) * 0.35 * on);
-      }
-    }
+    let x = p.x / F.resX * 255.0;
+    let i = u32(clamp(floor(x), 0.0, 254.0));
+    let v = mix(wave[i], wave[i + 1u], fract(x));
+    let amp = F.resY * 0.05 * (0.35 + 0.65 * F.charge + 0.6 * F.kick);
+    let y = F.resY * 0.68 - v * amp;
+    let slope = (wave[i + 1u] - wave[i]) * amp / (F.resX / 255.0);
+    let c = WHITE * line((p.y - y) / sqrt(1.0 + slope * slope)) * (0.3 + 0.3 * F.charge) * F.fade;
     return out(c);
   }
   // ---- a performance
@@ -250,9 +241,10 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
     }
     return out(c);
   }
-  // the steps: the step on screen comes from main.ts
+  // the steps: the step on screen comes from main.ts; a strobe frame is white
+  if (t >= seq && F.flash > 0.5) { return out(WHITE); }
   let r = select(stage(L), vec4f(0.0, 0.0, F.resX, F.resY), F.full > 0.5);
-  if (inRect(p, r)) { return out(viz(u32(F.viz), p, r)); }
+  if (inRect(p, r)) { return out(viz(F.viz < 0.5, p, r)); }
   // around it the grid, pulsing with the beat, and a trace of each marked cell where it was
   var c = WHITE * gridLines(p, L) * (0.12 + 0.3 * exp(-F.beatU * 6.0));
   if (inGrid && k < nCells() && cf(k, 5u) >= 0.0) {

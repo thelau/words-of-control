@@ -25,6 +25,9 @@ export class Drone {
   private level = 0.022;
   private evening = { rough: 0, bright: 0 };
   private leaning = 0;
+  /** What the room sees of the drone (its own waveform: the image is the sound). */
+  private scope: AnalyserNode;
+  private scopeBuf = new Float32Array(2048);
 
   constructor(a: AudioEngine) {
     this.a = a;
@@ -44,6 +47,9 @@ export class Drone {
     shelf.type = 'lowshelf'; shelf.frequency.value = 150; shelf.gain.value = -4;
     this.filter.connect(this.leanFilter).connect(shelf).connect(this.duckGain).connect(this.out);
     this.out.connect(a.bus);
+    this.scope = c.createAnalyser();
+    this.scope.fftSize = 2048;
+    this.out.connect(this.scope);
     const s = c.createGain();
     s.gain.value = 0.5;
     this.out.connect(s).connect(a.send);
@@ -81,6 +87,19 @@ export class Drone {
     ng.gain.value = 0.06;
     n.connect(bp).connect(ng).connect(this.filter);
     n.start();
+  }
+
+  /** The drone's waveform now, into `out`: 1024 samples (≈ 1.5 periods of D2) from a rising zero crossing, so it holds
+   *  still, resampled to out.length; −1..1 at full level, fading with the drone. */
+  wave(out: Float32Array) {
+    const b = this.scopeBuf;
+    this.scope.getFloatTimeDomainData(b);
+    let i0 = 0;
+    for (let i = 1; i < 1024; i++) if (b[i - 1] < 0 && b[i] >= 0) { i0 = i; break; }
+    let peak = 1e-9;
+    for (let i = i0; i < i0 + 1024; i++) peak = Math.max(peak, Math.abs(b[i]));
+    const level = Math.min(1, peak / (this.level * 0.5));
+    for (let k = 0; k < out.length; k++) out[k] = (b[i0 + Math.floor((k / out.length) * 1024)] / peak) * level;
   }
 
   fadeIn(seconds = 5) {

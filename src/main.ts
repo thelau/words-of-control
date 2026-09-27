@@ -4,7 +4,7 @@
  * until the cut to black and its reverb have passed. Then the room returns.
  */
 import './style.css';
-import { Renderer, type SpaceDraw } from './render/gpu.ts';
+import { CAM_SLOT, Renderer, VIEWS_MAX, WAVE_N, type SpaceDraw } from './render/gpu.ts';
 import { Frame } from './render/frame.ts';
 import { Typing } from './input/typing.ts';
 import { Display } from './input/display.ts';
@@ -18,7 +18,7 @@ import type { Answers } from './jev/types.ts';
 import { grid, layout, pack, stage, VIZ, type Grid } from './show/grid.ts';
 import { notes } from './show/notes.ts';
 import { showCaptions, type Caption } from './captions.ts';
-import { camera, type Geometry, type Space } from './show/space.ts';
+import { camera, ringView, stageView, type Geometry, type Space, type View } from './show/space.ts';
 import type { Samples } from './audio/render.ts';
 import { seedFromText } from './core/rng.ts';
 import { showSupport, hideSupport } from './support.ts';
@@ -69,8 +69,12 @@ async function boot() {
   let phase: Phase = 'room';
   let shows = 0;
   const prepare = new Worker(new URL('./show/prepare.worker.ts', import.meta.url), { type: 'module' });
-  /** The spaces' camera block (space.wgsl Cam): view-projection, palette, point size and viewport, time and unrest. */
-  const cam = new Float32Array(60);
+  /** The spaces' camera blocks, one per view (space.wgsl Cam): view-projection, palette, point size and viewport,
+   *  time, unrest and distance. */
+  const cams = new Float32Array(CAM_SLOT * VIEWS_MAX);
+  /** The cells of the grid's ring, around the stage. */
+  const RING = [...Array(45).keys()].filter((k) => k % 9 === 0 || k % 9 === 8 || k < 9 || k >= 36);
+  const wave = new Float32Array(WAVE_N);
   let keysTyped = 0;
   let charge = 0;
   let kick = 0;
@@ -99,9 +103,11 @@ async function boot() {
     const g = grid(A);
     renderer.setScore(pack(A, g));
     // the spaces' palette: white, then the marked cells' colours
-    cam.fill(0);
-    cam.set([0.85, 0.85, 0.85, 1], 16);
-    g.colours.forEach((c, i) => cam.set([...c, 1], 20 + i * 4));
+    cams.fill(0);
+    for (let v = 0; v < VIEWS_MAX; v++) {
+      cams.set([0.85, 0.85, 0.85, 1], v * CAM_SLOT + 16);
+      g.colours.forEach((c, i) => cams.set([...c, 1], v * CAM_SLOT + 20 + i * 4));
+    }
     ensureAudio();
     state = 'performing';
     display.hideCursor();
@@ -252,23 +258,43 @@ async function boot() {
         const st = show.g.steps.find((x) => t >= x.t && t < x.t + x.dur);
         if (st) {
           f('viz', VIZ.indexOf(st.viz)); f('full', st.full ? 1 : 0);
-          // a space: its camera for this moment, in the step's rectangle
+          // a space: the stage (or the whole frame) and, around the stage, each cell of the grid's ring — the same
+          // space drawn another way (show/space.ts ringView: angles, scans, drawings, close-ups)
           if (VIZ.indexOf(st.viz) >= 2 && phase === 'grid' && show.geo) {
-            const rect = st.full ? [0, 0, renderer.width, renderer.height] as [number, number, number, number] : stage(renderer.width, renderer.height);
-            cam.set(camera(st.viz as Space, st.cam, t - st.t, rect[2] / rect[3], show.A.mood), 0);
-            cam.set([1.5 * renderer.dpr, rect[2], rect[3], 0, t, show.A.mood.neg], 52);
+            const W = renderer.width, H = renderer.height, dpr = renderer.dpr;
+            const views: [View, [number, number, number, number]][] = [[stageView(st.cam, show.A.mood.neu), st.full ? [0, 0, W, H] : stage(W, H)]];
+            if (!st.full) for (const k of RING) views.push([ringView(k, st.cam, t - st.t), [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2]]);
+            // the more negative the word, the more it breaks: the camera cuts on every eighth, then every sixteenth
+            const { neg, pos } = show.A.mood, sub = (t - st.t) / (show.g.beat / 4);
+            const cut = neg > 0.75 ? Math.floor(sub) : neg > 0.4 ? Math.floor(sub / 2) : 0;
+            // (points: softer and larger for a positive word, finer for a negative one)
+            const size = (1.5 + 0.9 * pos - 0.4 * neg) * dpr;
+            views.forEach(([view, rect], v) => {
+              const c = camera(st.viz as Space, { ...view, seed: (view.seed + cut * 0.382) % 1 }, t - st.t, rect[2] / rect[3], show!.A.mood, show!.geo!.focus[st.viz as Space]);
+              cams.set(c.vp, v * CAM_SLOT);
+              cams.set([v === 0 ? size : dpr, rect[2], rect[3], 0, t, neg, c.dist, 0, view.slab?.[0] ?? -1, view.slab?.[1] ?? 0, 0.14, 0], v * CAM_SLOT + 52);
+            });
+            const rects = views.map(([, r]) => r);
             const r = show.geo.ranges[st.viz as Space];
-            space = { cam, rect, points: [r[0], r[1]], lines: [r[2], r[3]] };
+            space = { cams, rects, points: [r[0], r[1]], lines: [r[2], r[3]] };
           }
         }
         f('beatU', ((t - show.g.seq) / show.g.beat) % 1);
+        // and it strobes: a white frame on some sixteenths (a negative, aroused word: often)
+        const k16 = Math.floor((t - show.g.seq) / (show.g.beat / 4));
+        const strobe = show.A.mood.neg * (0.3 + 0.7 * show.A.s.arousal) * 0.5;
+        const flash = t >= show.g.seq && st?.viz !== 'stand' && ((k16 * 2654435761) >>> 0) / 4294967296 < strobe && (t - show.g.seq) % (show.g.beat / 4) < 1 / 30;
+        f('flash', flash ? 1 : 0);
+        if (flash) space = null;
         if (phase === 'grid') caps = notes(show.A, show.g, show.geo, t, renderer.width, renderer.height, renderer.dpr,
-          space && st ? { viz: st.viz as Space, vp: cam.subarray(0, 16), rect: space.rect } : null);
+          space && st ? { viz: st.viz as Space, vp: cams.subarray(0, 16), rect: space.rects[0] } : null);
       }
     }
     if (phase === 'room') roomFade = Math.min(1, roomFade + dt / 1.8);
     f('fade', roomFade * roomFade);
     f('mode', { grid: 0, room: 1, wait: 2, black: 3 }[phase]);
+    // the room draws the drone as it sounds (before the first key there is no sound yet: a still line)
+    if (phase === 'room' || phase === 'wait') { drone?.wave(wave); renderer.setWave(wave); }
     renderer.render(frame.f32, space);
     showCaptions(caps);
     for (const h of app.frameHooks) h(now);
