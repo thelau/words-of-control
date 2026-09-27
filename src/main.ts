@@ -15,7 +15,9 @@ import { playPerformance, TAIL } from './audio/score.ts';
 import { analyze } from './jev/client.ts';
 import { buildAppraisal, type Appraisal } from './jev/appraisal.ts';
 import type { Answers } from './jev/types.ts';
-import { grid, layout, pack, square, VIZ, type Grid } from './show/grid.ts';
+import { grid, layout, pack, stage, VIZ, type Grid } from './show/grid.ts';
+import { notes } from './show/notes.ts';
+import { showCaptions, type Caption } from './captions.ts';
 import { camera, type Geometry, type Space } from './show/space.ts';
 import type { Samples } from './audio/render.ts';
 import { seedFromText } from './core/rng.ts';
@@ -67,8 +69,8 @@ async function boot() {
   let phase: Phase = 'room';
   let shows = 0;
   const prepare = new Worker(new URL('./show/prepare.worker.ts', import.meta.url), { type: 'module' });
-  /** The spaces' camera block (space.wgsl Cam): view-projection, palette, point size and viewport. */
-  const cam = new Float32Array(56);
+  /** The spaces' camera block (space.wgsl Cam): view-projection, palette, point size and viewport, time and unrest. */
+  const cam = new Float32Array(60);
   let keysTyped = 0;
   let charge = 0;
   let kick = 0;
@@ -237,6 +239,7 @@ async function boot() {
 
     phase = state === 'analyzing' ? 'wait' : 'room';
     let space: SpaceDraw | null = null;
+    let caps: Caption[] = [];
     if (show) {
       const t = clock() - show.t0;
       if (t >= show.g.end + TAIL) {
@@ -251,20 +254,23 @@ async function boot() {
           f('viz', VIZ.indexOf(st.viz)); f('full', st.full ? 1 : 0);
           // a space: its camera for this moment, in the step's rectangle
           if (VIZ.indexOf(st.viz) >= 2 && phase === 'grid' && show.geo) {
-            const rect = st.full ? [0, 0, renderer.width, renderer.height] as [number, number, number, number] : square(renderer.width, renderer.height);
-            cam.set(camera(st.viz as Space, st.cam, t - st.t, rect[2] / rect[3]), 0);
-            cam.set([1.5 * renderer.dpr, rect[2], rect[3], 0], 52);
+            const rect = st.full ? [0, 0, renderer.width, renderer.height] as [number, number, number, number] : stage(renderer.width, renderer.height);
+            cam.set(camera(st.viz as Space, st.cam, t - st.t, rect[2] / rect[3], show.A.mood), 0);
+            cam.set([1.5 * renderer.dpr, rect[2], rect[3], 0, t, show.A.mood.neg], 52);
             const r = show.geo.ranges[st.viz as Space];
             space = { cam, rect, points: [r[0], r[1]], lines: [r[2], r[3]] };
           }
         }
         f('beatU', ((t - show.g.seq) / show.g.beat) % 1);
+        if (phase === 'grid') caps = notes(show.A, show.g, show.geo, t, renderer.width, renderer.height, renderer.dpr,
+          space && st ? { viz: st.viz as Space, vp: cam.subarray(0, 16), rect: space.rect } : null);
       }
     }
     if (phase === 'room') roomFade = Math.min(1, roomFade + dt / 1.8);
     f('fade', roomFade * roomFade);
     f('mode', { grid: 0, room: 1, wait: 2, black: 3 }[phase]);
     renderer.render(frame.f32, space);
+    showCaptions(caps);
     for (const h of app.frameHooks) h(now);
     requestAnimationFrame(loop);
   };

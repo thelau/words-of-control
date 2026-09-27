@@ -13,28 +13,38 @@
  *   ridges   — every measurement's spread over the reference words, as a ridge line, stacked in depth; the word's
  *              value a tick
  *   planes   — each pair of marked measurements a scatter plane, the planes set in depth
- * All coordinates within [−1, 1]³.
+ * Each space also carries its caption (what it is, in plain words) and anchors: small labels placed on the data
+ * itself (axis names, the word, its nearest reference words). All coordinates within [−1, 1]³.
  */
 import type { Grid } from './grid.ts';
-import { SPACES } from './grid.ts';
+import { name, SPACES } from './grid.ts';
 import { mulberry32 } from '../core/rng.ts';
 
 export type Space = (typeof SPACES)[number];
+/** A label on the data: its text, where it is, and its palette slot (0 white, 1… a marked cell's colour). */
+export type Anchor = { text: string; p: number[]; c: number };
 export type Geometry = {
   points: Float32Array; lines: Float32Array;
   /** Each space's first point and count, first line vertex and count. */
   ranges: Record<Space, [number, number, number, number]>;
+  captions: Record<Space, string>;
+  anchors: Record<Space, Anchor[]>;
 };
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const WHITE = (b: number) => Math.min(0.99, b);
 const KEY = (i: number, b: number) => 1 + i + Math.min(0.99, b);
 
-export function build(g: Grid, seed: number): Geometry {
+export function build(g: Grid, seed: number, word: string): Geometry {
   const rand = mulberry32(seed ^ 0x3c6ef372);
   const gauss = () => Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand());
   const P: number[] = [], L: number[] = [];
   const ranges = {} as Geometry['ranges'];
+  const captions = {} as Geometry['captions'];
+  const anchors = {} as Geometry['anchors'];
+  let marks: Anchor[] = [];
+  const mark = (text: string, p: number[], c = 0) => marks.push({ text, p, c });
+  const W = `“${word}”`;
   const pt = (x: number, y: number, z: number, c: number) => P.push(x, y, z, c);
   const seg = (a: number[], b: number[], c: number) => L.push(a[0], a[1], a[2], c, b[0], b[1], b[2], c);
   const box = (c = WHITE(0.35)) => {
@@ -55,11 +65,16 @@ export function build(g: Grid, seed: number): Geometry {
   const dust = (n: number) => { for (let i = 0; i < n; i++) pt(rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1, WHITE(0.12 + rand() * 0.15)); };
   const me = at(-1);
 
-  const space = (name: Space, fill: () => void) => {
+  const nm = (i: number) => name(g, g.keys[i % K]);
+  const space = (sp: Space, fill: () => string) => {
     const p0 = P.length / 4, l0 = L.length / 4;
-    fill();
-    ranges[name] = [p0, P.length / 4 - p0, l0, L.length / 4 - l0];
+    marks = [];
+    captions[sp] = fill();
+    anchors[sp] = marks;
+    ranges[sp] = [p0, P.length / 4 - p0, l0, L.length / 4 - l0];
   };
+  /** The three axes of the space of marked measurements a, b, c, named at their far ends. */
+  const axes = (a = 0, b = 1, c = 2) => { mark(nm(a), [1.05, -1, -1]); mark(nm(b), [-1, 1.05, -1]); mark(nm(c), [-1, -1, 1.05]); };
 
   space('cloud', () => {
     for (let j = 0; j < R; j++) { const c = at(j); for (let n = 0; n < 150; n++) pt(c[0] + gauss() * 0.05, c[1] + gauss() * 0.05, c[2] + gauss() * 0.05, WHITE(0.5)); }
@@ -67,11 +82,18 @@ export function build(g: Grid, seed: number): Geometry {
     for (let n = 0; n < 900; n++) pt(me[0] + gauss() * 0.035, me[1] + gauss() * 0.035, me[2] + gauss() * 0.035, KEY(0, 0.9));
     box();
     for (let a = 0; a < 3; a++) for (let k = 0; k <= 10; k++) { const p = [-1, -1, -1], q = [-1, -1, -1]; p[a] = q[a] = -1 + k / 5; q[(a + 1) % 3] = -0.96; seg(p, q, WHITE(0.5)); }
+    axes();
+    mark(W, me, 1);
+    return `CLOUD — ${W} among ${R} reference words, placed by the three answers that set it apart. Each word a haze of points; ${W} in colour.`;
   });
 
   space('network', () => {
     const pts = [...Array.from({ length: R }, (_, j) => at(j)), me];
     const d2 = (a: number[], b: number[]) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+    const nearest = pts.slice(0, R).map((q, i) => [i, d2(me, q)] as const).sort((x, y) => x[1] - y[1]).slice(0, 3).map(([i]) => i);
+    for (const i of nearest) mark(g.refs[i], pts[i]);
+    mark(W, me, 1);
+    axes();
     pts.forEach((p, j) => {
       const mine = j === R;
       for (let n = 0; n < (mine ? 120 : 40); n++) pt(p[0] + gauss() * 0.015, p[1] + gauss() * 0.015, p[2] + gauss() * 0.015, mine ? KEY(0, 0.95) : WHITE(0.8));
@@ -82,6 +104,7 @@ export function build(g: Grid, seed: number): Geometry {
     });
     dust(3000);
     box(WHITE(0.3));
+    return `NETWORK — each reference word joined to its four nearest, ${W} to its eight. Nearest: ${nearest.map((i) => g.refs[i]).join(', ')}.`;
   });
 
   // the density of the reference words over two marked measurements (a kernel each), and the word's own peak
@@ -107,6 +130,9 @@ export function build(g: Grid, seed: number): Geometry {
       const y = (kk: number) => -0.5 + hAt(i, kk) * 0.9 + mine(-1 + (2 * kk) / (N - 1), -1 + (2 * i) / (N - 1)) * 0.5;
       seg([-1 + (2 * k) / (N - 1), y(k), -1 + (2 * i) / (N - 1)], [-1 + (2 * (k + 1)) / (N - 1), y(k + 1), -1 + (2 * i) / (N - 1)], WHITE(0.3));
     }
+    mark(nm(0), [1.05, -0.5, -1]); mark(nm(1), [-1, -0.5, 1.05]);
+    mark(W, [me[0], 0.2, me[1]], 1);
+    return `TERRAIN — how the ${R} reference words crowd over two answers, ${nm(0)} × ${nm(1)}. The height is how many words share a value; the peak in colour is ${W}.`;
   });
 
   space('map', () => {
@@ -131,6 +157,9 @@ export function build(g: Grid, seed: number): Geometry {
     seg([m[0] - 0.12, 0, m[2]], [m[0] + 0.12, 0, m[2]], KEY(0, 0.95));
     seg([m[0], 0, m[2] - 0.12], [m[0], 0, m[2] + 0.12], KEY(0, 0.95));
     seg([m[0], 0, m[2]], [m[0], 0.6, m[2]], KEY(0, 0.95));
+    mark(nm(0), [1.05, 0, -1]); mark(nm(1), [-1, 0, 1.05]);
+    mark(W, [m[0], 0.62, m[2]], 1);
+    return `MAP — the same crowding as contour lines, eight levels. Each dot a reference word; the cross is ${W}.`;
   });
 
   space('globe', () => {
@@ -146,6 +175,8 @@ export function build(g: Grid, seed: number): Geometry {
       const t0 = (a / 128) * 2 * Math.PI, t1 = ((a + 1) / 128) * 2 * Math.PI;
       seg([Math.cos(t0) * 0.55, 0, Math.sin(t0) * 0.55], [Math.cos(t1) * 0.55, 0, Math.sin(t1) * 0.55], WHITE(0.4));
     }
+    g.keys.forEach((k, i) => { const th = ((k + 0.5) / n) * 2 * Math.PI, r = 0.6 + 0.4 * g.cells[k].value; mark(nm(i), [r * Math.cos(th), 0, r * Math.sin(th)], 1 + i); });
+    return `GLOBE — all ${n} answers as bands round a sphere, each bulging with its value. The answers that matter in colour.`;
   });
 
   space('lattice', () => {
@@ -156,6 +187,7 @@ export function build(g: Grid, seed: number): Geometry {
       pt(-1 + (2 * i) / (n - 1), -1 + (2 * j) / (n - 1), -1 + (2 * k) / (n - 1), lit ? (c.key >= 0 ? KEY(c.key, 0.95) : WHITE(0.85)) : WHITE(0.12));
     }
     box(WHITE(0.25));
+    return `LATTICE — ${14 ** 3} places, each lit by chance at the value of one answer (${g.cells.length} answers in turn). The answers that matter in colour.`;
   });
 
   space('ridges', () => {
@@ -168,7 +200,10 @@ export function build(g: Grid, seed: number): Geometry {
       const colour = c.key >= 0 ? KEY(c.key, 0.9) : WHITE(0.45);
       for (let i = 0; i < M - 1; i++) seg([s(i / (M - 1)), -0.4 + (ys[i] / mx) * 0.5, z], [s((i + 1) / (M - 1)), -0.4 + (ys[i + 1] / mx) * 0.5, z], colour);
       seg([s(c.value), -0.45, z], [s(c.value), 0.2, z], c.key >= 0 ? KEY(c.key, 0.99) : WHITE(0.8));
+      if (c.key >= 0) mark(name(g, k), [-1.05, -0.4, z], 1 + c.key);
     }
+    mark('0', [-1, -0.5, -1.05]); mark('1', [1, -0.5, -1.05]);
+    return `RIDGES — for each of the ${n} answers, how the ${R} reference words spread from 0 to 1. The tick is ${W}.`;
   });
 
   space('planes', () => {
@@ -180,26 +215,33 @@ export function build(g: Grid, seed: number): Geometry {
       for (let n = 0; n < 160; n++) pt(ax(p, a.value) + gauss() * 0.015, ax(p + 1, b.value) + gauss() * 0.015, z, KEY(p, 0.95));
       for (let n = 0; n < 900; n++) pt(rand() * 2 - 1, rand() * 2 - 1, z, WHITE(0.1));
       for (const [u, v] of [[[-1, -1], [1, -1]], [[1, -1], [1, 1]], [[1, 1], [-1, 1]], [[-1, 1], [-1, -1]]]) seg([u[0], u[1], z], [v[0], v[1], z], WHITE(0.3));
+      mark(`${nm(p)} × ${nm(p + 1)}`, [-1, -1.12, z]);
     }
+    return `PLANES — the answers that matter, two by two, as scatter plots: each dot a reference word, ${W} in colour.`;
   });
 
-  return { points: new Float32Array(P), lines: new Float32Array(L), ranges };
+  return { points: new Float32Array(P), lines: new Float32Array(L), ranges, captions, anchors };
 }
 
 /** The view × projection (column-major) of a step's camera at time t into it: an orbit from the step's seed —
- *  its own side, height and distance, turning slowly; a map or a terrain seen from higher. */
-export function camera(space: Space, cam: number, t: number, aspect: number): Float32Array {
+ *  its own side, height and distance, turning; a map or a terrain seen from higher. The mood moves it: a negative
+ *  word closer, faster, shaking; a neutral one far off through a long lens, almost still; a positive one a smooth,
+ *  wide orbit. */
+export function camera(space: Space, cam: number, t: number, aspect: number, mood: { pos: number; neu: number; neg: number }): Float32Array {
+  const { neu, neg } = mood;
   const high = space === 'terrain' || space === 'map';
-  const yaw = cam * 2 * Math.PI + t * (0.15 + 0.2 * cam);
-  const pitch = high ? 0.55 + 0.35 * clamp01(cam * 1.7 % 1) : -0.35 + 0.8 * (cam * 3.1 % 1);
-  const dist = 3.3 + 1.0 * (cam * 5.3 % 1) - t * 0.1;
+  const shake = (k: number) => neg * 0.018 * Math.sin(t * 47 + k * 11.3) * Math.sin(t * 31 + k * 5.1);
+  const yaw = cam * 2 * Math.PI + t * (0.15 + 0.2 * cam) * (1 + 2 * neg - 0.8 * neu) + shake(1);
+  const pitch = (high ? 0.55 + 0.35 * clamp01(cam * 1.7 % 1) : -0.35 + 0.8 * (cam * 3.1 % 1)) + shake(2);
+  const fov = 0.75 - 0.4 * neu + 0.15 * neg;
+  const dist = (3.3 + 1.0 * (cam * 5.3 % 1) - t * 0.1 * (1 + 2 * neg)) * (1 + 1.1 * neu - 0.25 * neg);
   const eye = [dist * Math.cos(pitch) * Math.sin(yaw), dist * Math.sin(pitch), dist * Math.cos(pitch) * Math.cos(yaw)];
   // look-at the origin, y up
   const f = norm(eye.map((x) => -x));
   const r = norm(cross(f, [0, 1, 0]));
   const u = cross(r, f);
   const view = [r[0], u[0], -f[0], 0, r[1], u[1], -f[1], 0, r[2], u[2], -f[2], 0, -dot(r, eye), -dot(u, eye), dot(f, eye), 1];
-  const fov = 0.75, n = 0.05, far = 20, k = 1 / Math.tan(fov / 2);
+  const n = 0.05, far = 30, k = 1 / Math.tan(fov / 2);
   const proj = [k / aspect, 0, 0, 0, 0, k, 0, 0, 0, 0, far / (n - far), -1, 0, 0, (n * far) / (n - far), 0];
   const out = new Float32Array(16);
   for (let c = 0; c < 4; c++) for (let rr = 0; rr < 4; rr++) { let x = 0; for (let i = 0; i < 4; i++) x += proj[i * 4 + rr] * view[c * 4 + i]; out[c * 4 + rr] = x; }

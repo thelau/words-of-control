@@ -9,7 +9,7 @@ import { renderSteps } from '../audio/render.ts';
 
 self.onmessage = (e: MessageEvent<{ id: number; A: Appraisal; g: Grid; sr: number }>) => {
   const { id, A, g, sr } = e.data;
-  const geo = build(g, A.seed);
+  const geo = build(g, A.seed, new TextDecoder().decode(A.bytes));
   const steps = renderSteps(A, g, sr);
   (self as unknown as Worker).postMessage({ id, geo, steps }, [geo.points.buffer, geo.lines.buffer, steps.L.buffer, steps.R.buffer]);
 };

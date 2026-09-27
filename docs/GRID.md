@@ -14,8 +14,19 @@ model. This supersedes the species, the matrix and the verdict clips of DIRECTIO
 | **Fill** (~1.7–2.6 s) | Every measurement lands in its cell: its name, a choice's answer, its value (digits searching, then settling), and a small live figure — a score a sine (its value its frequency), a choice its bars, a yes/no a field of dots. A doubtful answer breaks into noise. | Each result a 25 ms test tone at its value, panned where its cell is (a choice two, a yes/no a click, a doubtful one noise). |
 | **Mark** | The cells that matter take the word's own colours (Jev's colour answer), one by one. | A pure tone each, held. |
 | **Clear** | Every other cell goes out, staccato. | A dry click each, where it was. |
-| **Steps** | Cut (no slide): the marked cells as one square at the centre, a tile each. Then on every beat of a 4/4 at the word's tempo (92–150 bpm) a new **3D space** of the data, a new camera: cloud, network, terrain, map, globe, lattice, ridges, planes (show/space.ts). The last bar in halves; a few downbeats burst to the full frame; it ends on the result's number. | The held tones cut dead. A sequencer (after Caterina Barbieri): two arpeggios of the marked answers, lengths K and K+1, drifting in and out of phase, sine through a wavefolder and a filter that opens across the sequence; each space re-patches it (fold, octave, gate, density). Noise ticks and sub hits on euclidean patterns (no four-on-the-floor). A full-frame beat: white noise and a high sine. The number: its pitch alone. |
+| **Steps** | Cut (no slide): the marked cells as one block on the stage at the centre (7 × 3 cells, landscape), a tile each with its name and value. Then on every beat of a 4/4 at the word's tempo (92–150 bpm) a new **3D space** of the data, a new camera: cloud, network, terrain, map, globe, lattice, ridges, planes (show/space.ts). The last bar in halves; a few downbeats burst to the full frame; it ends on the result's number. | The held tones cut dead. A sequencer (after Caterina Barbieri): two arpeggios of the marked answers, lengths K and K+1, drifting in and out of phase, sine through a wavefolder and a filter that opens across the sequence; each space re-patches it (fold, octave, gate, density). Noise ticks and sub hits on euclidean patterns (no four-on-the-floor). A full-frame beat: white noise and a high sine. The number: its pitch alone. |
 | **Black** | Cut. | The hall blooms once; the drone remembers. |
+
+**The mood** (Jev's reading, negative / neutral / positive, a blend) bends it all. Negative: lower, folded harder and
+driven, the second voice detuned against the first, the filter kept dark, harsher ticks, more sub, a low rumble pumping
+with it; the camera closer, faster, shaking, every point trembling. Neutral: test-tone pitches (half-octaves of
+1 kHz), pure sines, sparse, no sub; a long lens, far off, almost still. Positive: lydian, higher, light folding, the
+filter opening; a smooth wide orbit.
+
+**Captions** (src/show/notes.ts, drawn as DOM text): above the grid the word and where the reading stands (received,
+marked, cleared; then the step, the tempo, the mood); below it how to read a cell; under the stage what each step
+shows, in plain words; on a space, labels on the data itself (axes, the word, its nearest reference words). Nothing is
+invented: every caption is the score's own numbers and names. The word is shown only while its performance lasts.
 
 **The spaces** place the word among the piece's reference words, with the measurements that matter as axes (each
 axis spanning what the reference words cover): white points and hairlines, the word and the marked measurements in

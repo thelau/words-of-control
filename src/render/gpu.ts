@@ -2,7 +2,7 @@
  * WebGPU renderer: one render pass straight to the canvas at native resolution — a fullscreen triangle (grid.wgsl:
  * the room, the wait, the performance and the black are its modes), then, during a step that shows a space, its
  * points and lines (space.wgsl) in the step's rectangle. Text comes from two atlases painted once at boot: the
- * digits, and every name the grid shows (show/grid.ts LABELS).
+ * digits (twice: small and large), and every name the grid shows (show/grid.ts LABELS).
  */
 import commonWGSL from './shaders/common.wgsl?raw';
 import gridWGSL from './shaders/grid.wgsl?raw';
@@ -65,7 +65,7 @@ export class Renderer {
 
     this.fBuf = d.createBuffer({ size: FRAME_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.scoreBuf = d.createBuffer({ size: 16 * 1024, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-    this.camBuf = d.createBuffer({ size: 56 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.camBuf = d.createBuffer({ size: 60 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     await document.fonts.load('400 40px "IBM Plex Mono"');
     const m = d.createShaderModule({ label: 'grid', code: commonWGSL + '\n' + frameStructWGSL() + '\n' + gridWGSL });
     this.pipe = await d.createRenderPipelineAsync({
@@ -78,6 +78,8 @@ export class Renderer {
       { binding: 1, resource: atlas(d, 16, 40, 60, 44, [...'0123456789ABCDEF.-x:'], 'center').createView() },
       { binding: 2, resource: { buffer: this.scoreBuf } },
       { binding: 3, resource: atlas(d, 4, 512, 48, 34, LABELS, 'left').createView() },
+      // (the same digits at three times the size, for the big number: sharp at any size)
+      { binding: 4, resource: atlas(d, 16, 120, 180, 132, [...'0123456789ABCDEF.-x:'], 'center').createView() },
     ] });
     // the spaces: additive light, no depth (points and lines add up where they crowd)
     const sm = d.createShaderModule({ label: 'space', code: spaceWGSL });

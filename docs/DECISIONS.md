@@ -4,6 +4,13 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
+- **Small copy across the piece, a wider stage, the mood range back** ("have small copy across all to explain what the
+  score is, nothing is fake but it's all abstract"; "the war version is more rapid but still feel positive, we should
+  have this negative/neutral/positive range as we used to have but on this style"; "take 2 more cells on the left
+  and same on the right … more landscape than square"). Captions and labels on the data (DOM text), the stage 7 × 3
+  cells, the mood bending sound and camera (see docs/GRID.md); the big number drawn from a large digit atlas (it was
+  pixellated).
+
 - **Steps in 3D, sharp cuts, a modular sound** ("music is cheesy … Caterina Barbieri type, modular, noise, smart
   beats, Ikeda as well"; "visuals are now too simplistic"; "the sequencing dynamic is ok"; "not a fan of the swoosh
   when grouping … can be sharp cut. Same with the 3D grid becoming flat"; "the data viz not 2D but 3D, very Ikeda point

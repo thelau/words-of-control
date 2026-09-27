@@ -1,12 +1,13 @@
 // GRID — the piece's 2D layer in one pass (show/grid.ts): the room is the empty grid, lit by the typing (F.mode 1;
 // waiting for the machine, 2); a performance (F.mode 0, clock F.lt) fills it, marks the cells that matter in the
-// word's colours, clears the rest, then cuts to the steps: the marked cells merged into one square, the result's
+// word's colours, clears the rest, then cuts to the steps: the marked cells merged on the stage, the result's
 // number, or a black window where a 3D space is drawn (space.wgsl). Native resolution; linear colour → sRGB (out()).
 
 @group(0) @binding(0) var<uniform> F: FrameU;
 @group(0) @binding(1) var glyphs: texture_2d<f32>;
 @group(0) @binding(2) var<storage, read> D: array<f32>; // grid.ts pack()
 @group(0) @binding(3) var labels: texture_2d<f32>;
+@group(0) @binding(4) var glyphsBig: texture_2d<f32>; // the same digits, three times the size
 
 const CELL = 28u;
 const KEY_MAX = 8u;
@@ -24,9 +25,10 @@ fn cf(k: u32, i: u32) -> f32 { return D[16u + k * CELL + i]; }
 fn prob(k: u32, o: u32) -> f32 { return D[16u + k * CELL + 12u + o]; }
 fn k0() -> u32 { return 16u + nCells() * CELL; }
 const KEY = 12u;
+fn keyCell(i: u32) -> u32 { return u32(D[k0() + i * KEY]); }
 fn keyVal(i: u32) -> f32 { return D[k0() + i * KEY + 1u]; }
 fn keyCol(i: u32) -> vec3f { let o = k0() + i * KEY; return vec3f(D[o + 2u], D[o + 3u], D[o + 4u]); }
-/** Key i's tile in the merged square (a unit-square rect, grid.ts tiles()). */
+/** Key i's tile on the stage (a unit rect, grid.ts tiles()). */
 fn keyTile(i: u32) -> vec4f { let o = k0() + i * KEY + 5u; return vec4f(D[o], D[o + 1u], D[o + 2u], D[o + 3u]); }
 fn b0() -> u32 { return k0() + KEY_MAX * KEY; }
 /** The word's own bytes (after the keys: their count, then one each). */
@@ -64,9 +66,10 @@ fn label(p: vec2f, org: vec2f, h: f32, idx: f32, maxW: f32) -> f32 {
   return bilinear(labels, slot + q);
 }
 /** Glyph g of the digit atlas (row 0: 0-9 A-F; row 1: . - x :), cell 40 × 60. */
-fn glyph(g: f32, uv: vec2f) -> f32 {
-  let cell = vec2f(g % 16.0, floor(g / 16.0));
-  return bilinear(glyphs, (cell + clamp(uv, vec2f(0.0), vec2f(1.0))) * vec2f(40.0, 60.0));
+fn glyph(g: f32, uv: vec2f, big: bool) -> f32 {
+  let a = (vec2f(g % 16.0, floor(g / 16.0)) + clamp(uv, vec2f(0.0), vec2f(1.0))) * vec2f(40.0, 60.0);
+  if (big) { return bilinear(glyphsBig, a * 3.0); }
+  return bilinear(glyphs, a);
 }
 /** "0.xyz" of v, top-left at org, h px high; `scramble` > 0: the digits still searching. */
 fn number(p: vec2f, org: vec2f, h: f32, v: f32, scramble: f32) -> f32 {
@@ -81,15 +84,15 @@ fn number(p: vec2f, org: vec2f, h: f32, v: f32, scramble: f32) -> f32 {
   else if (i == 2) { g = f32(n / 100); }
   else if (i == 3) { g = f32((n / 10) % 10); }
   else if (i == 4) { g = f32(n % 10); }
-  return glyph(g, vec2f(0.5 + (fract(q.x) - 0.5) * 27.0 / 40.0, q.y));
+  return glyph(g, vec2f(0.5 + (fract(q.x) - 0.5) * 27.0 / 40.0, q.y), h > 60.0);
 }
 
 // ---------------------------------------------------------------- layout
 struct Lay { org: vec2f, cs: f32 };
 fn lay() -> Lay { return Lay(vec2f(F.gridX, F.gridY), F.cs); } // (grid.ts layout())
 fn cellRect(k: u32, L: Lay) -> vec4f { return vec4f(L.org + vec2f(f32(k % 9u), f32(k / 9u)) * L.cs, L.cs, L.cs); }
-/** The square at the centre (3 × 3 cells): where the result lives. */
-fn square(L: Lay) -> vec4f { return vec4f(L.org + vec2f(3.0, 1.0) * L.cs, 3.0 * L.cs, 3.0 * L.cs); }
+/** The stage at the centre (7 × 3 cells): where the result plays (grid.ts stage()). */
+fn stage(L: Lay) -> vec4f { return vec4f(L.org + vec2f(1.0, 1.0) * L.cs, 7.0 * L.cs, 3.0 * L.cs); }
 // ---------------------------------------------------------------- the grid's lines
 fn gridLines(q: vec2f, L: Lay) -> f32 {
   let g = (q - L.org) / L.cs;
@@ -178,8 +181,8 @@ fn cellDraw(k: u32, p: vec2f, r: vec4f, t: f32) -> vec4f {
   return vec4f(c, cov);
 }
 
-// ---------------------------------------------------------------- the result, in the square
-/** Step drawing `vz` (grid.ts VIZ) in rect r: 0 the marked cells merged (a tile each, its value), 1 the result's
+// ---------------------------------------------------------------- the result, on the stage
+/** Step drawing `vz` (grid.ts VIZ) in rect r: 0 the marked cells merged (a tile each, its name and value), 1 the result's
  *  number; a space (≥ 2) is a black window for space.wgsl. */
 fn viz(vz: u32, p: vec2f, r: vec4f) -> vec3f {
   var c = vec3f(0.0);
@@ -190,14 +193,19 @@ fn viz(vz: u32, p: vec2f, r: vec4f) -> vec3f {
       if (inRect(p, tr)) {
         c = keyCol(i);
         let h = min(tr.z, tr.w) * 0.12;
-        c = mix(c, inkOn(c), number(p, tr.xy + vec2f(h * 0.5, tr.w - h * 1.5), h, keyVal(i), 0.0));
+        let pad = h * 0.5;
+        let ink = max(number(p, tr.xy + vec2f(pad, tr.w - h * 1.5), h, keyVal(i), 0.0),
+          label(p, tr.xy + pad, h * 0.6, cf(keyCell(i), 6u), tr.z - 2.0 * pad) * 0.8);
+        let opt = cf(keyCell(i), 7u);
+        c = mix(c, inkOn(c), select(ink, max(ink, label(p, tr.xy + vec2f(pad, pad + h * 0.8), h * 0.6, opt, tr.z - 2.0 * pad)), opt >= 0.0));
         let edge = min(min(p.x - tr.x, tr.x + tr.z - p.x), min(p.y - tr.y, tr.y + tr.w - p.y));
         c *= 1.0 - line(edge) * 0.6;
       }
     }
   } else if (vz == 1u) {
-    let h = r.z * 0.88 / 5.0 * 60.0 / 27.0;
-    c = resultCol() * number(p, vec2f(r.x + r.z * 0.06, r.y + (r.w - h) * 0.5), h, result(), 0.0);
+    let h = min(r.z * 0.88 / 5.0 * 60.0 / 27.0, r.w * 0.6);
+    let w = h * 27.0 / 60.0 * 5.0;
+    c = resultCol() * number(p, vec2f(r.x + (r.z - w) * 0.5, r.y + (r.w - h) * 0.5), h, result(), 0.0);
   }
   return c;
 }
@@ -243,7 +251,7 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
     return out(c);
   }
   // the steps: the step on screen comes from main.ts
-  let r = select(square(L), vec4f(0.0, 0.0, F.resX, F.resY), F.full > 0.5);
+  let r = select(stage(L), vec4f(0.0, 0.0, F.resX, F.resY), F.full > 0.5);
   if (inRect(p, r)) { return out(viz(u32(F.viz), p, r)); }
   // around it the grid, pulsing with the beat, and a trace of each marked cell where it was
   var c = WHITE * gridLines(p, L) * (0.12 + 0.3 * exp(-F.beatU * 6.0));

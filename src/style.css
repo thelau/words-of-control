@@ -109,3 +109,28 @@ html, body {
 }
 #note .detail { font-size: 10px; margin-top: 6px; opacity: 0.6; }
 
+
+/* the captions (src/captions.ts): small, factual, over the image */
+#captions {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  color: rgba(237, 230, 220, 0.62);
+  -webkit-font-smoothing: antialiased;
+}
+#captions .cap { position: absolute; left: 0; top: 0; white-space: pre; }
+#captions .panel { white-space: normal; }
+#captions .anchor { color: rgba(237, 230, 220, 0.8); }
+#captions .anchor::before {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+  background: currentColor;
+}

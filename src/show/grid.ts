@@ -4,7 +4,7 @@
  *             value, a small live figure of it (a score a sine, a choice its bars, a yes/no a field of dots)
  *   mark    — the cells that matter take the word's own colours (Jev's colour answer), one by one
  *   select  — every other cell goes out, staccato; the marked ones stay where they were
- *   steps   — cut: the marked cells as one square at the centre (the result), then on every beat of a 4/4 at the
+ *   steps   — cut: the marked cells as one block on the stage at the centre (7 × 3 cells: the result), then on every beat of a 4/4 at the
  *             word's tempo a new 3D space of the data (show/space.ts), a few beats bursting to the full frame; the
  *             last bar in halves; it ends on the result's number
  *   black   — on the last step's end
@@ -143,6 +143,12 @@ function keyColours(A: Appraisal, n: number): RGB[] {
   });
 }
 
+/** A measurement as it is written in the captions: its name, and a choice's answer ("texture: cracked"). */
+export function name(g: Grid, k: number): string {
+  const c = g.cells[k];
+  return c.kind === 1 ? `${c.id}: ${LABELS[c.opt]}` : c.id;
+}
+
 /** Where the grid stands on a w × h (device px) screen: its top-left corner and its cell size, a margin all round. */
 export function layout(w: number, h: number) {
   const m = 0.05 * Math.min(w, h);
@@ -150,16 +156,16 @@ export function layout(w: number, h: number) {
   return { x: Math.floor((w - COLS * cs) / 2), y: Math.floor((h - ROWS * cs) / 2), cs };
 }
 
-/** The square at the centre (3 × 3 cells), px: where the result lives. */
-export function square(w: number, h: number): [number, number, number, number] {
+/** The stage at the centre (7 × 3 cells, landscape), px: where the result plays. */
+export function stage(w: number, h: number): [number, number, number, number] {
   const L = layout(w, h);
-  return [L.x + 3 * L.cs, L.y + L.cs, 3 * L.cs, 3 * L.cs];
+  return [L.x + L.cs, L.y + L.cs, 7 * L.cs, 3 * L.cs];
 }
 
-/** The marked cells merged: a tile each in the square (unit square: x, y, w, h), rows of ⌈√K⌉, the last row shared
- *  out. */
+/** The marked cells merged: a tile each on the stage (unit rect: x, y, w, h), in rows fitted to its 7 : 3 shape, the
+ *  last row shared out. */
 function tiles(K: number): Float32Array {
-  const nc = Math.ceil(Math.sqrt(K)), nr = Math.ceil(K / nc);
+  const nr = Math.max(1, Math.round(Math.sqrt(K / (7 / 3)))), nc = Math.ceil(K / nr);
   const out = new Float32Array(32);
   for (let i = 0; i < K; i++) {
     const row = Math.floor(i / nc), inRow = row === nr - 1 ? K - row * nc : nc;

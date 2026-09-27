@@ -1,8 +1,14 @@
+fn pcg(v: u32) -> u32 {
+  let s = v * 747796405u + 2891336453u;
+  let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+  return (w >> 22u) ^ w;
+}
+
 // SPACE — the data in 3D (show/space.ts): points as small round dots and line segments, added onto the grid pass in
 // the step's rectangle. A vertex's w: its palette slot (integer part: 0 white, 1… the marked cells' colours) and
-// its brightness (fraction). Depth dims what is far.
+// its brightness (fraction). Depth dims what is far; a negative word makes every point tremble (fx.y).
 
-struct Cam { vp: mat4x4f, pal: array<vec4f, 9>, px: vec4f }; // px: point size, viewport w, h (device px)
+struct Cam { vp: mat4x4f, pal: array<vec4f, 9>, px: vec4f, fx: vec4f }; // px: point size, viewport w, h (device px); fx: time, unrest
 @group(0) @binding(0) var<uniform> C: Cam;
 
 struct VOut { @builtin(position) pos: vec4f, @location(0) col: vec3f, @location(1) uv: vec2f };
@@ -13,10 +19,12 @@ fn tint(w: f32, depth: f32) -> vec3f {
 }
 
 @vertex
-fn vs_point(@builtin(vertex_index) vi: u32, @location(0) p: vec4f) -> VOut {
+fn vs_point(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32, @location(0) p: vec4f) -> VOut {
   var corners = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, -1), vec2f(1, 1), vec2f(-1, -1), vec2f(1, 1), vec2f(-1, 1));
   let q = corners[vi];
-  var clip = C.vp * vec4f(p.xyz, 1.0);
+  let h = pcg(ii ^ pcg(u32(C.fx.x * 30.0)));
+  let j = (vec3f(f32(h & 1023u), f32((h >> 10u) & 1023u), f32((h >> 20u) & 1023u)) / 511.5 - 1.0) * C.fx.y * 0.012;
+  var clip = C.vp * vec4f(p.xyz + j, 1.0);
   clip = vec4f(clip.xy + q * C.px.x / C.px.yz * clip.w, clip.zw);
   return VOut(clip, tint(p.w, clip.w), q);
 }
