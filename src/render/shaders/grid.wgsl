@@ -10,7 +10,9 @@
 @group(0) @binding(4) var glyphsBig: texture_2d<f32>; // the same digits, three times the size
 @group(0) @binding(5) var<storage, read> wave: array<f32, 256>; // the drone's waveform (audio/drone.ts wave())
 
-const CELL = 28u;
+const CELL = 12u;
+const BINS = 128u;
+const BYTE_MAX = 256u;
 const KEY_MAX = 8u;
 const COLS = 9.0;
 const ROWS = 5.0;
@@ -22,7 +24,6 @@ const WHITE = vec3f(0.93, 0.92, 0.9);
 fn nCells() -> u32 { return u32(D[0]); }
 fn nKeys() -> u32 { return u32(D[1]); }
 fn cf(k: u32, i: u32) -> f32 { return D[16u + k * CELL + i]; }
-fn prob(k: u32, o: u32) -> f32 { return D[16u + k * CELL + 12u + o]; }
 fn k0() -> u32 { return 16u + nCells() * CELL; }
 const KEY = 12u;
 fn keyCell(i: u32) -> u32 { return u32(D[k0() + i * KEY]); }
@@ -31,6 +32,8 @@ fn keyCol(i: u32) -> vec3f { let o = k0() + i * KEY; return vec3f(D[o + 2u], D[o
 /** Key i's tile on the stage (a unit rect, grid.ts tiles()). */
 fn keyTile(i: u32) -> vec4f { let o = k0() + i * KEY + 5u; return vec4f(D[o], D[o + 1u], D[o + 2u], D[o + 3u]); }
 fn b0() -> u32 { return k0() + KEY_MAX * KEY; }
+/** How many reference words gave answer k a value in bin i (grid.ts pack(): after the bytes). */
+fn hist(k: u32, i: u32) -> f32 { return D[b0() + 1u + BYTE_MAX + k * BINS + min(i, BINS - 1u)]; }
 /** The word's own bytes (after the keys: their count, then one each). */
 fn wordByte(i: u32) -> u32 { let n = max(u32(D[b0()]), 1u); return u32(D[b0() + 1u + i % n]); }
 
@@ -69,6 +72,20 @@ fn glyph(g: f32, uv: vec2f, big: bool) -> f32 {
   if (big) { return bilinear(glyphsBig, a * 3.0); }
   return bilinear(glyphs, a);
 }
+/** How far an answer stands from the reference words, "+2.9σ", top-left at org, h px high. */
+fn sigma(p: vec2f, org: vec2f, h: f32, z: f32) -> f32 {
+  let w = h * 27.0 / 60.0;
+  let q = (p - org) / vec2f(w, h);
+  if (q.x < 0.0 || q.y < 0.0 || q.x >= 5.0 || q.y >= 1.0) { return 0.0; }
+  let i = i32(floor(q.x));
+  let a = min(abs(z), 9.9);
+  var g = select(17.0, 20.0, z >= 0.0); // − or +
+  if (i == 1) { g = floor(a); }
+  else if (i == 2) { g = 16.0; }
+  else if (i == 3) { g = floor(fract(a) * 10.0); }
+  else if (i == 4) { g = 21.0; } // σ
+  return glyph(g, vec2f(0.5 + (fract(q.x) - 0.5) * 27.0 / 40.0, q.y), h > 60.0);
+}
 /** "0.xyz" of v, top-left at org, h px high; `scramble` > 0: the digits still searching. */
 fn number(p: vec2f, org: vec2f, h: f32, v: f32, scramble: f32) -> f32 {
   let w = h * 27.0 / 60.0; // Plex Mono's advance (0.6 em of the 44 px glyph) in its 40 px slot
@@ -99,41 +116,24 @@ fn gridLines(q: vec2f, L: Lay) -> f32 {
 }
 
 // ---------------------------------------------------------------- one cell
-/** The live figure of a measurement in box b (x, y, w, h): a score a sine, a choice its bars, a yes/no a field of
- *  dots; `grow` 0..1 as it arrives. Doubt breaks it into noise. */
+/** The figure of a measurement in box b (x, y, w, h): the reference words as ticks along 0…1 (a tick as tall as the
+ *  words that gave that value), and the word's own value, a bright line the full height — why a cell matters is
+ *  seen: its tick far from the crowd. `grow` 0..1 as it arrives. Doubt breaks it into noise. */
 fn figure(k: u32, p: vec2f, b: vec4f, grow: f32) -> f32 {
-  let v = cf(k, 0u);
-  let kind = u32(cf(k, 2u));
   let doubt = clamp((0.75 - cf(k, 1u)) / 0.6, 0.0, 1.0);
   let u = (p - b.xy) / b.zw;
-  if (u.x < 0.0 || u.y < 0.0 || u.x > 1.0 || u.y > 1.0) { return 0.0; }
-  var c = 0.0;
-  if (kind == 0u) {
-    let cyc = 1.0 + 5.0 * v;
-    let amp = 0.42 * b.w * (0.25 + 0.75 * v) * grow;
-    let ph = TAU * u.x * cyc - F.time * (1.0 + 3.0 * v);
-    let y = b.y + b.w * 0.5 - amp * sin(ph);
-    let slope = amp * TAU * cyc / b.z * cos(ph);
-    c = line((p.y - y) / sqrt(1.0 + slope * slope));
-  } else if (kind == 1u) {
-    let n = max(cf(k, 8u), 1.0);
-    let i = floor(u.x * n);
-    let gap = fract(u.x * n) > 0.7;
-    let hgt = prob(k, u32(i)) * grow * (0.94 + 0.06 * sin(F.time * 3.0 + i));
-    // (the top answer's bar full, the others dimmer)
-    c = select(0.0, select(0.45, 1.0, prob(k, u32(i)) >= v - 1e-4), !gap && 1.0 - u.y < max(hgt, 0.02));
-  } else {
-    let g = vec2f(12.0, 4.0);
-    let i = floor(u * g);
-    let id = u32(i.x + i.y * g.x) + k * 97u;
-    let d = length(fract(u * g) - 0.5) * b.z / g.x;
-    let lit = h1(id) < v * grow;
-    let tw = 0.6 + 0.4 * sin(F.time * 4.0 + f32(id));
-    c = clamp(b.z / g.x * 0.16 - d + 0.5, 0.0, 1.0) * select(0.22, tw, lit);
-  }
+  if (u.x < -0.01 || u.y < 0.0 || u.x > 1.01 || u.y > 1.0) { return 0.0; }
+  let bin = u32(clamp(u.x, 0.0, 0.9999) * f32(BINS));
+  let bx = b.x + (f32(bin) + 0.5) / f32(BINS) * b.z;
+  let n = hist(k, bin);
+  let base = b.y + b.w * 0.85;
+  var c = line(p.y - base) * 0.3; // the axis
+  if (n > 0.0 && p.y <= base && p.y >= base - b.w * 0.7 * min(1.0, n / 4.0) * grow) { c = max(c, line(p.x - bx) * 0.7); }
+  let vx = b.x + clamp(cf(k, 0u), 0.0, 1.0) * b.z;
+  if (p.y >= b.y + b.w * (1.0 - grow)) { c = max(c, clamp(F.dpr + 0.5 - abs(p.x - vx), 0.0, 1.0)); }
   if (doubt > 0.0) {
-    let n = h2(floor(p / F.dpr), u32(F.time * 24.0));
-    c = c * step(doubt * 0.7, n) + step(1.0 - doubt * 0.05, h2(floor(p / F.dpr), 9u + u32(F.time * 24.0))) * 0.8;
+    let r = h2(floor(p / F.dpr), u32(F.time * 24.0));
+    c = c * step(doubt * 0.7, r) + step(1.0 - doubt * 0.05, h2(floor(p / F.dpr), 9u + u32(F.time * 24.0))) * 0.8;
   }
   return c;
 }
@@ -194,7 +194,11 @@ fn viz(tiles: bool, p: vec2f, r: vec4f) -> vec3f {
         let ink = max(number(p, tr.xy + vec2f(pad, tr.w - h * 1.5), h, keyVal(i), 0.0),
           label(p, tr.xy + pad, h * 0.6, cf(keyCell(i), 6u), tr.z - 2.0 * pad) * 0.8);
         let opt = cf(keyCell(i), 7u);
-        c = mix(c, inkOn(c), select(ink, max(ink, label(p, tr.xy + vec2f(pad, pad + h * 0.8), h * 0.6, opt, tr.z - 2.0 * pad)), opt >= 0.0));
+        // how far it stands from the reference words (σ), and the strip that shows it
+        let z = cf(keyCell(i), 11u);
+        let fig = figure(keyCell(i), p, vec4f(tr.x + pad, tr.y + tr.w * 0.38, tr.z - 2.0 * pad, tr.w * 0.3), 1.0);
+        let ink2 = max(max(ink, sigma(p, tr.xy + vec2f(tr.z - pad - h * 0.6 * 27.0 / 60.0 * 5.0, pad), h * 0.6, z)), fig);
+        c = mix(c, inkOn(c), select(ink2, max(ink2, label(p, tr.xy + vec2f(pad, pad + h * 0.8), h * 0.6, opt, tr.z - 2.0 * pad)), opt >= 0.0));
         let edge = min(min(p.x - tr.x, tr.x + tr.z - p.x), min(p.y - tr.y, tr.y + tr.w - p.y));
         c *= 1.0 - line(edge) * 0.6;
       }

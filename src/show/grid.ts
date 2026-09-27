@@ -27,7 +27,7 @@ export const LABELS = [...DIMS.map(([id]) => id), ...CHOICE_IDS.flatMap((id) => 
 const OPT0 = Object.fromEntries(CHOICE_IDS.map((id) => [id, DIMS.length + CHOICE_IDS.slice(0, CHOICE_IDS.indexOf(id)).reduce((a, x) => a + OPTIONS[x].length, 0)]));
 
 /** The 3D spaces of the data a step can show (show/space.ts). */
-export const SPACES = ['cloud', 'network', 'terrain', 'map', 'globe', 'table', 'ridges'] as const;
+export const SPACES = ['cloud', 'network', 'terrain', 'map', 'axis', 'table', 'ridges'] as const;
 /** What a step shows: the marked cells merged (tiles, grid.wgsl), where the word stands (stand, show/notes.ts), or a
  *  space. */
 export const VIZ = ['tiles', 'stand', ...SPACES] as const;
@@ -46,6 +46,8 @@ type Step = { t: number; dur: number; viz: Viz; full: boolean; cam: number };
 type RGB = [number, number, number];
 export type Grid = {
   cells: Cell[]; keys: number[];
+  /** Every cell, by how much it matters (keys are the first). */
+  rank: number[];
   /** The reference words the word is measured against (never visitors' words). */
   refs: string[];
   /** Each marked cell's colour (linear RGB): the word's own colours, as Jev sees them, most likely first. */
@@ -91,7 +93,8 @@ export function grid(A: Appraisal): Grid {
   // what matters: far from the reference words, and sure enough
   const rel = cells.map((c) => c.z * (c.conf >= 0.45 ? c.conf : 0));
   const nKeys = 4 + Math.round(3 * clamp01(A.s.intensity * 0.6 + aro * 0.4));
-  const keys = cells.map((_, k) => k).sort((a, b) => rel[b] - rel[a]).slice(0, nKeys);
+  const rank = cells.map((_, k) => k).sort((a, b) => rel[b] - rel[a]);
+  const keys = rank.slice(0, nKeys);
   const mark = fill + 0.3;
   keys.forEach((k, r) => { cells[k].key = r; cells[k].markAt = mark + (r * 0.5) / keys.length; });
   const select = mark + 0.65;
@@ -102,8 +105,8 @@ export function grid(A: Appraisal): Grid {
   // the steps: 4/4 at the word's tempo, cut in after the marked cells have held a moment. A space holds a whole bar
   // (the camera cuts on each beat), chosen by what the data says: where the word sits (cloud), its neighbours
   // (network), how far it stands out (ridges, for a word far from all the others) or the whole table, then the
-  // ground it stands on (terrain where the words crowd round it, a contour map where it stands alone), and all its
-  // answers at once (globe) in the last bar, in halves. The downbeats of bars two and four burst to the full frame
+  // ground it stands on (terrain where the words crowd round it, a contour map where it stands alone), and in the
+  // last bar, in halves, the answer it ends on (axis): the steps lead into where it stands. The downbeats of bars two and four burst to the full frame
   // (and of bar three, for an intense word).
   const bpm = Math.round(lerp(92, 150, clamp01(aro * 0.5 + A.s.energy * 0.3 + A.s.tension * 0.2)) - 14 * A.lazy);
   const beat = 60 / bpm;
@@ -117,7 +120,7 @@ export function grid(A: Appraisal): Grid {
   for (let b = 0; b < 16; b++) {
     for (const half of b >= 12 ? [0, 1] : [0]) {
       const dur = b >= 12 ? beat / 2 : beat;
-      const viz: Viz = b === 0 ? 'tiles' : b >= 14 ? 'globe' : plan[Math.floor(b / 4)];
+      const viz: Viz = b === 0 ? 'tiles' : b >= 14 ? 'axis' : plan[Math.floor(b / 4)];
       const full = half === 0 && (b === 4 || b === 12 || (b === 8 && A.s.intensity > 0.6));
       steps.push({ t, dur, viz, full, cam: rand() });
       t += dur;
@@ -129,7 +132,7 @@ export function grid(A: Appraisal): Grid {
   // where it stands: the marked answer that sets it most apart — among those a person would say (not a category slot
   // like who, act or kind)
   const stand = keys.find((k) => !CATEGORY.has(cells[k].id)) ?? keys[0];
-  const g: Grid = { cells, keys, refs: words, colours, mark, select, seq, end: t, bpm, beat, steps, stand, flashes: strobes(A, 16) };
+  const g: Grid = { cells, keys, rank, refs: words, colours, mark, select, seq, end: t, bpm, beat, steps, stand, flashes: strobes(A, 16) };
   GRIDS.set(A, g);
   return g;
 }
@@ -143,10 +146,15 @@ const COLOURS: Record<string, RGB> = {
   brown: [0.45, 0.2, 0.07],
 };
 
+/** The house's accent (orange-red, linear RGB). */
+const ACCENT: RGB = [1, 0.1, 0.025];
+
 function keyColours(A: Appraisal, n: number): RGB[] {
   const TONE: Record<string, RGB> = { white: [0.95, 0.9, 1], grey: [0.55, 0.62, 0.72], black: [0.12, 0.14, 0.4] };
   const ranked = Object.entries(A.c.colour.p).sort((a, b) => b[1] - a[1]);
   const base = ranked.filter(([, p], i) => i === 0 || p >= 0.08).slice(0, 4).map(([k]) => TONE[k] ?? COLOURS[k]);
+  // (a word Jev sees as white, grey or black would vanish among the white points: it takes the house's accent)
+  if (TONE[ranked[0][0]]) base[0] = ACCENT;
   return Array.from({ length: n }, (_, i) => {
     const c = base[i % base.length], round = Math.floor(i / base.length);
     return round === 0 ? c : c.map((x) => x * (round % 2 ? 0.62 : 0.4)) as RGB;
@@ -175,6 +183,9 @@ export function name(g: Grid, k: number): string {
   return c.kind === 1 ? `${c.id}: ${LABELS[c.opt]}` : c.id;
 }
 
+/** The cells of the grid's ring, round the stage (the small multiples, in this order). */
+export const RING = [0, 1, 2, 3, 4, 5, 6, 7, 8, 17, 26, 35, 44, 43, 42, 41, 40, 39, 38, 37, 36, 27, 18, 9];
+
 /** Where the grid stands on a w × h (device px) screen: its top-left corner and its cell size, a margin all round. */
 export function layout(w: number, h: number) {
   const m = 0.05 * Math.min(w, h);
@@ -200,21 +211,22 @@ function tiles(K: number): Float32Array {
   return out;
 }
 
-const CELL = 28, OPT_MAX = 16, KEY_MAX = 8, KEY = 12, BYTE_MAX = 256;
-/** The score as the shader's buffer (grid.wgsl): a header (cells, keys, steps' start), then
- *  per cell (value, conf, kind,
- *  arrive, vanish, key, label, opt, nOpts, markAt, z, 0, then 16 option probabilities), then per key (cell, value,
- *  colour, its tile in the square, 0 ×3), then the word's bytes (their count, then each). The step on screen is a
- *  uniform (main.ts). */
+const CELL = 12, KEY_MAX = 8, KEY = 12, BYTE_MAX = 256, BINS = 128;
+/** The score as the shader's buffer (grid.wgsl): a header (cells, keys, steps' start, reference words), then per cell
+ *  (value, conf, kind, arrive, vanish, key, label, opt, 0, markAt, |z|, z: how far it stands from the reference words,
+ *  in their spread), then per key (cell, value, colour, its tile on the stage, 0 ×3), then the words' bytes (their
+ *  count, then each), then per cell the reference words' values as a histogram of BINS bins over 0…1 (how many
+ *  reference words gave each value: the strip every cell draws). The step on screen is a uniform (main.ts). */
 export function pack(A: Appraisal, g: Grid): Float32Array {
   const n = g.cells.length;
-  const k0 = 16 + n * CELL, b0 = k0 + KEY_MAX * KEY;
-  const out = new Float32Array(b0 + 1 + BYTE_MAX);
-  out.set([n, g.keys.length, g.seq], 0);
+  const k0 = 16 + n * CELL, b0 = k0 + KEY_MAX * KEY, h0 = b0 + 1 + BYTE_MAX;
+  const out = new Float32Array(h0 + n * BINS);
+  out.set([n, g.keys.length, g.seq, g.refs.length], 0);
   g.cells.forEach((c, k) => {
-    const o = 16 + k * CELL;
-    out.set([c.value, c.conf, c.kind, c.arrive, Math.min(c.vanish, 1e4), c.key, c.label, c.opt, c.probs.length, Math.min(c.markAt, 1e4), c.z, 0], o);
-    out.set(c.probs.slice(0, OPT_MAX), o + 12);
+    const mean = c.lex.reduce((a, b) => a + b, 0) / c.lex.length;
+    const sd = Math.sqrt(c.lex.reduce((a, b) => a + (b - mean) ** 2, 0) / c.lex.length) + 0.05;
+    out.set([c.value, c.conf, c.kind, c.arrive, Math.min(c.vanish, 1e4), c.key, c.label, c.opt, 0, Math.min(c.markAt, 1e4), c.z, (c.value - mean) / sd], 16 + k * CELL);
+    for (const v of c.lex) out[h0 + k * BINS + Math.min(BINS - 1, Math.floor(Math.max(0, v) * BINS))] += 1;
   });
   const T = tiles(g.keys.length);
   g.keys.slice(0, KEY_MAX).forEach((k, i) => out.set([k, g.cells[k].value, ...g.colours[i], ...T.subarray(i * 4, i * 4 + 4)], k0 + i * KEY));

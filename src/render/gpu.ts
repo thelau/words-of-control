@@ -19,8 +19,8 @@ export const VIEWS_MAX = 32;
 export const WAVE_N = 256;
 
 /** The spaces to draw this frame: one Cam block per view in `cams` (CAM_SLOT floats apart), and per view its
- *  rectangle (device px) and which points and lines (first, count); the first view is the stage (round points), the
- *  others the ring (one-pixel dots). */
+ *  rectangle (device px) and which points and lines (first, count); the first view is the stage, the others the
+ *  ring. */
 export type SpaceDraw = { cams: Float32Array; views: { rect: [number, number, number, number]; points: [number, number]; lines: [number, number] }[] };
 
 export class Renderer {
@@ -41,7 +41,6 @@ export class Renderer {
   private camBuf!: GPUBuffer;
   private pointPipe!: GPURenderPipeline;
   private linePipe!: GPURenderPipeline;
-  private dotPipe!: GPURenderPipeline;
   private camBg!: GPUBindGroup;
   private pointBuf: GPUBuffer | null = null;
   private lineBuf: GPUBuffer | null = null;
@@ -75,7 +74,7 @@ export class Renderer {
     this.ctx.configure({ device: d, format, alphaMode: 'opaque' });
 
     this.fBuf = d.createBuffer({ size: FRAME_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.scoreBuf = d.createBuffer({ size: 16 * 1024, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.scoreBuf = d.createBuffer({ size: 64 * 1024, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.waveBuf = d.createBuffer({ size: WAVE_N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.camBuf = d.createBuffer({ size: CAM_SLOT * 4 * VIEWS_MAX, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     await document.fonts.load('400 40px "IBM Plex Mono"');
@@ -87,11 +86,11 @@ export class Renderer {
     });
     this.bg = d.createBindGroup({ layout: this.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: this.fBuf } },
-      { binding: 1, resource: atlas(d, 16, 40, 60, 44, [...'0123456789ABCDEF.-x:'], 'center').createView() },
+      { binding: 1, resource: atlas(d, 16, 40, 60, 44, [...'0123456789ABCDEF.-x:+σ'], 'center').createView() },
       { binding: 2, resource: { buffer: this.scoreBuf } },
       { binding: 3, resource: atlas(d, 4, 512, 48, 32, LABELS.map((l) => l.toUpperCase()), 'left', 3).createView() },
       // (the same digits at three times the size, for the big number: sharp at any size)
-      { binding: 4, resource: atlas(d, 16, 120, 180, 132, [...'0123456789ABCDEF.-x:'], 'center').createView() },
+      { binding: 4, resource: atlas(d, 16, 120, 180, 132, [...'0123456789ABCDEF.-x:+σ'], 'center').createView() },
       { binding: 5, resource: { buffer: this.waveBuf } },
     ] });
     // the spaces: additive light, no depth (points and lines add up where they crowd)
@@ -107,12 +106,6 @@ export class Renderer {
     });
     this.linePipe = await d.createRenderPipelineAsync({
       label: 'lines', layout, primitive: { topology: 'line-list' },
-      vertex: { module: sm, entryPoint: 'vs_line', buffers: [vtx('vertex')] },
-      fragment: { module: sm, entryPoint: 'fs_line', targets: [{ format, blend: add }] },
-    });
-    // (the small views around the stage: one-pixel points, one vertex each — 25 views of a cloud stay cheap)
-    this.dotPipe = await d.createRenderPipelineAsync({
-      label: 'dots', layout, primitive: { topology: 'point-list' },
       vertex: { module: sm, entryPoint: 'vs_line', buffers: [vtx('vertex')] },
       fragment: { module: sm, entryPoint: 'fs_line', targets: [{ format, blend: add }] },
     });
@@ -173,8 +166,8 @@ export class Renderer {
         p.setVertexBuffer(0, this.lineBuf);
         p.draw(lines[1], 1, lines[0]);
         p.setVertexBuffer(0, this.pointBuf);
-        if (i === 0) { p.setPipeline(this.pointPipe); p.draw(6, points[1], 0, points[0]); }
-        else { p.setPipeline(this.dotPipe); p.draw(points[1], 1, points[0]); }
+        p.setPipeline(this.pointPipe);
+        p.draw(6, points[1], 0, points[0]);
       });
     }
     p.end();

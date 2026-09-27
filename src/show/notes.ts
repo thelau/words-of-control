@@ -6,7 +6,7 @@
  */
 import type { Caption } from '../captions.ts';
 import type { Grid } from './grid.ts';
-import { layout, name, stage } from './grid.ts';
+import { layout, name, RING, stage } from './grid.ts';
 import type { Geometry, Space } from './space.ts';
 import type { Appraisal } from '../jev/appraisal.ts';
 
@@ -40,25 +40,41 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
   const st = g.steps[i];
   if (!st) return out;
   const m = A.mood, mood = m.neg >= m.pos && m.neg >= m.neu ? 'negative' : m.pos >= m.neu ? 'positive' : 'neutral';
-  out.push({ key: 'head', text: `${word} · ${i + 1} / ${g.steps.length} · ${g.bpm} bpm · ${mood} ${Math.max(m.pos, m.neu, m.neg).toFixed(2)}`, x: gx, y: gy - 10, align: 'bl' });
+  const arc = st.viz === 'stand' ? 'where it stands' : `${n} answers → ${K} that matter → where it stands`;
+  out.push({ key: 'head', text: `${word} · ${arc} · ${mood} ${Math.max(m.pos, m.neu, m.neg).toFixed(2)}`, x: gx, y: gy - 10, align: 'bl' });
   const S = stage(w, h).map((x) => x / dpr);
   if (st.viz === 'stand') {
-    // where the word stands: the answer that sets it most apart, and the reference words laid out along it (0 … 1),
-    // the word among them — its rank seen, not written; then its nearest words, and whose words these are
+    // where the words stand: the answer that sets them most apart, and the reference words as a dot plot along it
+    // (0 … 1, stacked where they agree), the words among them — the rank seen, not written; the nearest on this answer
+    // with a line to their dot; the nearest on all the answers; who answered, how sure; whose reference words
     const k = g.stand, c = g.cells[k], colour = srgb(g.colours[Math.max(0, c.key)]);
-    const cx = S[0] + S[2] / 2, cy = S[1] + S[3] / 2, x0 = S[0] + S[2] * 0.12, x1 = S[0] + S[2] * 0.88, ly = cy + 34;
+    const cx = S[0] + S[2] / 2, cy = S[1] + S[3] / 2, x0 = S[0] + S[2] * 0.12, x1 = S[0] + S[2] * 0.88, ly = cy + 40;
     const at = (v: number) => x0 + v * (x1 - x0);
     // (a long phrase is set smaller, to fit the stage: Plex Mono's advance is 0.6 em)
-    out.push({ key: 'word', text: word, x: cx, y: cy - 86, align: 'c', size: 'big', colour, px: Math.min(64, (S[2] * 0.8) / (word.length * 0.6)) });
-    out.push({ key: 'answer', text: `${name(g, k)}  ${c.value.toFixed(2)}`, x: cx, y: cy - 28, align: 'c', size: 'mid', colour });
+    out.push({ key: 'word', text: word, x: cx, y: cy - 96, align: 'c', size: 'big', colour, px: Math.min(64, (S[2] * 0.8) / (word.length * 0.6)) });
+    out.push({ key: 'answer', text: `${name(g, k)}  ${c.value.toFixed(2)}`, x: cx, y: cy - 40, align: 'c', size: 'mid', colour });
     out.push({ key: 'rule', text: '', x: x0, y: ly, rule: x1 - x0 });
     out.push({ key: 'r0', text: '0', x: x0 - 16, y: ly, align: 'c' }, { key: 'r1', text: '1', x: x1 + 16, y: ly, align: 'c' });
-    c.lex.forEach((v, j) => out.push({ key: `d${j}`, text: '', x: at(v), y: ly, align: 'c', anchor: true }));
-    const near = geo?.nearest ?? [];
-    near.forEach((w2, i) => { const j = g.refs.indexOf(w2); if (j >= 0) out.push({ key: `n${i}`, text: w2, x: at(c.lex[j]), y: ly + 18 + 15 * i, align: 'c' }); });
-    out.push({ key: 'me', text: '', x: at(c.value), y: ly, align: 'c', anchor: true, me: true, colour });
-    out.push({ key: 'melabel', text: word, x: at(c.value), y: ly - 10, align: 'c', colour });
-    out.push({ key: 'note', text: `${R} reference words, chosen by the artist`, x: cx, y: S[1] + S[3] - 18, align: 'c' });
+    // (a stack never rises past 40 px: a tall one packs its dots closer)
+    const bins = c.lex.map((v) => Math.round(at(v) / 7)), count = new Map<number, number>(), stack = new Map<number, number>();
+    for (const b of bins) count.set(b, (count.get(b) ?? 0) + 1);
+    const dotY = c.lex.map((v, j) => {
+      const b = bins[j], hh = stack.get(b) ?? 0, gap = Math.min(6, 40 / (count.get(b) ?? 1));
+      stack.set(b, hh + 1);
+      out.push({ key: `d${j}`, text: '', x: at(v), y: ly - 5 - gap * hh, align: 'c', anchor: true });
+      return ly - 5 - gap * hh;
+    });
+    // the nearest on this answer, labelled below with a line up to their dot
+    const onAxis = c.lex.map((v, j) => [j, Math.abs(v - c.value)] as const).sort((a2, b2) => a2[1] - b2[1]).slice(0, 3);
+    onAxis.forEach(([j], i) => {
+      const x = at(c.lex[j]), y = ly + 22 + 16 * i;
+      out.push({ key: `nl${i}`, text: '', x, y: dotY[j], vline: y - dotY[j] - 6 });
+      out.push({ key: `n${i}`, text: g.refs[j], x, y, align: 'c' });
+    });
+    out.push({ key: 'me', text: '', x: at(c.value), y: ly - 5, align: 'c', anchor: true, me: true, colour });
+    out.push({ key: 'melabel', text: word, x: at(c.value), y: ly - 22 - Math.min(40, 6 * (stack.get(Math.round(at(c.value) / 7)) ?? 0)), align: 'c', colour });
+    out.push({ key: 'overall', text: `nearest on all ${n} answers: ${(geo?.nearest ?? []).join(' · ')}`, x: cx, y: S[1] + S[3] - 40, align: 'c' });
+    out.push({ key: 'note', text: `${n} questions answered by an AI (Jev), sure to ${c.conf.toFixed(2)} · ${R} reference words, chosen by the artist`, x: cx, y: S[1] + S[3] - 20, align: 'c' });
     return out;
   }
   const text = st.viz === 'tiles' ? `${K} answers that matter`
@@ -66,6 +82,11 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
   // (below the grid, outside it: the grid's cells carry views of the space)
   if (st.full) out.push({ key: 'panel', text, x: 16, y: h / dpr - 16, align: 'bl' });
   else out.push({ key: 'panel', text, x: gx, y: gy + gh + 10 });
+  // the small multiples round the stage: each cell's pair of answers, small, in its corner
+  if (space && geo && !st.full) RING.forEach((k, p) => {
+    const pair = geo.pairs[p];
+    if (pair) out.push({ key: `p${p}`, text: pair.label, x: gx + (k % 9) * (gw / 9) + 6, y: gy + Math.floor(k / 9) * (gh / 5) + 5, size: 'tiny' });
+  });
   // labels on the data: each anchor projected through the step's camera into its rectangle. Which ones show is
   // decided on the step's first frame (one that would land on another is left out) and kept for the whole step — a
   // label never blinks in and out as the camera turns

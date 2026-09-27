@@ -77,7 +77,7 @@ export function renderGrid(A: Appraisal, g: Grid, sr: number): Samples {
 /** How each space colours the sequencer (the patterns stay; only the timbre and the register move with the bar). */
 const PATCH: Partial<Record<Viz, { fold: number; oct: number }>> = {
   cloud: { fold: 0.8, oct: 0 }, network: { fold: 1.8, oct: 1 }, ridges: { fold: 1.2, oct: 0 }, table: { fold: 2.4, oct: 1 },
-  terrain: { fold: 1.0, oct: -1 }, map: { fold: 0.6, oct: 0 }, globe: { fold: 1.6, oct: 1 },
+  terrain: { fold: 1.0, oct: -1 }, map: { fold: 0.6, oct: 0 }, axis: { fold: 1.6, oct: 1 },
 };
 
 /** k onsets spread evenly over n steps (Bjorklund's rhythm), rotated by r. */

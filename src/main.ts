@@ -15,10 +15,10 @@ import { playPerformance, TAIL } from './audio/score.ts';
 import { analyze } from './jev/client.ts';
 import { buildAppraisal, type Appraisal } from './jev/appraisal.ts';
 import type { Answers } from './jev/types.ts';
-import { grid, layout, pack, stage, VIZ, type Grid } from './show/grid.ts';
+import { grid, layout, pack, RING, stage, VIZ, type Grid } from './show/grid.ts';
 import { notes } from './show/notes.ts';
 import { showCaptions, type Caption } from './captions.ts';
-import { camera, ringView, stageView, type Geometry, type Space, type View } from './show/space.ts';
+import { camera, stageView, type Geometry, type Space, type View } from './show/space.ts';
 import type { Samples } from './audio/render.ts';
 import { seedFromText } from './core/rng.ts';
 import { showSupport, hideSupport } from './support.ts';
@@ -72,8 +72,6 @@ async function boot() {
   /** The spaces' camera blocks, one per view (space.wgsl Cam): view-projection, palette, point size and viewport,
    *  time, unrest and distance. */
   const cams = new Float32Array(CAM_SLOT * VIEWS_MAX);
-  /** The cells of the grid's ring, around the stage. */
-  const RING = [0, 1, 2, 3, 4, 5, 6, 7, 8, 17, 26, 35, 44, 43, 42, 41, 40, 39, 38, 37, 36, 27, 18, 9];
   const wave = new Float32Array(WAVE_N);
   let keysTyped = 0;
   let charge = 0;
@@ -258,29 +256,32 @@ async function boot() {
         const st = show.g.steps.find((x) => t >= x.t && t < x.t + x.dur);
         if (st) {
           f('viz', VIZ.indexOf(st.viz)); f('full', st.full ? 1 : 0);
-          // the spaces: the one on the stage (or the whole frame) and, in the cells of the ring, the same space drawn
-          // other ways; the ring is empty on the merged cells and on the ending
+          // the spaces: the one on the stage (or the whole frame) and, in the cells of the ring, the small multiples;
+          // the ring is empty on the merged cells and on the ending
           const isSpace = VIZ.indexOf(st.viz) >= 2;
           if (isSpace && phase === 'grid' && show.geo) {
             const W = renderer.width, H = renderer.height, dpr = renderer.dpr, geo = show.geo, mood = show.A.mood;
             const views: SpaceDraw['views'] = [];
             // (`still`: a ring cell — no camera shake, no trembling points)
-            const view = (sp: Space, v: View, lt: number, rect: [number, number, number, number], size: number, cut = 0, still = false) => {
+            // (`still`: a ring cell — no camera shake, no trembling points; `r`: which points and lines)
+            const view = (sp: Space, v: View, lt: number, rect: [number, number, number, number], size: number, cut = 0, still = false, r = geo.ranges[sp]) => {
               const c = camera(sp, { ...v, seed: (v.seed + cut * 0.382) % 1 }, lt, rect[2] / rect[3], still ? { ...mood, neg: 0 } : mood, geo.focus[sp]);
               const n = views.length;
               cams.set(c.vp, n * CAM_SLOT);
-              cams.set([size, rect[2], rect[3], 0, t, still ? 0 : mood.neg, c.dist, 0, v.slab?.[0] ?? -1, v.slab?.[1] ?? 0, 0.14, 0], n * CAM_SLOT + 52);
-              const r = geo.ranges[sp];
+              cams.set([size, rect[2], rect[3], 0, t, still ? 0 : mood.neg, c.dist, 0], n * CAM_SLOT + 52);
               views.push({ rect, points: [r[0], r[1]], lines: [r[2], r[3]] });
             };
             // the more negative the word, the more it breaks: the camera cuts on every eighth, then every sixteenth;
             // points softer and larger for a positive word, finer for a negative one
             const sub = (t - st.t) / (show.g.beat / 4);
             const cut = mood.neg > 0.75 ? Math.floor(sub) : mood.neg > 0.4 ? Math.floor(sub / 2) : 0;
-            view(st.viz as Space, stageView(st.cam, mood.neu), t - st.t, st.full ? [0, 0, W, H] : stage(W, H), (1.5 + 0.9 * mood.pos - 0.4 * mood.neg) * dpr, cut);
-            // the ring: the same space drawn another way in each cell (show/space.ts ringView: angles, scans,
-            // sections, close-ups — one plate per step), still (no shake, no trembling points)
-            if (!st.full) for (const k of RING) view(st.viz as Space, ringView(st.viz as Space, k, st.cam, t - st.t), t - st.t, [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2], dpr, 0, true);
+            view(st.viz as Space, stageView(st.cam, mood.neu), t - st.t, st.full ? [0, 0, W, H] : stage(W, H), (3 + 1.2 * mood.pos - 0.6 * mood.neg) * dpr, cut);
+            // the ring: small multiples — the reference words on each pair of the answers that matter most, one pair a
+            // cell, the same scale, the word in its colour (show/space.ts pairs), drawn flat and still
+            if (!st.full) RING.forEach((k, i) => {
+              const pair = geo.pairs[i];
+              if (pair) view('cloud', { kind: 'front', seed: 0 }, 0, [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2], 1.8 * dpr, 0, true, pair.range);
+            });
             space = { cams, views };
           }
         }

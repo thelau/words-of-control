@@ -4,6 +4,14 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
+- **After the round-9 data reviews (Tufte, Steele, Smith, Thorp personas)** ("ok let's do"): every cell shows why it
+  matters (a strip of the reference words and the word's value); tiles show ±σ; one point per word, no dust or halos;
+  the network laid out by likeness on all answers (PCA); the globe replaced by the ending's answer as a dot plot; the
+  ring made small multiples of answer pairs (replacing the variant views); the ending a stacked dot plot with leader
+  lines, nearest on this answer and on all, and who answered; the header the arc "45 answers → 7 that matter → where
+  it stands"; an accent for a white/grey/black word. Open, for the artist: the reference set (it is still the test
+  words, e.g. asdfgh, qwerty), and an in-memory comparison with the previous visitor (numbers only).
+
 - **The ring back to variants of the space on the stage** ("I preferred before when it was a duplicate, slightly
   variant, of the one in the centre"): not the film strip of earlier steps (a reviewer's suggestion). Still, no shake.
 
