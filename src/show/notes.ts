@@ -44,12 +44,14 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
   out.push({ key: 'head', text: `${word} · ${arc} · ${mood} ${Math.max(m.pos, m.neu, m.neg).toFixed(2)}`, x: gx, y: gy - 10, align: 'bl' });
   const S = stage(w, h).map((x) => x / dpr);
   if (st.viz === 'stand') {
-    // where the words stand: the answer that sets them most apart, and the reference words as a dot plot along it
-    // (0 … 1, stacked where they agree), the words among them — the rank seen, not written; the nearest on this answer
-    // with a line to their dot; the nearest on all the answers; who answered, how sure; whose reference words
-    const k = g.stand, c = g.cells[k], colour = srgb(g.colours[Math.max(0, c.key)]);
+    // where the words stand, built slowly: the words and the answer that sets them most apart; the reference words as a
+    // dot plot along it (0 … 1, stacked where they agree), filling in, the words among them — the rank seen, not
+    // written; then one by one the nearest on this answer, a line to their dot; the nearest on all the answers; who
+    // answered and how sure; and last, alone, whose reference words these are
+    const lt = t - st.t, k = g.stand, c = g.cells[k], colour = srgb(g.colours[Math.max(0, c.key)]);
     const cx = S[0] + S[2] / 2, cy = S[1] + S[3] / 2, x0 = S[0] + S[2] * 0.12, x1 = S[0] + S[2] * 0.88, ly = cy + 40;
     const at = (v: number) => x0 + v * (x1 - x0);
+    const short = (w2: string) => (w2.length > 22 ? `${w2.slice(0, 21)}…` : w2);
     // (a long phrase is set smaller, to fit the stage: Plex Mono's advance is 0.6 em)
     out.push({ key: 'word', text: word, x: cx, y: cy - 96, align: 'c', size: 'big', colour, px: Math.min(64, (S[2] * 0.8) / (word.length * 0.6)) });
     out.push({ key: 'answer', text: `${name(g, k)}  ${c.value.toFixed(2)}`, x: cx, y: cy - 40, align: 'c', size: 'mid', colour });
@@ -61,20 +63,22 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
     const dotY = c.lex.map((v, j) => {
       const b = bins[j], hh = stack.get(b) ?? 0, gap = Math.min(6, 40 / (count.get(b) ?? 1));
       stack.set(b, hh + 1);
-      out.push({ key: `d${j}`, text: '', x: at(v), y: ly - 5 - gap * hh, align: 'c', anchor: true });
+      if (lt > j * 0.02) out.push({ key: `d${j}`, text: '', x: at(v), y: ly - 5 - gap * hh, align: 'c', anchor: true });
       return ly - 5 - gap * hh;
-    });
-    // the nearest on this answer, labelled below with a line up to their dot
-    const onAxis = c.lex.map((v, j) => [j, Math.abs(v - c.value)] as const).sort((a2, b2) => a2[1] - b2[1]).slice(0, 3);
-    onAxis.forEach(([j], i) => {
-      const x = at(c.lex[j]), y = ly + 22 + 16 * i;
-      out.push({ key: `nl${i}`, text: '', x, y: dotY[j], vline: y - dotY[j] - 6 });
-      out.push({ key: `n${i}`, text: g.refs[j], x, y, align: 'c' });
     });
     out.push({ key: 'me', text: '', x: at(c.value), y: ly - 5, align: 'c', anchor: true, me: true, colour });
     out.push({ key: 'melabel', text: word, x: at(c.value), y: ly - 22 - Math.min(40, 6 * (stack.get(Math.round(at(c.value) / 7)) ?? 0)), align: 'c', colour });
-    out.push({ key: 'overall', text: `nearest on all ${n} answers: ${(geo?.nearest ?? []).join(' · ')}`, x: cx, y: S[1] + S[3] - 40, align: 'c' });
-    out.push({ key: 'note', text: `${n} questions answered by an AI (Jev), sure to ${c.conf.toFixed(2)} · ${R} reference words, chosen by the artist`, x: cx, y: S[1] + S[3] - 20, align: 'c' });
+    // the nearest on this answer, one by one (left to right, each on its own line, a line up to its dot)
+    const onAxis = c.lex.map((v, j) => [j, Math.abs(v - c.value)] as const).sort((a2, b2) => a2[1] - b2[1]).slice(0, 3).map(([j]) => j).sort((a2, b2) => c.lex[a2] - c.lex[b2]);
+    onAxis.forEach((j, i) => {
+      if (lt < 1.5 + i * 1.2) return;
+      const x = at(c.lex[j]), y = ly + 22 + 16 * i;
+      out.push({ key: `nl${i}`, text: '', x, y: dotY[j], vline: y - dotY[j] - 6 });
+      out.push({ key: `n${i}`, text: short(g.refs[j]), x, y, align: 'c' });
+    });
+    if (lt > 5) out.push({ key: 'overall', text: `nearest on all ${n} answers: ${(geo?.nearest ?? []).map(short).join(' · ')}`, x: cx, y: S[1] + S[3] - 56, align: 'c' });
+    if (lt > 6.5) out.push({ key: 'ai', text: `${n} questions answered by an AI (Jev), sure to ${c.conf.toFixed(2)}`, x: cx, y: S[1] + S[3] - 36, align: 'c' });
+    if (lt > 8) out.push({ key: 'note', text: `${R} reference words, chosen by the artist`, x: cx, y: S[1] + S[3] - 16, align: 'c' });
     return out;
   }
   const text = st.viz === 'tiles' ? `${K} answers that matter`

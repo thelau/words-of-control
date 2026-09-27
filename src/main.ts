@@ -275,7 +275,7 @@ async function boot() {
             // points softer and larger for a positive word, finer for a negative one
             const sub = (t - st.t) / (show.g.beat / 4);
             const cut = mood.neg > 0.75 ? Math.floor(sub) : mood.neg > 0.4 ? Math.floor(sub / 2) : 0;
-            view(st.viz as Space, stageView(st.cam, mood.neu), t - st.t, st.full ? [0, 0, W, H] : stage(W, H), (3 + 1.2 * mood.pos - 0.6 * mood.neg) * dpr, cut);
+            view(st.viz as Space, stageView(st.viz as Space, st.cam, mood.neu), t - st.t, st.full ? [0, 0, W, H] : stage(W, H), (3 + 1.2 * mood.pos - 0.6 * mood.neg) * dpr, cut);
             // the ring: small multiples — the reference words in the space of each three of the answers that matter
             // most, one triple a cell, the word a cross in its colour (show/space.ts pairs); each turns at its own angle
             // and cuts to a new one on every beat, with the stage

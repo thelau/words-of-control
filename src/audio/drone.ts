@@ -132,7 +132,7 @@ export class Drone {
     g.setValueAtTime(1, from - 0.01);
     g.linearRampToValueAtTime(0, from);
     g.setValueAtTime(0, to);
-    g.setTargetAtTime(1, to, 0.8);
+    g.setTargetAtTime(1, to, 0.4);
   }
 
   /** The room remembers a reaction. */

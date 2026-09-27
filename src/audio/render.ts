@@ -74,10 +74,10 @@ export function renderGrid(A: Appraisal, g: Grid, sr: number): Samples {
   return { L: T.L, R: T.R };
 }
 
-/** How each space colours the sequencer (the patterns stay; only the timbre and the register move with the bar). */
+/** How each space colours the sequencer (the patterns and the register stay; only the timbre moves with the bar). */
 const PATCH: Partial<Record<Viz, { fold: number; oct: number }>> = {
-  cloud: { fold: 0.8, oct: 0 }, network: { fold: 1.8, oct: 1 }, ridges: { fold: 1.2, oct: 0 }, table: { fold: 2.4, oct: 1 },
-  terrain: { fold: 1.0, oct: -1 }, map: { fold: 0.6, oct: 0 }, axis: { fold: 1.6, oct: 1 },
+  cloud: { fold: 0.8, oct: 0 }, network: { fold: 1.8, oct: 0 }, ridges: { fold: 1.2, oct: 0 }, table: { fold: 2.4, oct: 0 },
+  terrain: { fold: 1.0, oct: 0 }, axis: { fold: 1.6, oct: 0 },
 };
 
 /** k onsets spread evenly over n steps (Bjorklund's rhythm), rotated by r. */
@@ -87,7 +87,8 @@ const euclid = (k: number, n: number, r = 0) => Array.from({ length: n }, (_, i)
  *  degree of the word's mode by which answer it is, moved up or down by how far it stands from the reference words
  *  (not by its value: those crowd near 1). Two voices play them on fixed euclidean patterns, the second one note
  *  longer (K and K + 1: they drift in and out of phase); bar one the first voice, bar two both, then a dotted-eighth
- *  delay whose feedback grows, the notes lengthening and the filter opening. The space on screen colours the timbre.
+ *  delay whose feedback grows, the notes lengthening and the filter opening; bar four stripped back to one voice,
+ *  long notes, no pulse; bar five in full. The space on screen colours the timbre.
  *  The mood:
  *  negative — by subtraction: no tune — a fixed grid of clicks, a test-tone blip per answer, short sub pulses, and
  *             digital silence on the strobe frames;
@@ -139,10 +140,11 @@ export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
     const count = Math.round(st.dur / sixteenth);
     for (let i = 0; i < count; i++, n16++) {
       const t = st.t + i * sixteenth, bar = Math.floor(n16 / 16), fold = p.fold * (1 - 0.6 * neu - 0.4 * pos);
-      const gate = (0.07 + 0.05 * bar) * (1 + 0.8 * pos);
+      // (bar four is stripped back: one voice, long notes, no pulse — then the last bar returns in full)
+      const stripped = bar === 3, gate = (stripped ? 0.45 : 0.12 + 0.05 * bar) * (1 + 0.8 * pos);
       if (tonal) {
         if (patA[n16 % 16]) voice(t, deg(seqA[n16 % seqA.length], p.oct), gate, fold, -0.45, 0.07, 0);
-        if (bar >= 1 && patB[n16 % 16]) voice(t, deg(seqB[n16 % seqB.length], p.oct + 1), gate * 0.8, fold * 0.8, 0.45, 0.045, 1);
+        if (bar >= 1 && !stripped && patB[n16 % 16]) voice(t, deg(seqB[n16 % seqB.length], p.oct + 1), gate * 0.8, fold * 0.8, 0.45, 0.045, 1);
       } else if (patA[n16 % 16]) {
         // (negative: a test-tone blip per answer instead of a tune)
         V.tone(t, 1000 * 2 ** (seqA[n16 % seqA.length] / 4), 0.012, 0.05, (n16 % 2) * 1.2 - 0.6);
@@ -168,8 +170,9 @@ export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
     const count = Math.round(st.dur / sixteenth);
     for (let i = 0; i < count; i++, n16++) {
       const t = st.t + i * sixteenth;
+      if (Math.floor(n16 / 16) === 3) continue; // (the stripped bar: no pulse)
       if (ticks[n16 % 16]) T.noise(t, 0.008, 0.09 * (1 - 0.6 * pos), (n16 % 2) * 0.8 - 0.4, 0.002);
-      if (neu < 0.5 && n16 % 2 === 0 && subs[(n16 / 2) % 8]) T.sub(t, 48, 0.3 * (1 - 0.5 * pos), 0.04 + 0.04 * (1 - neg));
+      if (neu < 0.5 && n16 % 2 === 0 && subs[(n16 / 2) % 8]) T.sub(t, 48, 0.15 * (1 - 0.5 * pos), 0.04 + 0.04 * (1 - neg));
       if (!tonal && grid[n16 % 16]) T.click(t, 0.22, (n16 % 4) * 0.4 - 0.6);
     }
     if (st.full) { T.noise(st.t, 0.04, 0.25, 0, 0.02); T.tone(st.t, 4000 + 2000 * g.cells[g.stand].value, 0.03, 0.025); }

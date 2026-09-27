@@ -8,7 +8,6 @@
  *   network  — the words laid out by how alike they are on all 45 answers (their three main directions: near is
  *              near), each joined to its four nearest, the word to its eight
  *   terrain  — the density of the reference words over two marked measurements, as a field of points, its rows drawn
- *   map      — the same density as contour lines on a plane, the reference words as points, the word a cross
  *   axis     — the answer the performance ends on: the reference words as a dot plot along it (stacked where they
  *              agree), the word raised in its colour — the steps lead into where it stands
  *   table    — the whole table: every answer (across) of every reference word (in depth, the word's nearest in front)
@@ -152,33 +151,6 @@ export function build(g: Grid, seed: number, word: string): Geometry {
     return `terrain · ${nm(0)} × ${nm(1)}`;
   });
 
-  space('map', () => {
-    // contour lines (marching squares) at eight levels, on the plane y = 0
-    const g2 = (i: number, k: number) => [-1 + (2 * k) / (N - 1), 0, -1 + (2 * i) / (N - 1)];
-    for (let lv = 1; lv <= 8; lv++) {
-      const iso = lv / 9;
-      for (let i = 0; i < N - 1; i++) for (let k = 0; k < N - 1; k++) {
-        const v = [hAt(i, k), hAt(i, k + 1), hAt(i + 1, k + 1), hAt(i + 1, k)];
-        const c = [g2(i, k), g2(i, k + 1), g2(i + 1, k + 1), g2(i + 1, k)];
-        const cross: number[][] = [];
-        for (let e = 0; e < 4; e++) {
-          const a = v[e], b = v[(e + 1) % 4];
-          if ((a < iso) !== (b < iso)) { const t = (iso - a) / (b - a); cross.push(c[e].map((x, d) => x + (c[(e + 1) % 4][d] - x) * t)); }
-        }
-        if (cross.length >= 2) seg(cross[0], cross[1], WHITE(0.25 + iso * 0.5));
-        if (cross.length === 4) seg(cross[2], cross[3], WHITE(0.25 + iso * 0.5));
-      }
-    }
-    for (let j = 0; j < R; j++) { const c = at(j, 0, 1); for (let n = 0; n < 8; n++) pt(c[0] + gauss() * 0.006, 0, c[1] + gauss() * 0.006, WHITE(0.9)); }
-    const m = [me[0], 0, me[1]];
-    seg([m[0] - 0.12, 0, m[2]], [m[0] + 0.12, 0, m[2]], KEY(0, 0.95));
-    seg([m[0], 0, m[2] - 0.12], [m[0], 0, m[2] + 0.12], KEY(0, 0.95));
-    seg([m[0], 0, m[2]], [m[0], 0.6, m[2]], KEY(0, 0.95));
-    mark(nm(0), [1.05, 0, -1]); mark(nm(1), [-1, 0, 1.05]);
-    mark(W, [m[0], 0.62, m[2]], 1);
-    return `map · ${nm(0)} × ${nm(1)}`;
-  });
-
   space('axis', () => {
     // the answer it ends on: a dot plot of the reference words along it, stacked where they agree; the word raised
     const k = g.stand, c = g.cells[k], x = (v: number) => -0.95 + 1.9 * v, y0 = -0.5;
@@ -254,7 +226,7 @@ export function build(g: Grid, seed: number, word: string): Geometry {
 }
 
 /** How far each space reaches from its centre: the camera stands back far enough to hold all of it. */
-const REACH: Partial<Record<Space, number>> = { axis: 1.2, map: 1.45, terrain: 1.55, ridges: 1.5 };
+const REACH: Partial<Record<Space, number>> = { axis: 1.2, terrain: 1.55, ridges: 1.5 };
 
 /** How a view looks at a space: an orbit (perspective, turning); a plan, a front or a side elevation (orthographic,
  *  still — the technical drawings); a close-up turning round the word. */
@@ -262,8 +234,10 @@ export type View = { kind: 'orbit' | 'plan' | 'front' | 'side' | 'close'; seed: 
 
 const h = (x: number) => { const s = Math.sin(x * 127.1) * 43758.5453; return s - Math.floor(s); };
 
-/** The stage's view for a step: an orbit — for a neutral word, often a drawing (plan, front, side). */
-export function stageView(cam: number, neu: number): View {
+/** The stage's view for a step: an orbit — for a neutral word, often a drawing (plan, front, side); the axis, flat. */
+export function stageView(space: Space, cam: number, neu: number): View {
+  // (the answer it ends on is drawn flat and still, as on the ending: 0 at the left, 1 at the right)
+  if (space === 'axis') return { kind: 'front', seed: cam };
   const d = h(cam * 7.7);
   return { kind: d < neu * 0.6 ? (['plan', 'front', 'side'] as const)[Math.floor(h(cam * 3.3) * 3)] : 'orbit', seed: cam };
 }
@@ -275,7 +249,7 @@ export function stageView(cam: number, neu: number): View {
 export function camera(space: Space, v: View, t: number, aspect: number, mood: { pos: number; neu: number; neg: number }, focus: number[]): { vp: Float32Array; dist: number } {
   const { neu, neg } = mood, cam = v.seed;
   const reach = REACH[space] ?? 1.75;
-  const high = space === 'terrain' || space === 'map';
+  const high = space === 'terrain';
   const shake = (k: number) => neg * 0.018 * Math.sin(t * 47 + k * 11.3) * Math.sin(t * 31 + k * 5.1);
   let eye: number[], target = [0, 0, 0], up = [0, 1, 0], ortho = 0;
   const fov = 0.75 - 0.4 * neu + 0.15 * neg;

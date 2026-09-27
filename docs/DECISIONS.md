@@ -4,6 +4,13 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
+- **Longer, for reading (after the round-10 reviews)** ("it feels all a bit short"; reviewers: time for reading, not
+  more 3D): the fill ~1 s longer, the marked cells held ~2 s, the tiles a whole bar, a stripped-back fourth bar, the
+  ending ≥ 10 s built name by name ("chosen by the artist" last, alone); the map dropped, the axis step flat; one hue
+  per word; tiles as wide as their answer stands out, σ capped, category slots never leading; sub −6 dB, octaves fixed,
+  longer notes, the drone returning under the ending. No sentence addressed to the visitor at the ending ("the words at
+  the end don't need"). Reference words: parked by the artist.
+
 - **The ring alive again; the ending held** ("the surrounding cells … feel static and boring"; "the last screen is so
   fast I can't see whatever you write"): the small multiples became 3-answer spaces, each turning at its own angle and
   cutting on the beat; the ending holds two bars (at least 6 s), the drone returning under it.

@@ -27,7 +27,7 @@ export const LABELS = [...DIMS.map(([id]) => id), ...CHOICE_IDS.flatMap((id) => 
 const OPT0 = Object.fromEntries(CHOICE_IDS.map((id) => [id, DIMS.length + CHOICE_IDS.slice(0, CHOICE_IDS.indexOf(id)).reduce((a, x) => a + OPTIONS[x].length, 0)]));
 
 /** The 3D spaces of the data a step can show (show/space.ts). */
-export const SPACES = ['cloud', 'network', 'terrain', 'map', 'axis', 'table', 'ridges'] as const;
+export const SPACES = ['cloud', 'network', 'terrain', 'axis', 'table', 'ridges'] as const;
 /** What a step shows: the marked cells merged (tiles, grid.wgsl), where the word stands (stand, show/notes.ts), or a
  *  space. */
 export const VIZ = ['tiles', 'stand', ...SPACES] as const;
@@ -86,7 +86,7 @@ export function grid(A: Appraisal): Grid {
   });
 
   // fill: the grid draws itself, then the results come in, faster and faster (a charged word, faster still)
-  const fill = lerp(2.6, 1.7, aro);
+  const fill = lerp(3.8, 2.8, aro); // (long enough for the results' tones to play as a phrase)
   const order = cells.map((_, k) => k).sort(() => rand() - 0.5);
   order.forEach((k, i) => (cells[k].arrive = 0.35 + (fill - 0.35) * Math.pow(i / cells.length, 0.75) + rand() * 0.04));
 
@@ -94,7 +94,8 @@ export function grid(A: Appraisal): Grid {
   const rel = cells.map((c) => c.z * (c.conf >= 0.45 ? c.conf : 0));
   const nKeys = 4 + Math.round(3 * clamp01(A.s.intensity * 0.6 + aro * 0.4));
   const rank = cells.map((_, k) => k).sort((a, b) => rel[b] - rel[a]);
-  const keys = rank.slice(0, nKeys);
+  // (a category slot — who, act, kind… — never leads: it goes after the answers a person would say)
+  const keys = rank.slice(0, nKeys).sort((a, b) => Number(CATEGORY.has(cells[a].id)) - Number(CATEGORY.has(cells[b].id)));
   const mark = fill + 0.3;
   keys.forEach((k, r) => { cells[k].key = r; cells[k].markAt = mark + (r * 0.5) / keys.length; });
   const select = mark + 0.65;
@@ -102,43 +103,38 @@ export function grid(A: Appraisal): Grid {
   out.forEach((k, i) => (cells[k].vanish = select + 0.9 * Math.pow(i / out.length, 0.85)));
   const colours = keyColours(A, keys.length);
 
-  // the steps: 4/4 at the word's tempo, cut in after the marked cells have held a moment. A space holds a whole bar
-  // (the camera cuts on each beat), chosen by what the data says: where the word sits (cloud), its neighbours
-  // (network), how far it stands out (ridges, for a word far from all the others) or the whole table, then the
-  // ground it stands on (terrain where the words crowd round it, a contour map where it stands alone), and in the
-  // last bar, in halves, the answer it ends on (axis): the steps lead into where it stands. The downbeats of bars two and four burst to the full frame
-  // (and of bar three, for an intense word).
+  // the steps: 4/4 at the word's tempo, after the marked cells have held. Five bars: the marked cells merged (a bar,
+  // to be read); where the words sit (cloud); their neighbours (network); a bar stripped back (the music thins to one
+  // voice) on how far they stand out (ridges, for words far from all the others) or the whole table; and a last bar in
+  // halves: the ground they stand on (terrain), then the answer they end on, flat (axis) — the steps lead into where
+  // they stand. The downbeats of bars two and five burst to the full frame (and of bar four, for an intense word).
   const bpm = Math.round(lerp(92, 150, clamp01(aro * 0.5 + A.s.energy * 0.3 + A.s.tension * 0.2)) - 14 * A.lazy);
   const beat = 60 / bpm;
-  const seq = select + 0.9 + 1.1;
+  const seq = select + 0.9 + 2;
   const zMean = keys.reduce((a, k) => a + cells[k].z, 0) / keys.length;
-  const [ka, kb] = [cells[keys[0]], cells[keys[1] ?? keys[0]]];
-  const crowd = words.filter((_, j) => Math.hypot(ka.lex[j] - ka.value, kb.lex[j] - kb.value) < 0.15).length;
-  const plan: Viz[] = ['cloud', 'network', zMean > 2.5 ? 'ridges' : 'table', crowd >= 4 ? 'terrain' : 'map'];
+  const bars: Viz[] = ['tiles', 'cloud', 'network', zMean > 2.5 ? 'ridges' : 'table'];
   const steps: Step[] = [];
   let t = seq;
-  for (let b = 0; b < 16; b++) {
-    for (const half of b >= 12 ? [0, 1] : [0]) {
-      const dur = b >= 12 ? beat / 2 : beat;
-      const viz: Viz = b === 0 ? 'tiles' : b >= 14 ? 'axis' : plan[Math.floor(b / 4)];
-      const full = half === 0 && (b === 4 || b === 12 || (b === 8 && A.s.intensity > 0.6));
+  for (let b = 0; b < 20; b++) {
+    for (const half of b >= 16 ? [0, 1] : [0]) {
+      const dur = b >= 16 ? beat / 2 : beat;
+      const viz: Viz = b < 16 ? bars[Math.floor(b / 4)] : b < 18 ? 'terrain' : 'axis';
+      const full = half === 0 && (b === 4 || b === 16 || (b === 12 && A.s.intensity > 0.6));
       steps.push({ t, dur, viz, full, cam: rand() });
       t += dur;
     }
   }
-  // then where the word stands, held long enough to be read (two bars, at least 6 s)
-  steps.push({ t, dur: Math.max(6, 8 * beat), viz: 'stand', full: false, cam: 0 });
+  // then where the words stand: the slow ending, built name by name (show/notes.ts), long enough to be read
+  steps.push({ t, dur: Math.max(10, 16 * beat), viz: 'stand', full: false, cam: 0 });
   t += steps[steps.length - 1].dur;
   // where it stands: the marked answer that sets it most apart — among those a person would say (not a category slot
   // like who, act or kind)
   const stand = keys.find((k) => !CATEGORY.has(cells[k].id)) ?? keys[0];
-  const g: Grid = { cells, keys, rank, refs: words, colours, mark, select, seq, end: t, bpm, beat, steps, stand, flashes: strobes(A, 16) };
+  const g: Grid = { cells, keys, rank, refs: words, colours, mark, select, seq, end: t, bpm, beat, steps, stand, flashes: strobes(A, 20) };
   GRIDS.set(A, g);
   return g;
 }
 
-/** The word's colours (probability ≥ 8%, at most four; a neutral one becomes pearl, steel or ink), then deeper
- *  shades of them for the rest (saturated, never pastel). */
 /** Named colours of the `colour` question, linear RGB. */
 const COLOURS: Record<string, RGB> = {
   black: [0.02, 0.02, 0.02], white: [0.9, 0.88, 0.85], grey: [0.35, 0.35, 0.36], red: [0.9, 0.03, 0.02], orange: [1, 0.3, 0.04],
@@ -148,17 +144,14 @@ const COLOURS: Record<string, RGB> = {
 
 /** The house's accent (orange-red, linear RGB). */
 const ACCENT: RGB = [1, 0.1, 0.025];
+const NEUTRAL = new Set(['white', 'grey', 'black']);
 
 function keyColours(A: Appraisal, n: number): RGB[] {
-  const TONE: Record<string, RGB> = { white: [0.95, 0.9, 1], grey: [0.55, 0.62, 0.72], black: [0.12, 0.14, 0.4] };
-  const ranked = Object.entries(A.c.colour.p).sort((a, b) => b[1] - a[1]);
-  const base = ranked.filter(([, p], i) => i === 0 || p >= 0.08).slice(0, 4).map(([k]) => TONE[k] ?? COLOURS[k]);
-  // (a word Jev sees as white, grey or black would vanish among the white points: it takes the house's accent)
-  if (TONE[ranked[0][0]]) base[0] = ACCENT;
-  return Array.from({ length: n }, (_, i) => {
-    const c = base[i % base.length], round = Math.floor(i / base.length);
-    return round === 0 ? c : c.map((x) => x * (round % 2 ? 0.62 : 0.4)) as RGB;
-  });
+  // one hue: the word's own colour (Jev's colour answer, most likely first), deeper for each answer that stands out
+  // less; a word seen as white, grey or black takes the house's accent (it would vanish among the white points)
+  const top = Object.entries(A.c.colour.p).sort((a, b) => b[1] - a[1])[0][0];
+  const c = NEUTRAL.has(top) ? ACCENT : COLOURS[top];
+  return Array.from({ length: n }, (_, i) => c.map((x) => x * (1 - (0.55 * i) / Math.max(1, n - 1))) as RGB);
 }
 
 /** Answers that are category slots, not something a person would say of a word: never where it ends. */
@@ -199,14 +192,16 @@ export function stage(w: number, h: number): [number, number, number, number] {
   return [L.x + L.cs, L.y + L.cs, 7 * L.cs, 3 * L.cs];
 }
 
-/** The marked cells merged: a tile each on the stage (unit rect: x, y, w, h), in rows fitted to its 7 : 3 shape, the
- *  last row shared out. */
-function tiles(K: number): Float32Array {
-  const nr = Math.max(1, Math.round(Math.sqrt(K / (7 / 3)))), nc = Math.ceil(K / nr);
+/** The marked cells merged: a tile each on the stage (unit rect: x, y, w, h), in rows fitted to its 7 : 3 shape. */
+function tiles(z: number[]): Float32Array {
+  const K = z.length, nr = Math.max(1, Math.round(Math.sqrt(K / (7 / 3)))), nc = Math.ceil(K / nr);
   const out = new Float32Array(32);
-  for (let i = 0; i < K; i++) {
-    const row = Math.floor(i / nc), inRow = row === nr - 1 ? K - row * nc : nc;
-    out.set([(i % nc) / inRow, row / nr, 1 / inRow, 1 / nr], i * 4);
+  for (let row = 0; row < nr; row++) {
+    // (in each row, a tile as wide as how far its answer stands out)
+    const ids = Array.from({ length: Math.min(nc, K - row * nc) }, (_, c) => row * nc + c);
+    const sum = ids.reduce((a, i) => a + Math.min(5, z[i]) + 0.5, 0);
+    let x = 0;
+    for (const i of ids) { const w = (Math.min(5, z[i]) + 0.5) / sum; out.set([x, row / nr, w, 1 / nr], i * 4); x += w; }
   }
   return out;
 }
@@ -225,10 +220,10 @@ export function pack(A: Appraisal, g: Grid): Float32Array {
   g.cells.forEach((c, k) => {
     const mean = c.lex.reduce((a, b) => a + b, 0) / c.lex.length;
     const sd = Math.sqrt(c.lex.reduce((a, b) => a + (b - mean) ** 2, 0) / c.lex.length) + 0.05;
-    out.set([c.value, c.conf, c.kind, c.arrive, Math.min(c.vanish, 1e4), c.key, c.label, c.opt, 0, Math.min(c.markAt, 1e4), c.z, (c.value - mean) / sd], 16 + k * CELL);
+    out.set([c.value, c.conf, c.kind, c.arrive, Math.min(c.vanish, 1e4), c.key, c.label, c.opt, 0, Math.min(c.markAt, 1e4), c.z, Math.max(-4.9, Math.min(4.9, (c.value - mean) / sd))], 16 + k * CELL);
     for (const v of c.lex) out[h0 + k * BINS + Math.min(BINS - 1, Math.floor(Math.max(0, v) * BINS))] += 1;
   });
-  const T = tiles(g.keys.length);
+  const T = tiles(g.keys.map((k) => g.cells[k].z));
   g.keys.slice(0, KEY_MAX).forEach((k, i) => out.set([k, g.cells[k].value, ...g.colours[i], ...T.subarray(i * 4, i * 4 + 4)], k0 + i * KEY));
   const bytes = A.bytes.slice(0, BYTE_MAX);
   out[b0] = bytes.length;
