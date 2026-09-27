@@ -24,7 +24,7 @@ trembling, and a strobe that is safe (only a word more than half negative, on a 
 2 flashes a second; pale grey, never white) with digital silence on its frames. Neutral: test-tone pitches, pure sines,
 no sub; long-lens technical drawings. Positive: lydian, softer and longer notes, a quiet chord; larger, softer points.
 
-**Captions** (src/show/notes.ts, drawn as DOM text): above the grid the word and where the reading stands (received,
+**Captions** (src/show/notes.ts, drawn as DOM text; tracked capitals, IBM Plex Mono, the visitor's word always as typed): above the grid the word and where the reading stands (received,
 marked, cleared; then the step, the tempo, the mood); below it how to read a cell; under the stage what each step
 shows, in plain words; on a space, labels on the data itself (axes, the word, its nearest reference words). Nothing is
 invented: every caption is the score's own numbers and names. The word is shown only while its performance lasts.

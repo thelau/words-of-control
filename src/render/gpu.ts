@@ -89,7 +89,7 @@ export class Renderer {
       { binding: 0, resource: { buffer: this.fBuf } },
       { binding: 1, resource: atlas(d, 16, 40, 60, 44, [...'0123456789ABCDEF.-x:'], 'center').createView() },
       { binding: 2, resource: { buffer: this.scoreBuf } },
-      { binding: 3, resource: atlas(d, 4, 512, 48, 34, LABELS, 'left').createView() },
+      { binding: 3, resource: atlas(d, 4, 512, 48, 32, LABELS.map((l) => l.toUpperCase()), 'left', 3).createView() },
       // (the same digits at three times the size, for the big number: sharp at any size)
       { binding: 4, resource: atlas(d, 16, 120, 180, 132, [...'0123456789ABCDEF.-x:'], 'center').createView() },
       { binding: 5, resource: { buffer: this.waveBuf } },
@@ -195,14 +195,16 @@ export class Renderer {
   }
 }
 
-/** Strings painted white in IBM Plex Mono, one per slot (w × h px, `perRow` a row), for the shader to read. */
-function atlas(d: GPUDevice, perRow: number, w: number, h: number, px: number, items: string[], align: CanvasTextAlign): GPUTexture {
+/** Strings painted white in IBM Plex Mono, one per slot (w × h px, `perRow` a row, `tracking` px between letters),
+ *  for the shader to read. */
+function atlas(d: GPUDevice, perRow: number, w: number, h: number, px: number, items: string[], align: CanvasTextAlign, tracking = 0): GPUTexture {
   const c = new OffscreenCanvas(w * perRow, h * Math.ceil(items.length / perRow));
   const g = c.getContext('2d')!;
   g.fillStyle = '#fff';
   g.font = `400 ${px}px "IBM Plex Mono", monospace`;
   g.textAlign = align;
   g.textBaseline = 'middle';
+  g.letterSpacing = `${tracking}px`;
   items.forEach((s, i) => g.fillText(s, (i % perRow) * w + (align === 'center' ? w / 2 : 0), Math.floor(i / perRow) * h + h / 2 + 2));
   // one channel: the coverage (white text, premultiplied: red = alpha)
   const tex = d.createTexture({

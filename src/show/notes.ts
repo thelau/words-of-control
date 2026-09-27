@@ -1,5 +1,5 @@
 /**
- * What the captions say (src/captions.ts): labels only — it all passes too fast for sentences. Above the grid the
+ * What the captions say (src/captions.ts), in capitals: labels only — it all passes too fast for sentences. Above the grid the
  * word and where the reading stands (received, marked, cleared; then the step, the tempo, the mood); below it what a
  * step shows; on a space, labels on the data itself (axes, the word, its nearest reference words); the last step,
  * the answer that sets the word most apart and its rank among the reference words. Positions in CSS px.
@@ -15,7 +15,13 @@ const chosen = { step: '', keys: new Set<number>() };
 
 const srgb = (c: number[]) => `rgb(${c.map((x) => Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055))).join(',')})`;
 
-export function notes(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number, h: number, dpr: number,
+/** The captions, set in capitals (Swiss / Ikeda-like labels) — except the visitor's word, always as typed. */
+export function notes(...args: Parameters<typeof words>): Caption[] {
+  const word = `“${new TextDecoder().decode(args[0].bytes)}”`, W = word.toUpperCase();
+  return words(...args).map((c) => ({ ...c, text: c.text.toUpperCase().split(W).join(word) }));
+}
+
+function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number, h: number, dpr: number,
   space: { viz: Space; vp: Float32Array; rect: number[] } | null): Caption[] {
   const L = layout(w, h), gx = L.x / dpr, gy = L.y / dpr, gw = (9 * L.cs) / dpr, gh = (5 * L.cs) / dpr;
   const word = `“${new TextDecoder().decode(A.bytes)}”`;
