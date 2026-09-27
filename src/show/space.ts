@@ -254,9 +254,11 @@ export function stageView(cam: number, neu: number): View {
  *  step: angles (every cell its own orbit), scans (the top row a series of cross-sections through depth, the bottom
  *  row through width, the sides the three drawings and close-ups), sections (plans, fronts and sides, each cut at its
  *  own depth; the corners close-ups), or a mix of all. */
-export function ringView(k: number, cam: number, t: number): View {
+export function ringView(space: Space, k: number, cam: number, t: number): View {
   const row = Math.floor(k / 9), col = k % 9, seed = (cam + k * 0.618) % 1;
-  const plate = Math.floor(h(cam * 13.1) * 4);
+  // (a sparse space — a network, a map — cut into slices leaves only dust: it gets angles and drawings, never slices)
+  const sparse = space === 'network' || space === 'map';
+  const plate = sparse ? [0, 3][Math.floor(h(cam * 13.1) * 2)] : Math.floor(h(cam * 13.1) * 4);
   const drawings = ['plan', 'front', 'side'] as const;
   if (plate === 0) return { kind: 'orbit', seed };
   if (plate === 1) {
@@ -273,7 +275,7 @@ export function ringView(k: number, cam: number, t: number): View {
     const d = (k + row) % 3;
     return { kind: drawings[d], seed, slab: [[1, 2, 0][d], -0.85 + 1.7 * h(k * 1.37 + cam)] };
   }
-  return { kind: (['orbit', 'plan', 'close', 'front', 'orbit', 'side'] as const)[(k * 5 + row) % 6], seed, slab: k % 7 === 3 ? [1, -0.6 + 1.2 * h(k + cam)] : undefined };
+  return { kind: (['orbit', 'plan', 'close', 'front', 'orbit', 'side'] as const)[(k * 5 + row) % 6], seed, slab: k % 7 === 3 && !sparse ? [1, -0.6 + 1.2 * h(k + cam)] : undefined };
 }
 
 /** The view × projection (column-major) of a view at time t into its step, and how far the camera stands: always

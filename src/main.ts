@@ -72,8 +72,8 @@ async function boot() {
   /** The spaces' camera blocks, one per view (space.wgsl Cam): view-projection, palette, point size and viewport,
    *  time, unrest and distance. */
   const cams = new Float32Array(CAM_SLOT * VIEWS_MAX);
-  /** The cells of the grid's ring, around the stage, clockwise from the top left: the film strip. */
-  const STRIP = [0, 1, 2, 3, 4, 5, 6, 7, 8, 17, 26, 35, 44, 43, 42, 41, 40, 39, 38, 37, 36, 27, 18, 9];
+  /** The cells of the grid's ring, around the stage. */
+  const RING = [0, 1, 2, 3, 4, 5, 6, 7, 8, 17, 26, 35, 44, 43, 42, 41, 40, 39, 38, 37, 36, 27, 18, 9];
   const wave = new Float32Array(WAVE_N);
   let keysTyped = 0;
   let charge = 0;
@@ -258,14 +258,13 @@ async function boot() {
         const st = show.g.steps.find((x) => t >= x.t && t < x.t + x.dur);
         if (st) {
           f('viz', VIZ.indexOf(st.viz)); f('full', st.full ? 1 : 0);
-          // the spaces: the one on the stage (or the whole frame) and, in the cells of the ring, the film strip of
-          // those already shown — clockwise from the top left, each frozen as it ended, drawn another way (show/space.ts
-          // ringView: plans, sections, close-ups, orbits); the ring is empty on the merged cells and on the ending
+          // the spaces: the one on the stage (or the whole frame) and, in the cells of the ring, the same space drawn
+          // other ways; the ring is empty on the merged cells and on the ending
           const isSpace = VIZ.indexOf(st.viz) >= 2;
           if (isSpace && phase === 'grid' && show.geo) {
             const W = renderer.width, H = renderer.height, dpr = renderer.dpr, geo = show.geo, mood = show.A.mood;
             const views: SpaceDraw['views'] = [];
-            // (`still`: a film-strip cell, frozen — no camera shake, no trembling points)
+            // (`still`: a ring cell — no camera shake, no trembling points)
             const view = (sp: Space, v: View, lt: number, rect: [number, number, number, number], size: number, cut = 0, still = false) => {
               const c = camera(sp, { ...v, seed: (v.seed + cut * 0.382) % 1 }, lt, rect[2] / rect[3], still ? { ...mood, neg: 0 } : mood, geo.focus[sp]);
               const n = views.length;
@@ -279,13 +278,9 @@ async function boot() {
             const sub = (t - st.t) / (show.g.beat / 4);
             const cut = mood.neg > 0.75 ? Math.floor(sub) : mood.neg > 0.4 ? Math.floor(sub / 2) : 0;
             view(st.viz as Space, stageView(st.cam, mood.neu), t - st.t, st.full ? [0, 0, W, H] : stage(W, H), (1.5 + 0.9 * mood.pos - 0.4 * mood.neg) * dpr, cut);
-            if (!st.full) {
-              const shown = show.g.steps.filter((x) => VIZ.indexOf(x.viz) >= 2 && x.t + x.dur <= t);
-              shown.slice(0, STRIP.length).forEach((x, i) => {
-                const k = STRIP[i];
-                view(x.viz as Space, ringView(k, x.cam, x.dur), x.dur, [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2], dpr, 0, true);
-              });
-            }
+            // the ring: the same space drawn another way in each cell (show/space.ts ringView: angles, scans,
+            // sections, close-ups — one plate per step), still (no shake, no trembling points)
+            if (!st.full) for (const k of RING) view(st.viz as Space, ringView(st.viz as Space, k, st.cam, t - st.t), t - st.t, [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2], dpr, 0, true);
             space = { cams, views };
           }
         }

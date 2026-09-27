@@ -1,8 +1,8 @@
 /**
  * WebGPU renderer: one render pass straight to the canvas at native resolution — a fullscreen triangle (grid.wgsl:
  * the room — the drone's own waveform —, the wait, the performance and the black are its modes), then, during a step
- * that shows a space, its points and lines (space.wgsl) once per view: the stage, and the cells around it holding the
- * spaces already shown, every view its own camera (a slot of one uniform buffer, bound at its offset). Text comes from two atlases painted once at boot: the
+ * that shows a space, its points and lines (space.wgsl) once per view: the stage, and each cell around it (the same
+ * space drawn another way), every view its own camera (a slot of one uniform buffer, bound at its offset). Text comes from two atlases painted once at boot: the
  * digits (twice: small and large), and every name the grid shows (show/grid.ts LABELS).
  */
 import commonWGSL from './shaders/common.wgsl?raw';

@@ -4,6 +4,9 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
+- **The ring back to variants of the space on the stage** ("I preferred before when it was a duplicate, slightly
+  variant, of the one in the centre"): not the film strip of earlier steps (a reviewer's suggestion). Still, no shake.
+
 - **"Your words", above the input (the piece is Words of Control, plural); labels in capitals** (chosen among options): captions, cell names and labels on
   the data in tracked uppercase IBM Plex Mono at ~12.5 px (readable from a few metres); the visitor's word always as
   typed; numbers unchanged. The cells' outlines no longer linger after the analysis.
