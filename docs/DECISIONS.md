@@ -4,7 +4,7 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
-- **"Enter a word", above the input; labels in capitals** (chosen among options): captions, cell names and labels on
+- **"Enter one or many words", above the input (the piece is Words of Control, plural); labels in capitals** (chosen among options): captions, cell names and labels on
   the data in tracked uppercase IBM Plex Mono at ~12.5 px (readable from a few metres); the visitor's word always as
   typed; numbers unchanged. The cells' outlines no longer linger after the analysis.
 
