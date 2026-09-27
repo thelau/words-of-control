@@ -4,6 +4,9 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-28
 
+- **The ring follows the music** ("yes ok", to the proposal): each sequencer note lights a cell — the first voice
+  clockwise, the second anticlockwise — the cell turning while it rings, then resting dim; no boxes.
+
 - **Reference words: ordinary language, 400 entries** ("can you pick a much larger set"; "yes, yes"): everyday things,
   people, places, feelings, ideas, actions, short things people say, qualities, and 40 everyday sentences (so a
   sentence is measured against sentences) — docs/reference-words.md, recorded by scripts/reference.ts (the test words

@@ -10,7 +10,7 @@
  */
 import type { Appraisal } from '../jev/appraisal.ts';
 import type { Grid, Viz } from '../show/grid.ts';
-import { COLS } from '../show/grid.ts';
+import { COLS, euclid, patterns } from '../show/grid.ts';
 import { mulberry32 } from '../core/rng.ts';
 
 const D3 = 146.832;
@@ -80,8 +80,6 @@ const PATCH: Partial<Record<Viz, { fold: number; oct: number }>> = {
   terrain: { fold: 1.0, oct: 0 }, axis: { fold: 1.6, oct: 0 },
 };
 
-/** k onsets spread evenly over n steps (Bjorklund's rhythm), rotated by r. */
-const euclid = (k: number, n: number, r = 0) => Array.from({ length: n }, (_, i) => { const j = (i + r) % n; return Math.floor(((j + 1) * k) / n) - Math.floor((j * k) / n) === 1; });
 
 /** The steps, as samples starting at g.seq: one crescendo over the four bars. Each marked answer is a note — which
  *  degree of the word's mode by which answer it is, moved up or down by how far it stands from the reference words
@@ -114,7 +112,7 @@ export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
   });
   const seqA = notes, seqB = [...notes].reverse().concat(notes[0]); // lengths K and K + 1: they drift
   const sixteenth = g.beat / 4;
-  const patA = euclid(7 + Math.round(4 * A.s.arousal), 16), patB = euclid(5 + Math.round(3 * A.s.arousal), 16, 3);
+  const { a: patA, b: patB } = patterns(A);
   const subs = euclid(3 + Math.round(2 * A.s.intensity), 8);
   const tonal = neg <= 0.6;
 

@@ -8,7 +8,7 @@ fn pcg(v: u32) -> u32 {
 // the step's rectangle. A vertex's w: its palette slot (integer part: 0 white, 1… the marked cells' colours) and
 // its brightness (fraction). Depth dims what is far; a negative word makes every point tremble (fx.y).
 
-// px: point size, viewport w, h (device px); fx: time, unrest, camera distance
+// px: point size, viewport w, h (device px); fx: time, unrest, camera distance, brightness
 struct Cam { vp: mat4x4f, pal: array<vec4f, 9>, px: vec4f, fx: vec4f };
 @group(0) @binding(0) var<uniform> C: Cam;
 
@@ -16,7 +16,9 @@ struct VOut { @builtin(position) pos: vec4f, @location(0) col: vec3f, @location(
 
 fn tint(w: f32, depth: f32) -> vec3f {
   let c = C.pal[u32(w)].rgb * fract(w) * 1.5 * clamp(1.7 - 0.7 * depth / C.fx.z, 0.25, 1.0);
-  return pow(c, vec3f(1.0 / 2.2)); // (the canvas is not sRGB; additive light is close enough in this space)
+  // (the canvas is not sRGB; additive light is close enough in this space — the view's brightness after the curve,
+  // so a dimmed view is truly dim)
+  return pow(c, vec3f(1.0 / 2.2)) * C.fx.w;
 }
 
 @vertex

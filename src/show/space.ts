@@ -6,7 +6,7 @@
  *   cloud    — every reference word a point in the space of the first three marked measurements, a stem to the floor
  *              (to read its depth); the word in its colour; the box, its ticks
  *   network  — the words laid out by how alike they are on all 45 answers (their three main directions: near is
- *              near), each joined to its four nearest, the word to its eight
+ *              near); the word's neighbourhood (its 40 nearest) joined, the word to its eight nearest
  *   terrain  — the density of the reference words over two marked measurements, as a field of points, its rows drawn
  *   axis     — the answer the performance ends on: the reference words as a dot plot along it (stacked where they
  *              agree), the word raised in its colour — the steps lead into where it stands
@@ -113,11 +113,14 @@ export function build(g: Grid, seed: number, word: string): Geometry {
     const dd = (a: number, b: number) => rows[a].reduce((s2, x, k) => s2 + (x - rows[b][k]) ** 2, 0);
     for (const i of byNear.slice(0, 3)) mark(g.refs[i], pts[i]);
     mark(W, pts[R], 1);
+    // the words's neighbourhood: its 40 nearest joined, each to its four nearest among them; the rest faint points
+    const hood = new Set(byNear.slice(0, 40));
     pts.forEach((p, j) => {
-      const mine = j === R;
-      for (let n = 0; n < (mine ? 5 : 1); n++) pt(p[0], p[1], p[2], mine ? KEY(0, 0.99) : WHITE(0.9));
-      const near = mine ? byNear.slice(0, 8) : pts.map((_, i) => i).filter((i) => i !== j && i < R).sort((x, y) => dd(j, x) - dd(j, y)).slice(0, 4);
-      for (const i of near) seg(p, pts[i], mine ? KEY(0, 0.95) : WHITE(0.4));
+      const mine = j === R, near = mine || hood.has(j);
+      for (let n = 0; n < (mine ? 5 : 1); n++) pt(p[0], p[1], p[2], mine ? KEY(0, 0.99) : WHITE(near ? 0.9 : 0.25));
+      if (!near) return;
+      const links = mine ? byNear.slice(0, 8) : [...hood].filter((i) => i !== j).sort((x, y) => dd(j, x) - dd(j, y)).slice(0, 4);
+      for (const i of links) seg(p, pts[i], mine ? KEY(0, 0.95) : WHITE(0.4));
     });
     box(WHITE(0.3));
     return `network · nearest: ${byNear.slice(0, 3).map((i) => g.refs[i]).join(', ')}`;
@@ -177,7 +180,6 @@ export function build(g: Grid, seed: number, word: string): Geometry {
     const colour = KEY(Math.max(0, g.cells[a].key), 0.99), w = [nx(a, g.cells[a].value), nx(b, g.cells[b].value), nx(c, g.cells[c].value)];
     for (let n = 0; n < 4; n++) pt(w[0], w[1], w[2], colour);
     for (const d of [[0.14, 0, 0], [0, 0.14, 0], [0, 0, 0.14]]) seg(w.map((x, q) => x - d[q]), w.map((x, q) => x + d[q]), colour);
-    box(WHITE(0.22));
     pairs.push({ range: [p0, P.length / 4 - p0, l0, L.length / 4 - l0], label: `${g.cells[a].id} × ${g.cells[b].id} × ${g.cells[c].id}` });
   }
 

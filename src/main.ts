@@ -264,11 +264,11 @@ async function boot() {
             const views: SpaceDraw['views'] = [];
             // (`still`: a ring cell — no camera shake, no trembling points)
             // (`still`: a ring cell — no camera shake, no trembling points; `r`: which points and lines)
-            const view = (sp: Space, v: View, lt: number, rect: [number, number, number, number], size: number, cut = 0, still = false, r = geo.ranges[sp]) => {
+            const view = (sp: Space, v: View, lt: number, rect: [number, number, number, number], size: number, cut = 0, still = false, r = geo.ranges[sp], light = 1) => {
               const c = camera(sp, { ...v, seed: (v.seed + cut * 0.382) % 1 }, lt, rect[2] / rect[3], still ? { ...mood, neg: 0 } : mood, geo.focus[sp]);
               const n = views.length;
               cams.set(c.vp, n * CAM_SLOT);
-              cams.set([size, rect[2], rect[3], 0, t, still ? 0 : mood.neg, c.dist, 0], n * CAM_SLOT + 52);
+              cams.set([size, rect[2], rect[3], 0, t, still ? 0 : mood.neg, c.dist, light], n * CAM_SLOT + 52);
               views.push({ rect, points: [r[0], r[1]], lines: [r[2], r[3]] });
             };
             // the more negative the word, the more it breaks: the camera cuts on every eighth, then every sixteenth;
@@ -277,13 +277,26 @@ async function boot() {
             const cut = mood.neg > 0.75 ? Math.floor(sub) : mood.neg > 0.4 ? Math.floor(sub / 2) : 0;
             view(st.viz as Space, stageView(st.viz as Space, st.cam, mood.neu), t - st.t, st.full ? [0, 0, W, H] : stage(W, H), (3 + 1.2 * mood.pos - 0.6 * mood.neg) * dpr, cut);
             // the ring: small multiples — the reference words in the space of each three of the answers that matter
-            // most, one triple a cell, the word a cross in its colour (show/space.ts pairs); each turns at its own angle
-            // and cuts to a new one on every beat, with the stage
-            const beatNo = Math.floor((t - show.g.seq) / show.g.beat);
-            if (!st.full) RING.forEach((k, i) => {
-              const pair = geo.pairs[i];
-              if (pair) view('cloud', { kind: 'orbit', seed: (st.cam + i * 0.618) % 1 }, t - st.t, [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2], 1.6 * dpr, beatNo, true, pair.range);
-            });
+            // most (show/space.ts pairs), played by the sequencer: each note of the first voice lights the next cell
+            // clockwise, each of the second (one note longer) the next anticlockwise — the two patterns seen drifting
+            // apart and meeting. A lit cell flashes, turns to a new angle while it rings, then rests, dim and still.
+            if (!st.full) {
+              const hits = new Array<number>(RING.length).fill(0), last = new Array<number>(RING.length).fill(-1e9);
+              const pos = [0, 0];
+              for (const o of show.g.onsets) {
+                if (o.t > t) break;
+                const cell = o.v === 0 ? pos[0] % RING.length : (RING.length - 1 - (pos[1] % RING.length));
+                pos[o.v]++;
+                hits[cell]++;
+                last[cell] = o.t;
+              }
+              RING.forEach((k, i) => {
+                const pair = geo.pairs[i];
+                if (!pair) return;
+                const e = Math.exp(-(t - last[i]) / 0.3);
+                view('cloud', { kind: 'orbit', seed: (st.cam + i * 0.618 + hits[i] * 0.21) % 1 }, 6 * (1 - e), [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2], 1.6 * dpr, 0, true, pair.range, 0.12 + 0.88 * e);
+              });
+            }
             space = { cams, views };
           }
         }

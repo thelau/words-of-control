@@ -60,6 +60,8 @@ export type Grid = {
   stand: number;
   /** The beats (from the steps' start) that strobe. */
   flashes: number[];
+  /** When each sequencer voice sounds a note (the ring's playheads). */
+  onsets: { t: number; v: 0 | 1 }[];
 };
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -136,7 +138,7 @@ export function grid(A: Appraisal): Grid {
   // where it stands: the marked answer that sets it most apart — among those a person would say (not a category slot
   // like who, act or kind)
   const stand = keys.find((k) => !CATEGORY.has(cells[k].id)) ?? keys[0];
-  const g: Grid = { cells, keys, rank, refs: words, colours, mark, select, seq, end: t, bpm, beat, steps, stand, flashes: strobes(A, 20) };
+  const g: Grid = { cells, keys, rank, refs: words, colours, mark, select, seq, end: t, bpm, beat, steps, stand, flashes: strobes(A, 20), onsets: onsets(A, steps, beat) };
   GRIDS.set(A, g);
   return g;
 }
@@ -158,6 +160,28 @@ function keyColours(A: Appraisal, n: number): RGB[] {
   const top = Object.entries(A.c.colour.p).sort((a, b) => b[1] - a[1])[0][0];
   const c = NEUTRAL.has(top) ? ACCENT : COLOURS[top];
   return Array.from({ length: n }, (_, i) => c.map((x) => x * (1 - (0.55 * i) / Math.max(1, n - 1))) as RGB);
+}
+
+/** k onsets spread evenly over n steps (Bjorklund's rhythm), rotated by r. */
+export const euclid = (k: number, n: number, r = 0) => Array.from({ length: n }, (_, i) => { const j = (i + r) % n; return Math.floor(((j + 1) * k) / n) - Math.floor((j * k) / n) === 1; });
+
+/** The sequencer's two voices' patterns over a bar of 16ths (audio/render.ts plays them; the ring shows them). */
+export const patterns = (A: Appraisal) => ({ a: euclid(7 + Math.round(4 * A.s.arousal), 16), b: euclid(5 + Math.round(3 * A.s.arousal), 16, 3) });
+
+/** When each voice sounds a note during the steps (the ring lights a cell on each): voice 0 from the first bar, voice 1
+ *  from the second but not in the stripped fourth, nor for a negative word (no tune). */
+function onsets(A: Appraisal, steps: Step[], beat: number): { t: number; v: 0 | 1 }[] {
+  const pat = patterns(A), sixteenth = beat / 4, out: { t: number; v: 0 | 1 }[] = [];
+  let n16 = 0;
+  for (const st of steps) {
+    if (st.viz === 'stand') continue;
+    for (let i = 0; i < Math.round(st.dur / sixteenth); i++, n16++) {
+      const t = st.t + i * sixteenth, bar = Math.floor(n16 / 16);
+      if (pat.a[n16 % 16]) out.push({ t, v: 0 });
+      if (A.mood.neg <= 0.6 && bar >= 1 && bar !== 3 && pat.b[n16 % 16]) out.push({ t, v: 1 });
+    }
+  }
+  return out;
 }
 
 /** Answers that are category slots, not something a person would say of a word: never where it ends. */
