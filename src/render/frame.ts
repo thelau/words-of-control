@@ -8,9 +8,9 @@ const FIELDS = [
   'gridX', 'gridY', 'cs',
   // 0 a performance (lt: seconds into it), 1 the room, 2 waiting for the machine, 3 black
   'mode', 'lt',
-  // the step on screen (show/grid.ts): which drawing (VIZ index), whether it fills the frame, how far through it and
-  // through the beat (0..1)
-  'viz', 'full', 'stepU', 'beatU',
+  // the step on screen (show/grid.ts): which drawing (VIZ index), whether it fills the frame, how far through the
+  // beat (0..1)
+  'viz', 'full', 'beatU',
   // the room: how far it has come back from black, how much the typing has charged it, the last keystroke
   'fade', 'charge', 'kick',
 ] as const;

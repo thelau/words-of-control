@@ -33,8 +33,8 @@ for (const w of words) {
   renameSync(await video!.path(), out);
   rmSync(tmp, { recursive: true, force: true });
 
-  // the continuous stretches (performance time): fill, mark and clear, merge, then each step; their edges are cuts
-  const spans: [string, number, number][] = [['fill', 0, g.mark], ['mark', g.mark, g.merge], ['merge', g.merge, g.seq],
+  // the continuous stretches (performance time): fill, mark and clear, then each step; their edges are cuts
+  const spans: [string, number, number][] = [['fill', 0, g.mark], ['mark', g.mark, g.seq],
     ...g.steps.map((x: any, i: number): [string, number, number] => [`step${i}-${x.viz}`, x.t, x.t + x.dur])];
   const cuts = [...spans.flatMap(([, a, b]) => [a, b]), g.end];
   // frames: 48×27 grey, every 1/25 s

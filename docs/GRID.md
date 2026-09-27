@@ -9,15 +9,17 @@ model. This supersedes the species, the matrix and the verdict clips of DIRECTIO
 
 | Phase | Image | Sound |
 |---|---|---|
-| **Room** | The empty grid (9 × 5), tilted in space, turning slowly, barely there; typing lights it, each key a pulse. | The drone; key clicks. |
+| **Room** | The empty grid (9 × 5), flat, barely there; typing lights it, each key a pulse. | The drone; key clicks. |
 | **Wait** (Jev) | The grid's 43 names flicker in their cells. | The drone holds. |
-| **Fill** (~1.7–2.6 s) | The grid settles flat while every measurement lands in its cell: its name, a choice's answer, its value (digits searching, then settling), and a small live figure — a score a sine (its value its frequency), a choice its bars, a yes/no a field of dots. A doubtful answer breaks into noise. | Each result a blip at its value, panned where its cell is; a doubtful one only noise. |
-| **Mark** | The cells that matter take the word's own colours (Jev's colour answer), one by one. | A bell each; its tone is held. |
+| **Fill** (~1.7–2.6 s) | Every measurement lands in its cell: its name, a choice's answer, its value (digits searching, then settling), and a small live figure — a score a sine (its value its frequency), a choice its bars, a yes/no a field of dots. A doubtful answer breaks into noise. | Each result a 25 ms test tone at its value, panned where its cell is (a choice two, a yes/no a click, a doubtful one noise). |
+| **Mark** | The cells that matter take the word's own colours (Jev's colour answer), one by one. | A pure tone each, held. |
 | **Clear** | Every other cell goes out, staccato. | A dry click each, where it was. |
-| **Merge** | The marked cells slide together into a square at the centre (3 × 3 cells), a mosaic; the grid and the traces of where they were remain. | The held tones glide into the result's chord over a rising noise. |
-| **Steps** | The result, re-drawn on every beat of a 4/4 at the word's tempo (92–150 bpm): flat, number, bands, rings, particles, bars, waves, rays, bits, tiles, disc. The last bar in halves; a few downbeats burst to the full frame; it ends on the number. | Kick, offbeat hats (16ths for an aroused word), a clap for an intense one, a bass line from the answers; a stab per step in the voice of its drawing; a crash on a full-frame beat. |
+| **Steps** | Cut (no slide): the marked cells as one square at the centre, a tile each. Then on every beat of a 4/4 at the word's tempo (92–150 bpm) a new **3D space** of the data, a new camera: cloud, network, terrain, map, globe, lattice, ridges, planes (show/space.ts). The last bar in halves; a few downbeats burst to the full frame; it ends on the result's number. | The held tones cut dead. A sequencer (after Caterina Barbieri): two arpeggios of the marked answers, lengths K and K+1, drifting in and out of phase, sine through a wavefolder and a filter that opens across the sequence; each space re-patches it (fold, octave, gate, density). Noise ticks and sub hits on euclidean patterns (no four-on-the-floor). A full-frame beat: white noise and a high sine. The number: its pitch alone. |
 | **Black** | Cut. | The hall blooms once; the drone remembers. |
 
+**The spaces** place the word among the piece's reference words, with the measurements that matter as axes (each
+axis spanning what the reference words cover): white points and hairlines, the word and the marked measurements in
+their colours, additive light, depth dimming what is far.
 **What matters:** how far an answer stands from the piece's reference words (src/jev/lexicon.json, built from the
 test words, never from visitors'), if Jev is sure enough of it (confidence ≥ 0.45). 4–7 cells, more for an intense word.
 **The result:** their values, weighted by how much each matters; its colour, their colours mixed the same way.
@@ -25,8 +27,13 @@ test words, never from visitors'), if Jev is sure enough of it (confidence ≥ 0
 
 ## Engine
 
-One WebGPU fragment pass draws everything, straight to the canvas at native resolution (src/render/shaders/grid.wgsl).
-The room, the wait, the performance and the black are its modes. The score (src/show/grid.ts) is computed once
-per word and read by the image (a storage buffer) and the sound (src/audio/score.ts) alike. Per frame the CPU
-supplies only the clock, the step on screen and the marked cells' rectangles. Text comes from two atlases painted once
-at boot (digits; every name the grid shows).
+One render pass straight to the canvas at native resolution: a fullscreen triangle (src/render/shaders/grid.wgsl —
+the room, the wait, the cells, the square, the number, the black), then during a space its points (instanced dots)
+and lines (1 px) in the step's rectangle (space.wgsl). The score (src/show/grid.ts) is computed once per word; the
+spaces' geometry and the steps' sound are built in a worker while the grid fills (src/show/prepare.worker.ts), so
+Enter never stalls the page. Per frame the CPU supplies only the clock, the step on screen and its camera.
+
+Laurent, on the second version: "music is cheesy … more into Caterina Barbieri type, modular, noise, smart beats,
+Ikeda as well"; "visuals too simplistic"; "the sequencing dynamic is ok"; no swoosh when the cells group ("can be
+sharp cut"), no 3D grid settling flat; "the data viz not 2D but 3D, very Ikeda point cloud or dot connected 3D
+spaces, map based stuff".

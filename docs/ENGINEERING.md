@@ -15,10 +15,11 @@ The piece must be sharp on ordinary hardware, not only on the newest machine.
   layout) is computed once per frame on the CPU and passed in. A loop over the cells per pixel cost 6 ms.
 - Run it on every visual or audio change; note the numbers in the commit message when they move.
 
-### Current numbers (2026-09-27, M3 Pro, the grid)
+### Current numbers (2026-09-27, M3 Pro, the grid with 3D spaces)
 
-0 dropped frames everywhere. GPU mean / p95: room 0.9/1.1 ms; fill 2.6/3.6; mark and clear 2.5/4.2; merge 3.2–4.4 /
-4.1–5.6; steps 2.6–3.2 / 3.4–4.3.
+0 dropped frames everywhere. GPU mean / p95: room 0.8/0.9 ms; fill 1.6–1.8 / 2.3–2.8; mark and clear 2.0–2.1 /
+2.4–2.9; steps (the spaces) 1.2–1.3 / 1.6–2.1. Enter blocks the page ~5 ms (the spaces and the steps' sound are
+built in a worker; the first performance of a session also creates the audio context, ~150 ms).
 
 ## Sound check
 

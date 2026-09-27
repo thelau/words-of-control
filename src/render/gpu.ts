@@ -1,12 +1,18 @@
 /**
- * WebGPU renderer: the whole piece is one fullscreen pass (grid.wgsl) drawn straight to the canvas at native
- * resolution — the room, the wait, the performance and the black are its modes. Text comes from two atlases painted
- * once at boot: the digits, and every name the grid shows (show/grid.ts LABELS).
+ * WebGPU renderer: one render pass straight to the canvas at native resolution — a fullscreen triangle (grid.wgsl:
+ * the room, the wait, the performance and the black are its modes), then, during a step that shows a space, its
+ * points and lines (space.wgsl) in the step's rectangle. Text comes from two atlases painted once at boot: the
+ * digits, and every name the grid shows (show/grid.ts LABELS).
  */
 import commonWGSL from './shaders/common.wgsl?raw';
 import gridWGSL from './shaders/grid.wgsl?raw';
+import spaceWGSL from './shaders/space.wgsl?raw';
 import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
 import { LABELS } from '../show/grid.ts';
+import type { Geometry } from '../show/space.ts';
+
+/** A space to draw this frame: its camera, palette and rectangle (device px), and which points and lines. */
+export type SpaceDraw = { cam: Float32Array; rect: [number, number, number, number]; points: [number, number]; lines: [number, number] };
 
 export class Renderer {
   /** Canvas size in device pixels. */
@@ -20,9 +26,14 @@ export class Renderer {
   private ctx!: GPUCanvasContext;
   private fBuf!: GPUBuffer;
   private scoreBuf!: GPUBuffer;
-  private rectBuf!: GPUBuffer;
   private pipe!: GPURenderPipeline;
   private bg!: GPUBindGroup;
+  private camBuf!: GPUBuffer;
+  private pointPipe!: GPURenderPipeline;
+  private linePipe!: GPURenderPipeline;
+  private camBg!: GPUBindGroup;
+  private pointBuf: GPUBuffer | null = null;
+  private lineBuf: GPUBuffer | null = null;
   private qs: GPUQuerySet | null = null;
   private qResolve: GPUBuffer | null = null;
   private qRead: GPUBuffer | null = null;
@@ -54,7 +65,7 @@ export class Renderer {
 
     this.fBuf = d.createBuffer({ size: FRAME_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.scoreBuf = d.createBuffer({ size: 16 * 1024, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-    this.rectBuf = d.createBuffer({ size: 32 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.camBuf = d.createBuffer({ size: 56 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     await document.fonts.load('400 40px "IBM Plex Mono"');
     const m = d.createShaderModule({ label: 'grid', code: commonWGSL + '\n' + frameStructWGSL() + '\n' + gridWGSL });
     this.pipe = await d.createRenderPipelineAsync({
@@ -67,8 +78,24 @@ export class Renderer {
       { binding: 1, resource: atlas(d, 16, 40, 60, 44, [...'0123456789ABCDEF.-x:'], 'center').createView() },
       { binding: 2, resource: { buffer: this.scoreBuf } },
       { binding: 3, resource: atlas(d, 4, 512, 48, 34, LABELS, 'left').createView() },
-      { binding: 4, resource: { buffer: this.rectBuf } },
     ] });
+    // the spaces: additive light, no depth (points and lines add up where they crowd)
+    const sm = d.createShaderModule({ label: 'space', code: spaceWGSL });
+    const add: GPUBlendState = { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one' } };
+    const camLayout = d.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {} }] });
+    const layout = d.createPipelineLayout({ bindGroupLayouts: [camLayout] });
+    const vtx = (stepMode: GPUVertexStepMode): GPUVertexBufferLayout => ({ arrayStride: 16, stepMode, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }] });
+    this.pointPipe = await d.createRenderPipelineAsync({
+      label: 'points', layout,
+      vertex: { module: sm, entryPoint: 'vs_point', buffers: [vtx('instance')] },
+      fragment: { module: sm, entryPoint: 'fs_point', targets: [{ format, blend: add }] },
+    });
+    this.linePipe = await d.createRenderPipelineAsync({
+      label: 'lines', layout, primitive: { topology: 'line-list' },
+      vertex: { module: sm, entryPoint: 'vs_line', buffers: [vtx('vertex')] },
+      fragment: { module: sm, entryPoint: 'fs_line', targets: [{ format, blend: add }] },
+    });
+    this.camBg = d.createBindGroup({ layout: camLayout, entries: [{ binding: 0, resource: { buffer: this.camBuf } }] });
   }
 
   resize() {
@@ -85,12 +112,20 @@ export class Renderer {
     this.d.queue.writeBuffer(this.scoreBuf, 0, data);
   }
 
-  /** The marked cells' rectangles this frame (show/grid.ts keyRects()). */
-  setRects(data: Float32Array) {
-    this.d.queue.writeBuffer(this.rectBuf, 0, data);
+  /** This performance's spaces (show/space.ts build()). */
+  setSpaces(geo: Geometry) {
+    const up = (data: Float32Array) => {
+      const b = this.d.createBuffer({ size: Math.max(16, data.byteLength), usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      this.d.queue.writeBuffer(b, 0, data);
+      return b;
+    };
+    this.pointBuf?.destroy();
+    this.lineBuf?.destroy();
+    this.pointBuf = up(geo.points);
+    this.lineBuf = up(geo.lines);
   }
 
-  render(frame: Float32Array) {
+  render(frame: Float32Array, space: SpaceDraw | null) {
     const d = this.d;
     d.queue.writeBuffer(this.fBuf, 0, frame);
     const enc = d.createCommandEncoder();
@@ -102,6 +137,19 @@ export class Renderer {
     p.setPipeline(this.pipe);
     p.setBindGroup(0, this.bg);
     p.draw(3);
+    if (space && this.pointBuf && this.lineBuf) {
+      const [x, y, w, h] = space.rect;
+      d.queue.writeBuffer(this.camBuf, 0, space.cam);
+      p.setViewport(x, y, w, h, 0, 1);
+      p.setScissorRect(x, y, w, h);
+      p.setBindGroup(0, this.camBg);
+      p.setPipeline(this.linePipe);
+      p.setVertexBuffer(0, this.lineBuf);
+      p.draw(space.lines[1], 1, space.lines[0]);
+      p.setPipeline(this.pointPipe);
+      p.setVertexBuffer(0, this.pointBuf);
+      p.draw(6, space.points[1], 0, space.points[0]);
+    }
     p.end();
     if (timed) {
       enc.resolveQuerySet(this.qs!, 0, 2, this.qResolve!, 0);

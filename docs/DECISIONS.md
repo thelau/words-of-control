@@ -4,6 +4,14 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
+- **Steps in 3D, sharp cuts, a modular sound** ("music is cheesy … Caterina Barbieri type, modular, noise, smart
+  beats, Ikeda as well"; "visuals are now too simplistic"; "the sequencing dynamic is ok"; "not a fan of the swoosh
+  when grouping … can be sharp cut. Same with the 3D grid becoming flat"; "the data viz not 2D but 3D, very Ikeda point
+  cloud or dot connected 3D spaces, map based stuff"). The grid stays flat; the marked cells cut to the square; each
+  beat a 3D space of the data (point clouds, networks, terrain, contour map, globe, lattice, ridges, planes); the
+  sound a polymetric arpeggiator with wavefolding, euclidean noise and sub, test tones and clicks — no kick, hats,
+  clap, bell, riser or glide. See docs/GRID.md.
+
 - **The grid replaces the matrix** ("still gimmicky, not nice", then Laurent's own structure): input → a grid of
   every measurement, each cell its name, value and a small live figure, filling as the results land → only the
   cells that matter remain, in place → they combine into one square at the centre, the result → the result

@@ -55,12 +55,12 @@ const fixtures = JSON.parse(readFileSync('src/jev/fixtures.json', 'utf8'));
 const rows: [string, ReturnType<typeof stats>][] = [];
 progress('room');
 rows.push(['room (rest)', stats(await sample(2000))]);
-// performances, sampled by phase: the fill (text and figures in space), the merge, the steps
+// performances, sampled by phase: the fill, the marking and clearing, the steps (the spaces)
 for (const word of ['fuck', 'mother', 'dust', 'nothing']) {
   await page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [fixtures[word], word]);
   const g = await page.evaluate(() => (window as any).__woc.show().g);
   const at = (t: number) => page.waitForFunction((t) => { const w = (window as any).__woc; const s = w.show(); return !s || w.audioClock() - s.t0 >= t; }, t, { polling: 'raf' });
-  for (const [phase, from, to] of [['fill', 0, g.mark], ['mark, clear', g.mark, g.merge], ['merge', g.merge, g.seq], ['steps', g.seq, g.end]] as const) {
+  for (const [phase, from, to] of [['fill', 0, g.mark], ['mark, clear', g.mark, g.seq], ['steps', g.seq, g.end]] as const) {
     await at(from);
     progress(`${word} ${phase}`);
     rows.push([`${word} ${phase}`, stats(await sample((to - from) * 1000 - 50))]);

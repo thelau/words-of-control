@@ -31,9 +31,9 @@ src/
   input/                keyboard (IME-safe), centred line + cursor
   jev/                  questions (the battery), appraisal (answers → typed data), client, mock, fixtures, lexicon
   safety/               blocklist, routing thresholds
-  show/grid.ts          the score: cells, what matters, timing, the steps (read by image and sound)
-  render/               WebGPU renderer (one pass), frame uniforms; shaders/grid.wgsl draws everything
-  audio/                engine (master, reverb, performance bus), drone, keys, score (the performance's sound)
+  show/                 grid.ts the score (cells, what matters, timing, steps); space.ts the 3D spaces; prepare worker
+  render/               WebGPU renderer (one pass), frame uniforms; shaders: grid.wgsl (2D), space.wgsl (points, lines)
+  audio/                engine (master, reverb, performance bus), drone, keys, render (the performance as samples), score (plays it)
   dev/                  harness, recorder
 proxy/                  Jev proxy core (dev: Vite middleware)
 scripts/                perf, e2e, capture, film, listen, sequence, lexicon, appraise, fixtures, probe (see AGENTS.md)

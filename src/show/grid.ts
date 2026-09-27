@@ -1,13 +1,12 @@
 /**
- * The grid: the verdict as one continuous piece of graphic design, image and sound from this one score.
- *   fill    — every measurement is a cell of a grid (9 × 5, tilted in space, settling flat); each result arrives in its
- *             cell: its name, its value, a small live figure of it (a score a sine, a choice its bars, a yes/no a
- *             field of dots)
+ * The grid: the verdict, image and sound from this one score.
+ *   fill    — every measurement is a cell of a flat grid (9 × 5); each result arrives in its cell: its name, its
+ *             value, a small live figure of it (a score a sine, a choice its bars, a yes/no a field of dots)
  *   mark    — the cells that matter take the word's own colours (Jev's colour answer), one by one
  *   select  — every other cell goes out, staccato; the marked ones stay where they were
- *   merge   — they slide together into one square at the centre: the result; the grid stays
- *   steps   — the result, re-drawn on every beat of a 4/4 at the word's tempo (flat, number, bands, rings, particles,
- *             bars, waves, rays, bits, tiles, disc), a few beats bursting to the full frame; the last bar in halves
+ *   steps   — cut: the marked cells as one square at the centre (the result), then on every beat of a 4/4 at the
+ *             word's tempo a new 3D space of the data (show/space.ts), a few beats bursting to the full frame; the
+ *             last bar in halves; it ends on the result's number
  *   black   — on the last step's end
  * "What matters": how far an answer stands from the piece's reference words (lexicon.json, never visitors' words),
  * if the machine is sure enough of it. Times are seconds from the verdict's start.
@@ -26,23 +25,30 @@ const DIMS = [...SCORE_IDS.map((id) => [id, 0] as const), ...CHOICE_IDS.map((id)
 export const LABELS = [...DIMS.map(([id]) => id), ...CHOICE_IDS.flatMap((id) => OPTIONS[id])];
 const OPT0 = Object.fromEntries(CHOICE_IDS.map((id) => [id, DIMS.length + CHOICE_IDS.slice(0, CHOICE_IDS.indexOf(id)).reduce((a, x) => a + OPTIONS[x].length, 0)]));
 
-/** The ways the result is drawn in the steps (grid.wgsl viz()); the sound gives each its own stab. */
-export const VIZ = ['flat', 'number', 'bands', 'rings', 'particles', 'bars', 'waves', 'rays', 'bits', 'tiles', 'disc'] as const;
+/** The 3D spaces of the data a step can show (show/space.ts). */
+export const SPACES = ['cloud', 'network', 'terrain', 'map', 'globe', 'lattice', 'ridges', 'planes'] as const;
+/** What a step shows: the merged square (tiles), the result's number (both grid.wgsl), or a space. */
+export const VIZ = ['tiles', 'number', ...SPACES] as const;
 export type Viz = (typeof VIZ)[number];
 
 export type Cell = {
   id: string; kind: 0 | 1 | 2; value: number; conf: number; z: number;
   /** Its label (index into LABELS); a choice's top option and its option probabilities. */
   label: number; opt: number; probs: number[];
+  /** The same measurement for each reference word (lexicon.json, in the order of Grid.refs). */
+  lex: number[];
   arrive: number; vanish: number; key: number; markAt: number;
 };
-type Step = { t: number; dur: number; viz: Viz; full: boolean };
+/** A step: what it shows, whether it fills the frame, and its camera (a seed: every step is a new angle). */
+type Step = { t: number; dur: number; viz: Viz; full: boolean; cam: number };
 type RGB = [number, number, number];
 export type Grid = {
   cells: Cell[]; keys: number[];
+  /** The reference words the word is measured against (never visitors' words). */
+  refs: string[];
   /** Each marked cell's colour (linear RGB): the word's own colours, as Jev sees them, most likely first. */
   colours: RGB[];
-  mark: number; select: number; merge: number; mergeDur: number; seq: number; end: number;
+  mark: number; select: number; seq: number; end: number;
   bpm: number; beat: number; steps: Step[];
   /** The result: the marked values, weighted by how much each matters. */
   result: number;
@@ -68,7 +74,7 @@ export function grid(A: Appraisal): Grid {
     return {
       id, kind, value, conf: A.k[id] ?? 1, z: Math.abs(value - m) / sd, label: k,
       opt: kind === 1 ? OPT0[id] + OPTIONS[id].indexOf(A.c[id].top) : -1,
-      probs: kind === 1 ? OPTIONS[id].map((o) => A.c[id].p[o] ?? 0) : [],
+      probs: kind === 1 ? OPTIONS[id].map((o) => A.c[id].p[o] ?? 0) : [], lex,
       arrive: 0, vanish: Infinity, key: -1, markAt: Infinity,
     };
   });
@@ -87,34 +93,33 @@ export function grid(A: Appraisal): Grid {
   const select = mark + 0.65;
   const out = cells.map((_, k) => k).filter((k) => cells[k].key < 0).sort(() => rand() - 0.5);
   out.forEach((k, i) => (cells[k].vanish = select + 0.9 * Math.pow(i / out.length, 0.85)));
-  const merge = select + 0.9 + 0.35, mergeDur = 1.0;
   const w = keys.map((k) => rel[k] + 1e-3);
   const result = keys.reduce((a, k, i) => a + cells[k].value * w[i], 0) / w.reduce((a, b) => a + b, 0);
   const colours = keyColours(A, keys.length);
 
-  // the steps: 4/4 at the word's tempo — a beat each for three bars, the fourth in halves; the downbeats of bars
-  // two and four burst to the full frame (and of bar three, for an intense word)
+  // the steps: 4/4 at the word's tempo, cut in straight after the clearing — a beat each for three bars, the fourth
+  // in halves; the downbeats of bars two and four burst to the full frame (and of bar three, for an intense word)
   const bpm = Math.round(lerp(92, 150, clamp01(aro * 0.5 + A.s.energy * 0.3 + A.s.tension * 0.2)) - 14 * A.lazy);
   const beat = 60 / bpm;
-  const seq = merge + mergeDur;
+  const seq = select + 0.9 + 0.3;
   const steps: Step[] = [];
-  const recent: Viz[] = ['tiles']; // (no drawing again within four steps)
+  const recent: Viz[] = []; // (no space again within four steps)
   let t = seq;
   for (let b = 0; b < 16; b++) {
     for (const half of b >= 12 ? [0, 1] : [0]) {
       const dur = b >= 12 ? beat / 2 : beat;
       let viz: Viz;
-      if (b === 0) viz = 'tiles'; // the merged square, as it landed
+      if (b === 0) viz = 'tiles'; // the marked cells, merged
       else if (b === 15 && half === 1) viz = 'number'; // it ends on the number
-      else do viz = VIZ[Math.floor(rand() * VIZ.length)]; while (recent.includes(viz) || viz === 'number' && b === 15);
+      else do viz = SPACES[Math.floor(rand() * SPACES.length)]; while (recent.includes(viz));
       const full = half === 0 && (b === 4 || b === 12 || (b === 8 && A.s.intensity > 0.6));
-      steps.push({ t, dur, viz, full });
+      steps.push({ t, dur, viz, full, cam: rand() });
       recent.push(viz);
       if (recent.length > 4) recent.shift();
       t += dur;
     }
   }
-  const g: Grid = { cells, keys, colours, mark, select, merge, mergeDur, seq, end: t, bpm, beat, steps, result };
+  const g: Grid = { cells, keys, refs: words, colours, mark, select, seq, end: t, bpm, beat, steps, result };
   GRIDS.set(A, g);
   return g;
 }
@@ -145,48 +150,45 @@ export function layout(w: number, h: number) {
   return { x: Math.floor((w - COLS * cs) / 2), y: Math.floor((h - ROWS * cs) / 2), cs };
 }
 
-const ease3 = (x: number) => { const t = clamp01(x); return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2; };
-type Rect = [number, number, number, number];
+/** The square at the centre (3 × 3 cells), px: where the result lives. */
+export function square(w: number, h: number): [number, number, number, number] {
+  const L = layout(w, h);
+  return [L.x + 3 * L.cs, L.y + L.cs, 3 * L.cs, 3 * L.cs];
+}
 
-/** The marked cells' rectangles at time t (px): where each is now, sliding from its cell into its tile of the square
- *  during the merge, one after another. The shader reads them (grid.wgsl R). */
-export function keyRects(g: Grid, t: number, w: number, h: number): Float32Array {
-  const L = layout(w, h), K = g.keys.length;
-  const cell = (k: number): Rect => [L.x + (k % COLS) * L.cs, L.y + Math.floor(k / COLS) * L.cs, L.cs, L.cs];
-  // the square: the centre 3 × 3 cells; a tile each, rows of ⌈√K⌉, the last row shared out
-  const sq: Rect = [L.x + 3 * L.cs, L.y + L.cs, 3 * L.cs, 3 * L.cs];
+/** The marked cells merged: a tile each in the square (unit square: x, y, w, h), rows of ⌈√K⌉, the last row shared
+ *  out. */
+function tiles(K: number): Float32Array {
   const nc = Math.ceil(Math.sqrt(K)), nr = Math.ceil(K / nc);
   const out = new Float32Array(32);
-  g.keys.forEach((k, i) => {
+  for (let i = 0; i < K; i++) {
     const row = Math.floor(i / nc), inRow = row === nr - 1 ? K - row * nc : nc;
-    const tw = sq[2] / inRow, th = sq[3] / nr;
-    const tile: Rect = [sq[0] + (i % nc) * tw, sq[1] + row * th, tw, th];
-    const e = ease3((t - g.merge - i * 0.05) / (g.mergeDur - K * 0.05));
-    const c = cell(k);
-    out.set(c.map((x, j) => x + (tile[j] - x) * e), i * 4);
-  });
+    out.set([(i % nc) / inRow, row / nr, 1 / inRow, 1 / nr], i * 4);
+  }
   return out;
 }
 
-const CELL = 28, OPT_MAX = 16, KEY_MAX = 8, BYTE_MAX = 256;
-/** The score as the shader's buffer (grid.wgsl): a header (cells, keys, mark, merge, steps, result, its colour), then
+const CELL = 28, OPT_MAX = 16, KEY_MAX = 8, KEY = 12, BYTE_MAX = 256;
+/** The score as the shader's buffer (grid.wgsl): a header (cells, keys, steps' start, result, its colour), then
  *  per cell (value, conf, kind,
  *  arrive, vanish, key, label, opt, nOpts, markAt, z, 0, then 16 option probabilities), then per key (cell, value,
- *  colour, 0 ×3), then the word's bytes (their count, then each). The step on screen is a uniform (main.ts). */
+ *  colour, its tile in the square, 0 ×3), then the word's bytes (their count, then each). The step on screen is a
+ *  uniform (main.ts). */
 export function pack(A: Appraisal, g: Grid): Float32Array {
   const n = g.cells.length;
-  const k0 = 16 + n * CELL, b0 = k0 + KEY_MAX * 8;
+  const k0 = 16 + n * CELL, b0 = k0 + KEY_MAX * KEY;
   const out = new Float32Array(b0 + 1 + BYTE_MAX);
   // the result's colour: the marked colours, weighted as the result is
   const w = g.keys.map((k) => g.cells[k].z * g.cells[k].conf + 1e-3), ws = w.reduce((a, b) => a + b, 0);
   const mix = [0, 1, 2].map((j) => g.colours.reduce((a, c, i) => a + c[j] * w[i], 0) / ws);
-  out.set([n, g.keys.length, g.mark, g.merge, g.seq, g.result, ...mix], 0);
+  out.set([n, g.keys.length, g.seq, g.result, ...mix], 0);
   g.cells.forEach((c, k) => {
     const o = 16 + k * CELL;
     out.set([c.value, c.conf, c.kind, c.arrive, Math.min(c.vanish, 1e4), c.key, c.label, c.opt, c.probs.length, Math.min(c.markAt, 1e4), c.z, 0], o);
     out.set(c.probs.slice(0, OPT_MAX), o + 12);
   });
-  g.keys.slice(0, KEY_MAX).forEach((k, i) => out.set([k, g.cells[k].value, ...g.colours[i]], k0 + i * 8));
+  const T = tiles(g.keys.length);
+  g.keys.slice(0, KEY_MAX).forEach((k, i) => out.set([k, g.cells[k].value, ...g.colours[i], ...T.subarray(i * 4, i * 4 + 4)], k0 + i * KEY));
   const bytes = A.bytes.slice(0, BYTE_MAX);
   out[b0] = bytes.length;
   out.set(bytes, b0 + 1);
