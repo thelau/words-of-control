@@ -241,8 +241,8 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
     }
     return out(c);
   }
-  // the steps: the step on screen comes from main.ts; a strobe frame is white
-  if (t >= seq && F.flash > 0.5) { return out(WHITE); }
+  // the steps: the step on screen comes from main.ts; a strobe frame is pale grey
+  if (t >= seq && F.flash > 0.5) { return out(WHITE * 0.55); }
   let r = select(stage(L), vec4f(0.0, 0.0, F.resX, F.resY), F.full > 0.5);
   if (inRect(p, r)) { return out(viz(F.viz < 0.5, p, r)); }
   // around it the grid, pulsing with the beat, and a trace of each marked cell where it was

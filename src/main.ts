@@ -280,10 +280,12 @@ async function boot() {
           }
         }
         f('beatU', ((t - show.g.seq) / show.g.beat) % 1);
-        // and it strobes: a white frame on some sixteenths (a negative, aroused word: often)
-        const k16 = Math.floor((t - show.g.seq) / (show.g.beat / 4));
-        const strobe = show.A.mood.neg * (0.3 + 0.7 * show.A.s.arousal) * 0.5;
-        const flash = t >= show.g.seq && st?.viz !== 'stand' && ((k16 * 2654435761) >>> 0) / 4294967296 < strobe && (t - show.g.seq) % (show.g.beat / 4) < 1 / 30;
+        // and it strobes — safely: only a word more than half negative, only on a beat and never on two beats running
+        // (at most 2 flashes a second at the fastest tempo: photosensitive safety asks for fewer than 3), as often as it
+        // is negative and aroused, one frame of pale grey (never full white)
+        const beatNo = Math.floor((t - show.g.seq) / show.g.beat);
+        const strobe = Math.max(0, show.A.mood.neg - 0.5) * 2 * (0.3 + 0.7 * show.A.s.arousal);
+        const flash = t >= show.g.seq && st?.viz !== 'stand' && strobeOn(beatNo, strobe) && (t - show.g.seq) % show.g.beat < 1 / 30;
         f('flash', flash ? 1 : 0);
         if (flash) space = null;
         if (phase === 'grid') caps = notes(show.A, show.g, show.geo, t, renderer.width, renderer.height, renderer.dpr,
@@ -307,6 +309,16 @@ async function boot() {
     mountHarness(app);
     (window as unknown as { __woc: App }).__woc = app;
   }
+}
+
+/** Whether beat b strobes: by chance at `p`, never right after a beat that did. */
+function strobeOn(b: number, p: number): boolean {
+  let prev = false, on = false;
+  for (let k = 0; k <= b; k++) {
+    on = !prev && (((k + 1) * 2654435761) >>> 0) / 4294967296 < p;
+    prev = on;
+  }
+  return on;
 }
 
 void boot();
