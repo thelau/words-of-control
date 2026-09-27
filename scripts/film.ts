@@ -7,11 +7,19 @@
 import { mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { openSession } from './lib/headless.ts';
+import { normalizeInput, xmur3 } from '../src/core/rng.ts';
 
 const words = process.argv.slice(2).length ? process.argv.slice(2) : ['war', 'love', 'spoon'];
 const dir = 'docs/captures/film';
 mkdirSync(dir, { recursive: true });
 const fixtures = JSON.parse(readFileSync('src/jev/fixtures.json', 'utf8'));
+// (a phrase with no recorded answers borrows one, as mock mode does: src/jev/mock.ts)
+const answersFor = (w: string) => {
+  const key = normalizeInput(w);
+  if (fixtures[key]) return fixtures[key];
+  const words = Object.keys(fixtures).filter((x) => x !== 'want to die' && x !== 'fuck you');
+  return fixtures[words[xmur3(key)() % words.length]];
+};
 const FPS = 25;
 
 for (const w of words) {
@@ -22,7 +30,7 @@ for (const w of words) {
   await s.page.goto(s.url + '?mock');
   await s.page.waitForFunction(() => (window as any).__woc, null, { timeout: 30000 });
   const tPerform = Date.now();
-  await s.page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [fixtures[w], w]);
+  await s.page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [answersFor(w), w]);
   const g = await s.page.evaluate(() => (window as any).__woc.show().g);
   const lead = (tPerform - tVideo) / 1000 + 0.3; // video time of the performance's start
   await s.page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 200, timeout: 120000 });

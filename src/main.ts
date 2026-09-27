@@ -265,11 +265,12 @@ async function boot() {
           if (isSpace && phase === 'grid' && show.geo) {
             const W = renderer.width, H = renderer.height, dpr = renderer.dpr, geo = show.geo, mood = show.A.mood;
             const views: SpaceDraw['views'] = [];
-            const view = (sp: Space, v: View, lt: number, rect: [number, number, number, number], size: number, cut = 0) => {
-              const c = camera(sp, { ...v, seed: (v.seed + cut * 0.382) % 1 }, lt, rect[2] / rect[3], mood, geo.focus[sp]);
+            // (`still`: a film-strip cell, frozen — no camera shake, no trembling points)
+            const view = (sp: Space, v: View, lt: number, rect: [number, number, number, number], size: number, cut = 0, still = false) => {
+              const c = camera(sp, { ...v, seed: (v.seed + cut * 0.382) % 1 }, lt, rect[2] / rect[3], still ? { ...mood, neg: 0 } : mood, geo.focus[sp]);
               const n = views.length;
               cams.set(c.vp, n * CAM_SLOT);
-              cams.set([size, rect[2], rect[3], 0, t, mood.neg, c.dist, 0, v.slab?.[0] ?? -1, v.slab?.[1] ?? 0, 0.14, 0], n * CAM_SLOT + 52);
+              cams.set([size, rect[2], rect[3], 0, t, still ? 0 : mood.neg, c.dist, 0, v.slab?.[0] ?? -1, v.slab?.[1] ?? 0, 0.14, 0], n * CAM_SLOT + 52);
               const r = geo.ranges[sp];
               views.push({ rect, points: [r[0], r[1]], lines: [r[2], r[3]] });
             };
@@ -282,7 +283,7 @@ async function boot() {
               const shown = show.g.steps.filter((x) => VIZ.indexOf(x.viz) >= 2 && x.t + x.dur <= t);
               shown.slice(0, STRIP.length).forEach((x, i) => {
                 const k = STRIP[i];
-                view(x.viz as Space, ringView(k, x.cam, x.dur), x.dur, [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2], dpr);
+                view(x.viz as Space, ringView(k, x.cam, x.dur), x.dur, [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2], dpr, 0, true);
               });
             }
             space = { cams, views };
@@ -303,8 +304,8 @@ async function boot() {
     f('mode', { grid: 0, room: 1, wait: 2, black: 3 }[phase]);
     // the room draws the drone as it sounds (before the first key there is no sound yet: a still line)
     if (phase === 'room' || phase === 'wait') { drone?.wave(wave); renderer.setWave(wave); }
-    // the room, nothing typed yet: an invitation, faint, under the line
-    if (phase === 'room' && state === 'idle') caps = [{ key: 'hint', text: 'type a word', x: renderer.width / renderer.dpr / 2, y: (renderer.height / renderer.dpr) * 0.68 + 44, align: 'c', colour: 'rgba(237,230,220,0.3)' }];
+    // the room, nothing typed yet: an invitation, faint, above where the word will be
+    if (phase === 'room' && state === 'idle') caps = [{ key: 'hint', text: 'enter a word', x: renderer.width / renderer.dpr / 2, y: renderer.height / renderer.dpr / 2 - 56, align: 'c', colour: 'rgba(237,230,220,0.35)' }];
     renderer.render(frame.f32, space);
     showCaptions(caps);
     for (const h of app.frameHooks) h(now);

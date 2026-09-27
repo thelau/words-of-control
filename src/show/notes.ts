@@ -10,6 +10,9 @@ import { layout, name, stage } from './grid.ts';
 import type { Geometry, Space } from './space.ts';
 import type { Appraisal } from '../jev/appraisal.ts';
 
+/** The labels kept for the step on screen (see below). */
+const chosen = { step: '', keys: new Set<number>() };
+
 const srgb = (c: number[]) => `rgb(${c.map((x) => Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055))).join(',')})`;
 
 export function notes(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number, h: number, dpr: number,
@@ -39,7 +42,8 @@ export function notes(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w:
     const k = g.stand, c = g.cells[k], colour = srgb(g.colours[Math.max(0, c.key)]);
     const cx = S[0] + S[2] / 2, cy = S[1] + S[3] / 2, x0 = S[0] + S[2] * 0.12, x1 = S[0] + S[2] * 0.88, ly = cy + 34;
     const at = (v: number) => x0 + v * (x1 - x0);
-    out.push({ key: 'word', text: word, x: cx, y: cy - 86, align: 'c', size: 'big', colour });
+    // (a long phrase is set smaller, to fit the stage: Plex Mono's advance is 0.6 em)
+    out.push({ key: 'word', text: word, x: cx, y: cy - 86, align: 'c', size: 'big', colour, px: Math.min(64, (S[2] * 0.8) / (word.length * 0.6)) });
     out.push({ key: 'answer', text: `${name(g, k)}  ${c.value.toFixed(2)}`, x: cx, y: cy - 28, align: 'c', size: 'mid', colour });
     out.push({ key: 'rule', text: '', x: x0, y: ly, rule: x1 - x0 });
     out.push({ key: 'r0', text: '0', x: x0 - 16, y: ly, align: 'c' }, { key: 'r1', text: '1', x: x1 + 16, y: ly, align: 'c' });
@@ -56,22 +60,35 @@ export function notes(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w:
   // (below the grid, outside it: the grid's cells carry views of the space)
   if (st.full) out.push({ key: 'panel', text, x: 16, y: h / dpr - 16, align: 'bl' });
   else out.push({ key: 'panel', text, x: gx, y: gy + gh + 10 });
-  // labels on the data: each anchor projected through the step's camera into its rectangle
+  // labels on the data: each anchor projected through the step's camera into its rectangle. Which ones show is
+  // decided on the step's first frame (one that would land on another is left out) and kept for the whole step — a
+  // label never blinks in and out as the camera turns
   if (space && geo) {
     const [rx, ry, rw, rh] = space.rect, vp = space.vp;
-    const placed: [number, number][] = [];
-    // (the word's own label first: it is never the one left out)
-    [...geo.anchors[space.viz].entries()].sort(([, a], [, b]) => Number(b.text === word) - Number(a.text === word)).forEach(([k, a]) => {
-      const [x, y, z] = a.p;
+    const project = (p: number[]) => {
+      const [x, y, z] = p;
       const cw = vp[3] * x + vp[7] * y + vp[11] * z + vp[15];
-      if (cw <= 0.05) return;
+      if (cw <= 0.05) return null;
       const nx = (vp[0] * x + vp[4] * y + vp[8] * z + vp[12]) / cw, ny = (vp[1] * x + vp[5] * y + vp[9] * z + vp[13]) / cw;
-      if (Math.abs(nx) > 0.98 || Math.abs(ny) > 0.98) return;
-      // (a label that would land on one already placed is left out)
-      const px = (rx + (nx * 0.5 + 0.5) * rw) / dpr, py = (ry + (0.5 - ny * 0.5) * rh) / dpr;
-      if (placed.some(([qx, qy]) => Math.abs(qx - px) < 90 && Math.abs(qy - py) < 13)) return;
-      placed.push([px, py]);
-      out.push({ key: `a${k}`, text: a.text, x: (rx + (nx * 0.5 + 0.5) * rw) / dpr, y: (ry + (0.5 - ny * 0.5) * rh) / dpr - 7, anchor: true, colour: a.c ? srgb(g.colours[a.c - 1]) : undefined });
+      return Math.abs(nx) > 0.98 || Math.abs(ny) > 0.98 ? null : [(rx + (nx * 0.5 + 0.5) * rw) / dpr, (ry + (0.5 - ny * 0.5) * rh) / dpr];
+    };
+    const anchors = geo.anchors[space.viz];
+    const stepKey = `${A.seed}|${i}`;
+    if (chosen.step !== stepKey) {
+      const placed: number[][] = [];
+      chosen.step = stepKey;
+      chosen.keys = new Set();
+      // (the word's own label first: it is never the one left out)
+      [...anchors.entries()].sort(([, a], [, b]) => Number(b.text === word) - Number(a.text === word)).forEach(([k, a]) => {
+        const q = project(a.p);
+        if (!q || placed.some(([qx, qy]) => Math.abs(qx - q[0]) < 90 && Math.abs(qy - q[1]) < 13)) return;
+        placed.push(q);
+        chosen.keys.add(k);
+      });
+    }
+    anchors.forEach((a, k) => {
+      const q = chosen.keys.has(k) ? project(a.p) : null;
+      if (q) out.push({ key: `a${k}`, text: a.text, x: q[0], y: q[1] - 7, anchor: true, colour: a.c ? srgb(g.colours[a.c - 1]) : undefined });
     });
   }
   return out;

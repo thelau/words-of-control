@@ -18,6 +18,8 @@ export type Caption = {
   rule?: number;
   /** A larger dot (the word, among the others). */
   me?: boolean;
+  /** Font size (CSS px), over the class's. */
+  px?: number;
 };
 
 const root = document.getElementById('captions')!;
@@ -35,7 +37,7 @@ export function showCaptions(items: Caption[]) {
       e = { el, state: '' };
       live.set(c.key, e);
     }
-    const state = `${c.text}|${Math.round(c.x)}|${Math.round(c.y)}|${c.align}|${c.anchor}|${c.colour}|${c.size}|${c.rule}|${c.me}`;
+    const state = `${c.text}|${Math.round(c.x)}|${Math.round(c.y)}|${c.align}|${c.anchor}|${c.colour}|${c.size}|${c.rule}|${c.me}|${c.px}`;
     if (state === e.state) continue;
     e.state = state;
     const el = e.el;
@@ -44,6 +46,7 @@ export function showCaptions(items: Caption[]) {
     el.style.transform = `translate(${Math.round(c.x)}px, ${Math.round(c.y)}px)${SHIFT[c.align ?? 'tl']}`;
     el.style.color = c.colour ?? '';
     el.style.width = c.rule ? `${Math.round(c.rule)}px` : '';
+    el.style.fontSize = c.px ? `${Math.round(c.px)}px` : '';
   }
   for (const [k, e] of live) if (!seen.has(k)) { e.el.remove(); live.delete(k); }
 }

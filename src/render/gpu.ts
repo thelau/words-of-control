@@ -204,10 +204,11 @@ function atlas(d: GPUDevice, perRow: number, w: number, h: number, px: number, i
   g.textAlign = align;
   g.textBaseline = 'middle';
   items.forEach((s, i) => g.fillText(s, (i % perRow) * w + (align === 'center' ? w / 2 : 0), Math.floor(i / perRow) * h + h / 2 + 2));
+  // one channel: the coverage (white text, premultiplied: red = alpha)
   const tex = d.createTexture({
-    size: [c.width, c.height], format: 'rgba8unorm',
+    size: [c.width, c.height], format: 'r8unorm',
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
   });
-  d.queue.copyExternalImageToTexture({ source: c }, { texture: tex }, [c.width, c.height]);
+  d.queue.copyExternalImageToTexture({ source: c }, { texture: tex, premultipliedAlpha: true }, [c.width, c.height]);
   return tex;
 }

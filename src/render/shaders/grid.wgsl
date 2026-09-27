@@ -50,10 +50,10 @@ fn bilinear(tex: texture_2d<f32>, a: vec2f) -> f32 {
   let b = a - 0.5;
   let i = vec2i(floor(b));
   let f = fract(b);
-  let t00 = textureLoad(tex, clamp(i, vec2i(0), dim), 0).a;
-  let t10 = textureLoad(tex, clamp(i + vec2i(1, 0), vec2i(0), dim), 0).a;
-  let t01 = textureLoad(tex, clamp(i + vec2i(0, 1), vec2i(0), dim), 0).a;
-  let t11 = textureLoad(tex, clamp(i + vec2i(1, 1), vec2i(0), dim), 0).a;
+  let t00 = textureLoad(tex, clamp(i, vec2i(0), dim), 0).r;
+  let t10 = textureLoad(tex, clamp(i + vec2i(1, 0), vec2i(0), dim), 0).r;
+  let t01 = textureLoad(tex, clamp(i + vec2i(0, 1), vec2i(0), dim), 0).r;
+  let t11 = textureLoad(tex, clamp(i + vec2i(1, 1), vec2i(0), dim), 0).r;
   return mix(mix(t00, t10, f.x), mix(t01, t11, f.x), f.y);
 }
 /** Label `idx` (grid.ts LABELS) with its top-left at org, h px high. */
@@ -245,12 +245,6 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   if (t >= seq && F.flash > 0.5) { return out(WHITE * 0.55); }
   let r = select(stage(L), vec4f(0.0, 0.0, F.resX, F.resY), F.full > 0.5);
   if (inRect(p, r)) { return out(viz(F.viz < 0.5, p, r)); }
-  // around it the grid, pulsing with the beat, and a trace of each marked cell where it was
-  var c = WHITE * gridLines(p, L) * (0.12 + 0.3 * exp(-F.beatU * 6.0));
-  if (inGrid && k < nCells() && cf(k, 5u) >= 0.0) {
-    let cr = cellRect(k, L);
-    let edge = min(min(p.x - cr.x, cr.x + cr.z - p.x), min(p.y - cr.y, cr.y + cr.w - p.y));
-    c = max(c, keyCol(u32(cf(k, 5u))) * line(edge) * 0.8);
-  }
-  return out(c);
+  // around it the grid, pulsing with the beat
+  return out(WHITE * gridLines(p, L) * (0.12 + 0.3 * exp(-F.beatU * 6.0)));
 }
