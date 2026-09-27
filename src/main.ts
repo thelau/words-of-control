@@ -276,11 +276,13 @@ async function boot() {
             const sub = (t - st.t) / (show.g.beat / 4);
             const cut = mood.neg > 0.75 ? Math.floor(sub) : mood.neg > 0.4 ? Math.floor(sub / 2) : 0;
             view(st.viz as Space, stageView(st.cam, mood.neu), t - st.t, st.full ? [0, 0, W, H] : stage(W, H), (3 + 1.2 * mood.pos - 0.6 * mood.neg) * dpr, cut);
-            // the ring: small multiples — the reference words on each pair of the answers that matter most, one pair a
-            // cell, the same scale, the word in its colour (show/space.ts pairs), drawn flat and still
+            // the ring: small multiples — the reference words in the space of each three of the answers that matter
+            // most, one triple a cell, the word a cross in its colour (show/space.ts pairs); each turns at its own angle
+            // and cuts to a new one on every beat, with the stage
+            const beatNo = Math.floor((t - show.g.seq) / show.g.beat);
             if (!st.full) RING.forEach((k, i) => {
               const pair = geo.pairs[i];
-              if (pair) view('cloud', { kind: 'front', seed: 0 }, 0, [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2], 1.8 * dpr, 0, true, pair.range);
+              if (pair) view('cloud', { kind: 'orbit', seed: (st.cam + i * 0.618) % 1 }, t - st.t, [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2], 1.6 * dpr, beatNo, true, pair.range);
             });
             space = { cams, views };
           }

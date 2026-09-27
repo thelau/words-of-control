@@ -4,6 +4,10 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
+- **The ring alive again; the ending held** ("the surrounding cells … feel static and boring"; "the last screen is so
+  fast I can't see whatever you write"): the small multiples became 3-answer spaces, each turning at its own angle and
+  cutting on the beat; the ending holds two bars (at least 6 s), the drone returning under it.
+
 - **After the round-9 data reviews (Tufte, Steele, Smith, Thorp personas)** ("ok let's do"): every cell shows why it
   matters (a strip of the reference words and the word's value); tiles show ±σ; one point per word, no dust or halos;
   the network laid out by likeness on all answers (PCA); the globe replaced by the ending's answer as a dot plot; the

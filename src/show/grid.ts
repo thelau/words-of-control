@@ -126,8 +126,8 @@ export function grid(A: Appraisal): Grid {
       t += dur;
     }
   }
-  // then a bar held on where the word stands (long enough to read)
-  steps.push({ t, dur: Math.max(3.2, 4 * beat), viz: 'stand', full: false, cam: 0 });
+  // then where the word stands, held long enough to be read (two bars, at least 6 s)
+  steps.push({ t, dur: Math.max(6, 8 * beat), viz: 'stand', full: false, cam: 0 });
   t += steps[steps.length - 1].dur;
   // where it stands: the marked answer that sets it most apart — among those a person would say (not a category slot
   // like who, act or kind)

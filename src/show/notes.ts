@@ -85,7 +85,8 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
   // the small multiples round the stage: each cell's pair of answers, small, in its corner
   if (space && geo && !st.full) RING.forEach((k, p) => {
     const pair = geo.pairs[p];
-    if (pair) out.push({ key: `p${p}`, text: pair.label, x: gx + (k % 9) * (gw / 9) + 6, y: gy + Math.floor(k / 9) * (gh / 5) + 5, size: 'tiny' });
+    // (trimmed to the cell: about 26 characters of this small type)
+    if (pair) out.push({ key: `p${p}`, text: pair.label.length > 26 ? `${pair.label.slice(0, 25)}…` : pair.label, x: gx + (k % 9) * (gw / 9) + 6, y: gy + Math.floor(k / 9) * (gh / 5) + 5, size: 'tiny' });
   });
   // labels on the data: each anchor projected through the step's camera into its rectangle. Which ones show is
   // decided on the step's first frame (one that would land on another is left out) and kept for the whole step — a

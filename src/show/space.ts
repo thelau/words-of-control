@@ -17,7 +17,8 @@
  *              value a tick
  * Each space also carries its caption (a label: what it is) and anchors: small labels placed on the data
  * itself (axis names, the word, its nearest reference words). And for the cells round the stage, small multiples:
- * the reference words on each pair of the answers that matter most (one pair a cell). All within [−1, 1]³.
+ * the reference words in the space of each three of the answers that matter most (one triple a cell). All within
+ * [−1, 1]³.
  */
 import type { Grid } from './grid.ts';
 import { name, SPACES } from './grid.ts';
@@ -36,7 +37,7 @@ export type Geometry = {
   anchors: Record<Space, Anchor[]>;
   /** Where the word is in each space (a close-up turns round it). */
   focus: Record<Space, number[]>;
-  /** The small multiples: per pair of answers, its points and lines (first, count ×2) and its label. */
+  /** The small multiples: per triple of answers, its points and lines (first, count ×2) and its label. */
   pairs: { range: [number, number, number, number]; label: string }[];
 };
 
@@ -194,18 +195,18 @@ export function build(g: Grid, seed: number, word: string): Geometry {
     return `axis · ${name(g, k)}`;
   });
 
-  // the small multiples round the stage: the reference words on each pair of the answers that matter most
+  // the small multiples round the stage: the reference words in the space of each three of the answers that matter
+  // most, one triple a cell, the word a cross in its colour
   const pairs: Geometry['pairs'] = [];
   const most = g.rank.slice(0, 8);
-  for (let i = 0; i < most.length && pairs.length < 24; i++) for (let j = i + 1; j < most.length && pairs.length < 24; j++) {
-    const a = most[i], b = most[j], p0 = P.length / 4, l0 = L.length / 4;
-    for (let r = 0; r < R; r++) pt(nx(a, g.cells[a].lex[r] ?? 0), nx(b, g.cells[b].lex[r] ?? 0), 0, WHITE(0.85));
-    const colour = KEY(Math.max(0, g.cells[a].key), 0.99);
-    const wx = nx(a, g.cells[a].value), wy = nx(b, g.cells[b].value);
-    for (let n = 0; n < 4; n++) pt(wx, wy, 0, colour);
-    seg([wx - 0.12, wy, 0], [wx + 0.12, wy, 0], colour); seg([wx, wy - 0.12, 0], [wx, wy + 0.12, 0], colour);
-    for (const [u, v] of [[[-1, -1], [1, -1]], [[-1, -1], [-1, 1]]]) seg([u[0], u[1], 0], [v[0], v[1], 0], WHITE(0.35));
-    pairs.push({ range: [p0, P.length / 4 - p0, l0, L.length / 4 - l0], label: `${g.cells[a].id} × ${g.cells[b].id}` });
+  for (let i = 0; i < most.length && pairs.length < 24; i++) for (let j = i + 1; j < most.length && pairs.length < 24; j++) for (let l = j + 1; l < most.length && pairs.length < 24; l++) {
+    const [a, b, c] = [most[i], most[j], most[l]], p0 = P.length / 4, l0 = L.length / 4;
+    for (let r = 0; r < R; r++) pt(nx(a, g.cells[a].lex[r] ?? 0), nx(b, g.cells[b].lex[r] ?? 0), nx(c, g.cells[c].lex[r] ?? 0), WHITE(0.85));
+    const colour = KEY(Math.max(0, g.cells[a].key), 0.99), w = [nx(a, g.cells[a].value), nx(b, g.cells[b].value), nx(c, g.cells[c].value)];
+    for (let n = 0; n < 4; n++) pt(w[0], w[1], w[2], colour);
+    for (const d of [[0.14, 0, 0], [0, 0.14, 0], [0, 0, 0.14]]) seg(w.map((x, q) => x - d[q]), w.map((x, q) => x + d[q]), colour);
+    box(WHITE(0.22));
+    pairs.push({ range: [p0, P.length / 4 - p0, l0, L.length / 4 - l0], label: `${g.cells[a].id} × ${g.cells[b].id} × ${g.cells[c].id}` });
   }
 
   space('table', () => {

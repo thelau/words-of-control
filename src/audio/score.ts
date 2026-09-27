@@ -52,7 +52,8 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, g: G
   }
 
   a.cutAt(t0 + g.end, t0 + g.end + TAIL);
-  drone.hush(t0 + g.seq, t0 + g.end + 1);
+  // (the room comes back under the verdict: the drone returns as where the words stand is shown)
+  drone.hush(t0 + g.seq, t0 + g.steps[g.steps.length - 1].t);
   drone.remember({ rough: Math.min(1, A.s.arousal * 0.6 + A.s.tension * 0.4), bright: A.s.light, residue: residue.slice(0, 2) }, t0 + g.end);
   return (steps) => play(steps, t0 + g.seq);
 }
