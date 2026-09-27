@@ -47,7 +47,7 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
     // where the words stand, built slowly: the words and the answer that sets them most apart; the reference words as a
     // dot plot along it (0 … 1, stacked where they agree), filling in, the words among them — the rank seen, not
     // written; then one by one the nearest on this answer, a line to their dot; the nearest on all the answers; who
-    // answered and how sure; and last, alone, whose reference words these are
+    // answered and how sure; and last, alone, how many reference words they were measured against
     const lt = t - st.t, k = g.stand, c = g.cells[k], colour = srgb(g.colours[Math.max(0, c.key)]);
     const cx = S[0] + S[2] / 2, cy = S[1] + S[3] / 2, x0 = S[0] + S[2] * 0.12, x1 = S[0] + S[2] * 0.88, ly = cy + 40;
     const at = (v: number) => x0 + v * (x1 - x0);
@@ -78,7 +78,7 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
     });
     if (lt > 5) out.push({ key: 'overall', text: `nearest on all ${n} answers: ${(geo?.nearest ?? []).map(short).join(' · ')}`, x: cx, y: S[1] + S[3] - 56, align: 'c' });
     if (lt > 6.5) out.push({ key: 'ai', text: `${n} questions answered by an AI (Jev), sure to ${c.conf.toFixed(2)}`, x: cx, y: S[1] + S[3] - 36, align: 'c' });
-    if (lt > 8) out.push({ key: 'note', text: `${R} reference words, chosen by the artist`, x: cx, y: S[1] + S[3] - 16, align: 'c' });
+    if (lt > 8) out.push({ key: 'note', text: `${R} reference words`, x: cx, y: S[1] + S[3] - 16, align: 'c' });
     return out;
   }
   const text = st.viz === 'tiles' ? `${K} answers that matter`
