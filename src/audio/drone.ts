@@ -114,20 +114,6 @@ export class Drone {
     g.setTargetAtTime(1, at + 1.2, 0.8);
   }
 
-  /** Haze: the room exhales — the plate opens and its inharmonic modes rise, then settle. */
-  open(from: number, to: number, amount: number) {
-    const f = this.filter.frequency;
-    f.cancelScheduledValues(from);
-    f.setTargetAtTime(900 + 1500 * amount, from, 0.8);
-    f.setTargetAtTime(900 * (1 + this.evening.bright), to, 1.5);
-    for (const i of PLATE_MODES) {
-      const g = this.partials[i].gain;
-      g.cancelScheduledValues(from);
-      g.setTargetAtTime(GAINS[i] * (1 + 3 * amount), from, 0.8);
-      g.setTargetAtTime(GAINS[i], to, 2);
-    }
-  }
-
   /** The room remembers a reaction. */
   remember(m: DroneMemory, at: number) {
     const c = this.a.ctx;

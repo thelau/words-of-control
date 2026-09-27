@@ -6,19 +6,19 @@ The piece must be sharp on ordinary hardware, not only on the newest machine.
 
 - **Target:** 60 fps with no visible hitches on a mainstream laptop (e.g. base M1/M2, recent Intel/AMD iGPU).
 - **Check:** `npm run perf` runs in an isolated headless Chromium on this machine's GPU at a MacBook Pro 16"
-  screen (1728×1117 @2×) with normal vsync. It reports, per phase of real performances and per layer alone,
-  the GPU's own time per frame (WebGPU timestamp queries) and dropped frames.
+  screen (1728×1117 @2×) with normal vsync. It reports, per phase of real performances (fill, mark and clear,
+  merge, steps), the GPU's own time per frame (WebGPU timestamp queries) and dropped frames.
 - **Budget on the reference machine (M3 Pro):** GPU p95 ≤ 8.3 ms per frame (≥ 2× headroom over 60 fps);
   no frame > 33 ms. (Uncapped fps is not a valid measure: the GPU changes power state; use GPU time.)
-- **Resolution strategy:** soft layers (room, relief, fracture, grains, haze) render at CSS resolution and are
-  upscaled by the film composite; the appraisal's text and lines render at native resolution.
+- **One pass:** everything is one fragment shader at native resolution, straight to the canvas. Keep per-pixel
+  work O(1): anything that is the same for every pixel (the step on screen, the marked cells' rectangles, the
+  layout) is computed once per frame on the CPU and passed in. A loop over the cells per pixel cost 6 ms.
 - Run it on every visual or audio change; note the numbers in the commit message when they move.
 
-### Current numbers (2026-09-23, M3 Pro, v2)
+### Current numbers (2026-09-27, M3 Pro, the grid)
 
-Full performances: 0 dropped frames everywhere; GPU mean 2.8 ms (room), 3.1–5.8 ms per performance.
-Per layer (GPU mean / p95): relief 5.3/6.7, grains 4.5/6.7, fracture 4.1/7.2, haze 2.4/3.4, appraisal
-readings 2.9–3.7 / 3.7–5.7, scatter reading ~5/9 (brief, marginally over).
+0 dropped frames everywhere. GPU mean / p95: room 0.9/1.1 ms; fill 2.6/3.6; mark and clear 2.5/4.2; merge 3.2–4.4 /
+4.1–5.6; steps 2.6–3.2 / 3.4–4.3.
 
 ## Sound check
 

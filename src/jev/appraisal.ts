@@ -15,20 +15,17 @@ const idsOf = (type: string) => Object.keys(ALL).filter((k) => ALL[k].type === t
 export const SCORE_IDS = idsOf('score');
 export const CHOICE_IDS = idsOf('choice');
 export const NOUL_IDS = idsOf('noul');
-const OPTIONS: Record<string, string[]> = Object.fromEntries(
+/** The options of each choice question, in battery order. */
+export const OPTIONS: Record<string, string[]> = Object.fromEntries(
   CHOICE_IDS.map((k) => [k, Object.keys(ALL[k].criteria as Record<string, string>)]),
 );
 
 export type Choice = { top: string; p: Record<string, number>; confidence: number };
 
-/** How the word was typed (this submission only, in memory only). */
-export type TypingTrace = { intervals: number[]; backspaces: number };
-
 export type Appraisal = {
   seed: number;
   /** UTF-8 bytes of the word: the most literal data there is. */
   bytes: Uint8Array;
-  typing: TypingTrace;
   /** Scores normalised to 0..1, by question id. */
   s: Record<string, number>;
   c: Record<string, Choice>;
@@ -36,8 +33,6 @@ export type Appraisal = {
   /** How sure Jev is of each answer (0..1), by question id: a choice's or a score's own confidence; for the others
    *  (a probability of yes), how far from a coin toss. */
   k: Record<string, number>;
-  /** Every number above in a fixed order: the data the machine shows and sounds. */
-  tape: Float32Array;
   /** 0..1 — how indifferent the machine is to this word. */
   lazy: number;
   /** The mood the piece is played in (sums to 1): each is its own world, in image and in sound. */
@@ -46,7 +41,7 @@ export type Appraisal = {
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
-export function buildAppraisal(a: Answers, text: string, typing: TypingTrace, seed: number): Appraisal {
+export function buildAppraisal(a: Answers, text: string, seed: number): Appraisal {
   const s: Record<string, number> = {};
   const k: Record<string, number> = {};
   for (const id of SCORE_IDS) {
@@ -68,12 +63,6 @@ export function buildAppraisal(a: Answers, text: string, typing: TypingTrace, se
   for (const id of NOUL_IDS) { n[id] = (a[id] as NoulAnswer | undefined)?.noul ?? 0; k[id] = Math.abs(2 * n[id] - 1); }
 
   const bytes = new TextEncoder().encode(text);
-  const tape: number[] = [];
-  for (const b of bytes) tape.push(b / 255);
-  for (const id of CHOICE_IDS) { for (const o of OPTIONS[id]) tape.push(c[id].p[o]); tape.push(c[id].confidence); }
-  for (const id of SCORE_IDS) tape.push(s[id]);
-  for (const id of NOUL_IDS) tape.push(n[id]);
-  for (const dt of typing.intervals) tape.push(clamp01(dt / 1000));
 
   // Indifference: faint, calm, ordinary, uncharged — "a lazy afternoon".
   const lazy = clamp01(
@@ -87,5 +76,5 @@ export function buildAppraisal(a: Answers, text: string, typing: TypingTrace, se
   const neg = (em.anger + em.fear + em.anxiety + em.sadness) * (1.4 - s.valence) + n.violence * 0.8 + n.loss * 0.4;
   const neu = clamp01(lazy) * 0.9 + (1 - s.intensity) * 0.5 + (1 - c.emotion.confidence) * 0.3 + (c.kind?.p?.object ?? 0) * 0.5;
   const sum = pos + neg + neu + 1e-6;
-  return { seed, bytes, typing, s, c, n, k, tape: new Float32Array(tape), lazy: clamp01(lazy), mood: { pos: pos / sum, neu: neu / sum, neg: neg / sum } };
+  return { seed, bytes, s, c, n, k, lazy: clamp01(lazy), mood: { pos: pos / sum, neu: neu / sum, neg: neg / sum } };
 }

@@ -10,7 +10,8 @@ to black. Nothing on screen or in the speakers is AI-generated: Jev only judges.
 
 ## Read first
 
-- `docs/DIRECTION-v2.md` — current direction (appraisal → verdict micro-clips → black). Supersedes parts of the spec.
+- `docs/GRID.md` — current direction (the grid: fill → mark → clear → merge → steps on a beat → black) and its engine.
+- `docs/DIRECTION-v2.md` — the earlier direction (the stance still holds; its clips and species are gone).
 - `docs/DECISIONS.md` — the artist's decisions, newest first. They override `docs/SPEC.md` where they differ.
 - `docs/SPEC.md` — original build spec (still authoritative for everything not overridden).
 - `docs/ENGINEERING.md` — performance budget, workflow, code rules.
@@ -35,14 +36,13 @@ to black. Nothing on screen or in the speakers is AI-generated: Jev only judges.
 ```sh
 npm run dev         # artist's dev server (http://localhost:5173); ?mock = offline fake Jev
 npm run typecheck
-npm run perf        # GPU time + dropped frames at 1728×1117 @2×, per phase and per layer; must pass
+npm run perf        # GPU time + dropped frames at 1728×1117 @2×, per phase; must pass
 npm run e2e         # keyboard flow, safety paths, storage (add -- --live for one real Jev call)
 npm run capture -- word …         # contact sheets → docs/captures/ (local)
 node scripts/listen.ts word …     # record the real audio: loudness, true peak, spectrogram (needs ffmpeg)
-node scripts/film.ts word …       # record performances as video; flags jumps inside shots (flicker)
-node scripts/clips.ts clip …      # one clip alone (--word, --ops e,w,f, --angles n) → contact sheet
+node scripts/film.ts word …       # record performances as video; flags jumps inside a step or phase (flicker)
 node scripts/sequence.ts word …   # one visitor, several words in a row (one session) → docs/captures/sequence.png
-node scripts/lexicon.ts            # rebuild the atlas's reference lexicon from the fixtures (never visitors' words)
+node scripts/lexicon.ts            # rebuild the grid's reference lexicon from the fixtures (never visitors' words)
 node scripts/appraise.ts word …   # full battery on real words → table (uses the API key)
 node scripts/fixtures.ts          # re-record Jev answers for the test words (mock mode + tests)
 node scripts/probe.ts             # safety calibration probe (see docs/jev-calibration.md)

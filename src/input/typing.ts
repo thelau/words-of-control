@@ -4,7 +4,6 @@
  * graphemes, not UTF-16 units.
  */
 
-import type { TypingTrace } from '../jev/appraisal.ts';
 
 /** A short sentence, still one line (graphemes, not code units). */
 export const LIMIT = 60;
@@ -31,9 +30,6 @@ export class Typing {
   private started = false;
   private composing = false;
   /** How this word is being typed — in memory only, cleared with the word. */
-  private lastKeyAt = 0;
-  private intervals: number[] = [];
-  private backspaces = 0;
 
   private ev: TypingEvents;
 
@@ -61,21 +57,7 @@ export class Typing {
   clear() {
     this.value = '';
     this.sink.value = '';
-    this.intervals = [];
-    this.backspaces = 0;
-    this.lastKeyAt = 0;
     this.ev.onChange('');
-  }
-
-  /** The rhythm of the current word (intervals between keys, in ms). */
-  trace(): TypingTrace {
-    return { intervals: this.intervals.slice(0, 48), backspaces: this.backspaces };
-  }
-
-  private mark() {
-    const now = performance.now();
-    if (this.lastKeyAt) this.intervals.push(now - this.lastKeyAt);
-    this.lastKeyAt = now;
   }
 
   private keydown(e: KeyboardEvent) {
@@ -107,8 +89,6 @@ export class Typing {
     }
     if (e.key === 'Backspace') {
       if (this.value.length) {
-        this.backspaces++;
-        this.mark();
         this.ev.onKey('backspace', e.code);
       }
       return;
@@ -123,7 +103,6 @@ export class Typing {
         this.ev.onLimit();
         return;
       }
-      this.mark();
       this.ev.onKey('char', e.code || e.key);
     }
   }

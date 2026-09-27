@@ -4,6 +4,16 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
+- **The grid replaces the matrix** ("still gimmicky, not nice", then Laurent's own structure): input → a grid of
+  every measurement, each cell its name, value and a small live figure, filling as the results land → only the
+  cells that matter remain, in place → they combine into one square at the centre, the result → the result
+  switches on a 4/4 beat at a tempo from the word, a different drawing each beat → black. Colour where the key
+  results are. "We are getting our own style, Ikeda was an inspiration but we don't copy." See docs/GRID.md.
+- **Just the input on the first screen, no species picker**; the room is the same engine (the empty grid), "so it's
+  all optimized and seamless". The earlier species (particles, ink, solids, plug-ins), the appraisal cuts, the
+  beds and the robot voices are removed; everything is one WebGPU pass ("if WebGPU can do the job then it's better";
+  "smooth as hell"; "keep this lean").
+
 - **The matrix cuts at the film's rhythm** ("can't you record videos to check on timing", after "clone this on speed
   of sequence, cut"). Filmed and measured against the Ikeda film: it cut 4 times a second with 3–4 s uncut sections;
   Ikeda's cuts 10.4/s, flashes of 1–2 frames, 28% black, on a ~3 s pulse. Now each section is one or two ~3 s cycles

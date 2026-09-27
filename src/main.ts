@@ -1,68 +1,40 @@
 /**
- * Boot + state machine. Rest/typing show the room; Enter asks Jev once; the
- * answer becomes an appraisal, the director turns it into a plan, and the
- * plan is performed — image and sound from one clock — until the cut to black
- * and its reverb have passed. Then the room returns.
+ * Boot + state machine. Rest/typing show the room (the empty grid); Enter asks Jev once; the answer becomes an
+ * appraisal, the appraisal a score (show/grid.ts), and the score is performed — image and sound from one clock —
+ * until the cut to black and its reverb have passed. Then the room returns.
  */
 import './style.css';
-import { Renderer, type Layer } from './render/gpu.ts';
+import { Renderer } from './render/gpu.ts';
 import { Frame } from './render/frame.ts';
 import { Typing } from './input/typing.ts';
 import { Display } from './input/display.ts';
 import { AudioEngine } from './audio/audio.ts';
 import { Drone } from './audio/drone.ts';
 import { Keys } from './audio/keys.ts';
-import { playPerformance } from './audio/score.ts';
+import { playPerformance, TAIL } from './audio/score.ts';
 import { analyze } from './jev/client.ts';
 import { buildAppraisal, type Appraisal } from './jev/appraisal.ts';
 import type { Answers } from './jev/types.ts';
-import { CUT_MODES, DATA_CLIPS, direct, type Plan, type Species } from './show/director.ts';
-import { pack, reading } from './show/matrix.ts';
-import { momentAt, type Moment } from './show/timeline.ts';
+import { grid, keyRects, layout, pack, VIZ, type Grid } from './show/grid.ts';
 import { seedFromText } from './core/rng.ts';
 import { showSupport, hideSupport } from './support.ts';
 import { showNotice, hideNotice } from './notice.ts';
-import { plateMode } from './show/chladni.ts';
-import { PLUGINS, PLUGIN_NAMES, READY, isPlugin } from './show/species/index.ts';
-import { strikeShot } from './show/rhythm.ts';
 
 export type State = 'idle' | 'typing' | 'analyzing' | 'performing' | 'barred' | 'support' | 'error';
 
 const query = new URLSearchParams(location.search);
-// ?engine=old: the data layer drawn straight from its formula, without the particle simulation (comparison)
-const engineOld = query.get('engine') === 'old' ? 1 : 0;
 
-// grading per layer: neutral bloom, film halation (only the brightest light), flat = data (true black)
-const GRADE: Record<Layer, { bloom: number; halation: number; flat: number }> = {
-  room: { bloom: 0.06, halation: 0, flat: 0 }, black: { bloom: 0, halation: 0, flat: 0 },
-  appraisal: { bloom: 0.02, halation: 0, flat: 1 }, matrix: { bloom: 0.01, halation: 0, flat: 1 }, relief: { bloom: 0.02, halation: 0.02, flat: 0 },
-  sand: { bloom: 0.05, halation: 0.03, flat: 0 },
-  data: { bloom: 0.05, halation: 0.02, flat: 0 },
-  ink: { bloom: 0.03, halation: 0.02, flat: 1 }, // (more glow made fresh ink a lamp)
-  solids: { bloom: 0.015, halation: 0, flat: 1 }, // (crisp: a glow round the spheres read as fog)
-  ...Object.fromEntries(PLUGIN_NAMES.map((n) => [n, { bloom: PLUGINS[n].bloom, halation: PLUGINS[n].halation, flat: 1 }])) as Record<(typeof PLUGIN_NAMES)[number], { bloom: number; halation: number; flat: number }>,
-};
-
-/** White balance from the matter: cold for glass, ice, water; warm for fire, sand, lazy afternoons. */
-function whiteBalance(A: Appraisal): [number, number, number] {
-  const m = A.c.material.p;
-  const cold = Math.min(1, m.glass + m.ice + m.water + m.metal * 0.5);
-  const warm = Math.min(1, m.fire + m.sand + m.wood * 0.5 + A.lazy * 0.6);
-  const k = warm - cold; // -1 cold … +1 warm
-  return [1 + 0.12 * k, 1 + 0.02 * k, 1 - 0.18 * k];
-}
-
-/** A performance in flight: its plan, its start on the shared clock. */
-export type Show = { A: Appraisal; plan: Plan; t0: number };
+/** A performance in flight: its score, its start on the shared clock. */
+export type Show = { A: Appraisal; g: Grid; t0: number };
+/** What is on screen (the grid's modes, grid.wgsl). */
+export type Phase = 'room' | 'wait' | 'grid' | 'black';
 
 export type App = {
   state: () => State;
   /** Perform from Jev answers (harness, tests). */
   perform: (answers: Answers, text: string) => void;
-  /** Perform a hand-made plan with an appraisal (harness). */
-  performPlan: (A: Appraisal, plan: Plan) => void;
   show: () => Show | null;
-  moment: () => Moment | null;
+  phase: () => Phase;
   harnessOpen: boolean;
   frameHooks: Set<(now: number) => void>;
   canvas: HTMLCanvasElement;
@@ -82,10 +54,6 @@ async function boot() {
   const renderer = new Renderer(canvas);
   await renderer.init();
   const frame = new Frame();
-  frame.set('outX', renderer.width); frame.set('outY', renderer.height); frame.set('outDpr', renderer.dpr);
-  frame.set('resX', renderer.lowW); frame.set('resY', renderer.lowH); frame.set('dpr', 1);
-  frame.set('wbR', 1); frame.set('wbG', 1); frame.set('wbB', 1); frame.set('zoom', 1);
-  renderer.warmUp(frame.f32);
   const display = new Display();
 
   let audio: AudioEngine | null = null;
@@ -93,8 +61,7 @@ async function boot() {
   let keys: Keys | null = null;
   let state: State = 'idle';
   let show: Show | null = null;
-  let serial = 0;
-  let moment: Moment | null = null;
+  let phase: Phase = 'room';
   let keysTyped = 0;
   let charge = 0;
   let kick = 0;
@@ -118,41 +85,20 @@ async function boot() {
     typing.focus();
   }
 
-  function performPlan(A: Appraisal, plan: Plan) {
+  function perform(answers: Answers, text: string) {
+    const A = buildAppraisal(answers, text, seedFromText(text));
+    const g = grid(A);
+    renderer.setScore(pack(A, g));
     ensureAudio();
     state = 'performing';
     display.hideCursor();
     void display.fadeText();
     typing.clear();
     keysTyped = 0;
-    // the appraisal begins as the word finishes fading
+    // the grid begins as the word finishes fading
     const t0 = clock() + 0.3;
-    show = { A, plan, t0 };
-    frame.setAppraisal(A);
-    frame.set('serial', ++serial); // the performance's number (this session only: nothing is kept)
-    renderer.setTape(A.tape);
-    if (audio && drone) playPerformance(audio, drone, A, plan, t0);
-  }
-
-  // the species picker (testing): the matrix, or one of the earlier species (kept in memory only)
-  const picker = document.getElementById('species') as HTMLButtonElement;
-  // (the matrix is the piece; the earlier species stay reachable here for comparison)
-  const PICKS: Species[] = ['matrix', 'points', 'ink', 'solids', ...PLUGIN_NAMES.filter((n) => READY[n])];
-  const LABEL: Record<string, string> = { points: 'particles' };
-  let pick = 0;
-  picker.addEventListener('mousedown', (e) => e.preventDefault()); // (the typing keeps its focus)
-  picker.addEventListener('click', () => {
-    pick = (pick + 1) % PICKS.length;
-    const s = PICKS[pick];
-    picker.textContent = LABEL[s] ?? s;
-  });
-
-  function perform(answers: Answers, text: string) {
-    const A = buildAppraisal(answers, text, typing.trace(), seedFromText(text));
-    renderer.setWord(text);
-    const plan = direct(A, undefined, PICKS[pick]);
-    if (plan.species === 'matrix') renderer.setReading(pack(reading(A)));
-    performPlan(A, plan);
+    show = { A, g, t0 };
+    if (audio && drone) playPerformance(audio, drone, A, g, t0);
   }
 
   async function submit(text: string) {
@@ -240,9 +186,8 @@ async function boot() {
   const app: App = {
     state: () => state,
     perform,
-    performPlan,
     show: () => show,
-    moment: () => moment,
+    phase: () => phase,
     harnessOpen: false,
     frameHooks: new Set(),
     canvas,
@@ -253,23 +198,15 @@ async function boot() {
 
   // ---- frame loop
   let last = performance.now();
-  let lastKey = '';
-  // quality follows the device: if a performance runs slow (frames over ~20 ms on average), the soft layers
-  // and the point count step down (1 → 0.75 → 0.5) — a phone plays the same piece, lighter
-  let slow = 0;
   const loop = (now: number) => {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
-    if (show) {
-      slow = slow * 0.97 + (dt > 0.02 ? 1 : 0) * 0.03;
-      // (?full pins it: the perf check measures full quality)
-      if (slow > 0.5 && renderer.quality > 0.5 && !query.has('full')) { renderer.quality = renderer.quality > 0.8 ? 0.75 : 0.5; slow = 0; }
-    }
     renderer.resize();
-    const f = (k: string, v: number) => frame.set(k, v);
-    f('outX', renderer.width); f('outY', renderer.height); f('outDpr', renderer.dpr);
-    f('time', (now / 1000) % 4096); f('dt', dt);
-    f('exposure', 1); f('grain', 0.045);
+    const f = frame.set.bind(frame);
+    f('resX', renderer.width); f('resY', renderer.height); f('dpr', renderer.dpr);
+    f('time', (now / 1000) % 4096);
+    const L = layout(renderer.width, renderer.height);
+    f('gridX', L.x); f('gridY', L.y); f('cs', L.cs);
 
     // typing charges the room, gently
     charge += (Math.min(1, keysTyped / 12) - charge) * (1 - Math.exp(-dt * 3));
@@ -278,72 +215,26 @@ async function boot() {
     f('kick', kick);
     drone?.lean(charge);
 
-    let layer: Layer = 'room';
-    f('flash', 0); f('invert', 0); f('mode', 0); f('zoom', 1); f('offX', 0); f('offY', 0);
+    phase = state === 'analyzing' ? 'wait' : 'room';
     if (show) {
-      const m = momentAt(show.plan, clock() - show.t0, show.A.s.arousal);
-      moment = m;
-      if (m.done) {
+      const t = clock() - show.t0;
+      if (t >= show.g.end + TAIL) {
         show = null;
-        moment = null;
         roomFade = 0;
         toIdle();
       } else {
-        layer = m.layer;
-        f('lt', m.lt); f('dur', m.dur); f('u', Math.min(1, m.lt / m.dur));
-        f('variant', m.variant); f('aborted', m.aborted ? 1 : 0);
-        f('flash', m.flash); f('invert', m.invert ? 1 : 0);
-        f('mode', m.mode);
-        f('zoom', m.zoom); f('offX', m.offX); f('offY', m.offY);
-        f('angle', m.angle); f('angleAt', m.angleAt);
-        f('engineOld', engineOld);
-        f('hold', m.hold ? 1 : 0);
-        f('secT', m.secT); f('secU', m.secU);
-        const v0 = show.plan.shots[0]?.start ?? 0;
-        const vt = Math.max(0, clock() - show.t0 - v0);
-        f('vt', vt); f('vu', Math.min(1, vt / Math.max(0.1, show.plan.blackAt - v0)));
-        const si = m.key.startsWith('shot') ? Number(m.key.slice(4)) : -1;
-        f('strike', si >= 0 && si === strikeShot(show.plan) ? show.A.c.rhythm.p.strike : 0);
-        f('echoOp', m.ops.echo); f('warpOp', m.ops.warp); f('flowOp', m.ops.flow);
-        // a misreading plays its first shots in the opposite mood, then corrects itself
-        f('moodPos', m.flip ? show.A.mood.neg : show.A.mood.pos);
-        // the endless verdict fades instead of cutting: the image dims over the last seconds of its last shot
-        const lastEnd = Math.max(...show.plan.shots.map((s) => s.start + s.dur));
-        const fade = show.plan.fade > 0 && m.clip ? Math.min(1, Math.max(0, (lastEnd - (clock() - show.t0)) / show.plan.fade)) : 1;
-        f('exposure', fade * fade);
-        f('seed', (show.A.seed % 100000) + m.variant * 1000);
-        if (m.key !== lastKey && (layer === 'sand' || layer === 'data')) f('mode', 1); // a fresh layer of sand; particles placed at once
-        // ink (one continuous fluid) and solids (spheres with momentum) carry across their shots (and the black
-        // between them): fresh only as their first shot begins
-        if ((layer === 'ink' || layer === 'solids' || isPlugin(layer)) && m.key !== lastKey && si === show.plan.shots.findIndex((x) => x.clip === m.clip)) f('mode', 1);
-        if (m.clip === 'chladni') {
-          const [mm, nn] = plateMode(show.A, m.seed, m.lt / m.dur);
-          f('modeM', mm); f('modeN', nn);
-        }
-        lastKey = m.key;
-        // how many points the formation uses: all for the dense geometric ones, fewer for the costly soft ones
-        renderer.dataShare = m.clip === 'cloud' || m.clip === 'tube' ? 0.7 : m.clip === 'landscape' || m.clip === 'hall' ? 0.85 : 1;
-        // variant2: which data formation; for ink, which reading it is poured from (1: a question's line)
-        f('variant2', layer === 'data' ? (DATA_CLIPS as readonly string[]).indexOf(m.clip ?? '') : layer === 'matrix' ? m.seed : layer === 'ink' && show.plan.drama === 'question' ? 1 : 0);
+        phase = t < 0 ? 'wait' : t < show.g.end ? 'grid' : 'black';
+        f('lt', Math.max(0, t));
+        renderer.setRects(keyRects(show.g, t, renderer.width, renderer.height));
+        const st = show.g.steps.find((x) => t >= x.t && t < x.t + x.dur);
+        if (st) { f('viz', VIZ.indexOf(st.viz)); f('full', st.full ? 1 : 0); f('stepU', (t - st.t) / st.dur); }
+        f('beatU', ((t - show.g.seq) / show.g.beat) % 1);
       }
     }
-    if (layer === 'room') {
-      roomFade = Math.min(1, roomFade + dt / 1.8);
-      f('layerFade', roomFade * roomFade);
-    }
-    const g = GRADE[layer];
-    // the matrix is pure: white on true black, its black frames 0 (no room tone, no vignette, no grain)
-    const pure = show?.plan.species === 'matrix';
-    f('bloom', g.bloom); f('halation', g.halation); f('flat', pure ? 1 : g.flat);
-    if (pure) f('grain', 0);
-    const wb = show && layer !== 'appraisal' ? whiteBalance(show.A) : [1, 1, 1];
-    f('wbR', wb[0]); f('wbG', wb[1]); f('wbB', wb[2]);
-    // text and lines are drawn at native resolution; everything soft (and scatter's dots) at CSS resolution
-    const hi = layer === 'matrix' || (layer === 'appraisal' && moment?.mode !== CUT_MODES.indexOf('scatter'));
-    f('hiRes', hi ? 1 : 0);
-    f('resX', hi ? renderer.width : renderer.lowW); f('resY', hi ? renderer.height : renderer.lowH); f('dpr', hi ? renderer.dpr : 1);
-    renderer.render(layer, frame.f32, hi);
-    picker.hidden = !(state === 'idle' || state === 'typing' || state === 'error');
+    if (phase === 'room') roomFade = Math.min(1, roomFade + dt / 1.8);
+    f('fade', roomFade * roomFade);
+    f('mode', { grid: 0, room: 1, wait: 2, black: 3 }[phase]);
+    renderer.render(frame.f32);
     for (const h of app.frameHooks) h(now);
     requestAnimationFrame(loop);
   };

@@ -39,25 +39,12 @@ await typeWord('n');
 check('backspace edits', (await text()) === 'ocean');
 await page.keyboard.press('Enter');
 check('Enter performs', await waitState('performing', 5000));
-const plan = await page.evaluate(() => (window as any).__woc.show()?.plan);
-check('the plan has an appraisal and a verdict', !!plan && plan.cuts.length > 3 && plan.shots.length >= 1, plan ? `${plan.cuts.length} cuts, ${plan.shots.map((x: any) => x.clip).join(' ')}` : '');
-const layers = new Set<string>();
-await page.waitForFunction(() => { const m = (window as any).__woc.moment(); (window as any).__seen = ((window as any).__seen ?? new Set()).add(m?.layer); return (window as any).__woc.state() !== 'performing'; }, null, { timeout: 40000, polling: 40 }).catch(() => {});
-for (const l of await page.evaluate(() => [...((window as any).__seen ?? [])])) if (l) layers.add(l);
-check('it passes through appraisal, verdict and black', layers.has('appraisal') && layers.has('black') && [...layers].some((l) => ['matrix', 'relief', 'sand', 'data', 'ink', 'solids', 'threads'].includes(l)), [...layers].join(', '));
+const g = await page.evaluate(() => (window as any).__woc.show()?.g);
+check('the score has its cells, what matters and its steps', !!g && g.cells.length === 43 && g.keys.length >= 4 && g.steps.length === 20, g ? `${g.keys.length} matter, ${g.bpm} bpm` : '');
+await page.waitForFunction(() => { const w = (window as any).__woc; (window as any).__seen = ((window as any).__seen ?? new Set()).add(w.phase()); return w.state() !== 'performing'; }, null, { timeout: 40000, polling: 40 }).catch(() => {});
+const phases = new Set<string>(await page.evaluate(() => [...((window as any).__seen ?? [])]));
+check('it passes through the grid and black', phases.has('grid') && phases.has('black'), [...phases].join(', '));
 check('then returns to the room with the cursor', (await W()) === 'idle' && (await cursorShown()) && (await text()) === '');
-
-// ---- the species picker (testing): a click cycles it, the typing keeps its focus, the next word obeys it
-await page.click('#species');
-check('the picker cycles (matrix → particles)', (await page.evaluate(() => document.getElementById('species')!.textContent)) === 'particles');
-await typeWord('ocean');
-check('…and typing still works after a click', (await text()) === 'ocean');
-await page.keyboard.press('Enter');
-await waitState('performing', 5000);
-check('…and the word obeys it', (await page.evaluate(() => (window as any).__woc.show()?.plan.species)) === 'points');
-check('the picker hides during a performance', await page.evaluate(() => document.getElementById('species')!.hidden));
-await waitState('idle', 40000);
-for (let k = 0; k < 10 && (await page.evaluate(() => document.getElementById('species')!.textContent)) !== 'matrix'; k++) await page.click('#species');
 
 // ---- limit
 await typeWord('abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz');

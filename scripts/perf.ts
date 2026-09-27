@@ -18,7 +18,7 @@ const BUDGET_P95_MS = Number(arg('budget', '8.3'));
 
 const s = await openSession({ width: W, height: H, dpr: DPR });
 const { page } = s;
-await page.goto(`${s.url}?mock&full`);
+await page.goto(`${s.url}?mock`);
 await page.waitForFunction(() => (window as any).__woc, null, { timeout: 30000 });
 await page.waitForTimeout(1500);
 
@@ -55,38 +55,17 @@ const fixtures = JSON.parse(readFileSync('src/jev/fixtures.json', 'utf8'));
 const rows: [string, ReturnType<typeof stats>][] = [];
 progress('room');
 rows.push(['room (rest)', stats(await sample(2000))]);
-// one performance per clip family, sampled through its verdict
-for (const [word, label] of [['fuck', 'verdict (fuck)'], ['mother', 'verdict (mother)'], ['dust', 'verdict (dust)'], ['nothing', 'drift (nothing)']] as const) {
+// performances, sampled by phase: the fill (text and figures in space), the merge, the steps
+for (const word of ['fuck', 'mother', 'dust', 'nothing']) {
   await page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [fixtures[word], word]);
-  // (the appraisal is kept for the per-layer rows below: a throwaway performance per row would stack its sound
-  // under every later row)
-  const plan = await page.evaluate(() => { const W = (window as any).__woc; (window as any).__A ??= W.show().A; return W.show().plan; });
-  await page.waitForFunction((t) => { const w = (window as any).__woc; const s = w.show(); return !s || w.audioClock() - s.t0 >= t; }, plan.shots[0].start, { polling: 'raf' });
-  progress(label);
-  rows.push([`appraisal→verdict ${label} ${plan.species}`, stats(await sample(Math.min(4000, (plan.blackAt - plan.shots[0].start) * 1000)))]);
+  const g = await page.evaluate(() => (window as any).__woc.show().g);
+  const at = (t: number) => page.waitForFunction((t) => { const w = (window as any).__woc; const s = w.show(); return !s || w.audioClock() - s.t0 >= t; }, t, { polling: 'raf' });
+  for (const [phase, from, to] of [['fill', 0, g.mark], ['mark, clear', g.mark, g.merge], ['merge', g.merge, g.seq], ['steps', g.seq, g.end]] as const) {
+    await at(from);
+    progress(`${word} ${phase}`);
+    rows.push([`${word} ${phase}`, stats(await sample((to - from) * 1000 - 50))]);
+  }
   await page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 200, timeout: 40000 });
-}
-// per layer, alone, on the most charged word: where the GPU time goes
-const layers: [string, ReturnType<typeof stats>][] = [];
-const solo = (clip: string, mode: string) => page.evaluate(([clip, mode]) => {
-  const W = (window as any).__woc;
-  const A = (window as any).__A;
-  const cuts = mode ? [{ start: 0, dur: 3.2, mode, variant: 0.3 }] : [];
-  const shots = clip ? [{ clip, start: 0.05, dur: 3.2, seed: 7, aborted: false, angles: [{ at: 0, seed: 0.5, zoom: 1, offX: 0, offY: 0 }], ops: { echo: 0, warp: 0, flow: 0 } }] : [];
-  W.performPlan(A, { cuts, shots, blackAt: 3.3, end: 3.9 });
-}, [clip, mode]);
-for (const clip of ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall', 'relief', 'chladni', 'ink', 'solids', 'threads']) {
-  await solo(clip, '');
-  await page.waitForTimeout(700);
-  progress(clip);
-  layers.push([`clip ${clip}`, stats(await sample(2000))]);
-  await page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 100, timeout: 10000 });
-}
-for (const mode of ['barcode', 'numbers', 'spectrum', 'bits', 'scatter', 'line']) {
-  await solo('', mode);
-  await page.waitForTimeout(700);
-  layers.push([`appraisal ${mode}`, stats(await sample(2000))]);
-  await page.waitForFunction(() => !(window as any).__woc.show(), null, { polling: 100, timeout: 10000 });
 }
 await s.close();
 
@@ -97,11 +76,5 @@ for (const [name, r] of rows) {
   const over = r.gpuP95 > BUDGET_P95_MS || r.worstFrame > 33;
   fail ||= over;
   console.log(name.padEnd(44) + `${String(r.frames).padStart(6)} ${r.gpuMean.toFixed(2).padStart(8)} ${r.gpuP95.toFixed(2).padStart(6)} ${r.gpuMax.toFixed(2).padStart(6)} ${r.worstFrame.toFixed(1).padStart(10)} ${String(r.dropped).padStart(8)}${over ? '   OVER' : ''}`);
-}
-console.log('\nper layer (alone, word "fuck")'.padEnd(45) + 'frames  gpu mean   p95    max');
-for (const [name, r] of layers) {
-  const over = r.gpuP95 > BUDGET_P95_MS;
-  fail ||= over;
-  console.log(name.padEnd(44) + `${String(r.frames).padStart(6)} ${r.gpuMean.toFixed(2).padStart(8)} ${r.gpuP95.toFixed(2).padStart(6)} ${r.gpuMax.toFixed(2).padStart(6)}${over ? '   OVER' : ''}`);
 }
 process.exit(fail ? 1 : 0);
