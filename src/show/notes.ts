@@ -34,13 +34,21 @@ export function notes(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w:
   out.push({ key: 'head', text: `${word} · ${i + 1} / ${g.steps.length} · ${g.bpm} bpm · ${mood} ${Math.max(m.pos, m.neu, m.neg).toFixed(2)}`, x: gx, y: gy - 10, align: 'bl' });
   const S = stage(w, h).map((x) => x / dpr);
   if (st.viz === 'stand') {
-    // the answer that sets the word most apart, ranked among the reference words
-    const k = g.keys[0], c = g.cells[k];
-    const mean = c.lex.reduce((a, b) => a + b, 0) / R;
-    const up = c.value >= mean, beyond = c.lex.filter((v) => (up ? v < c.value : v > c.value)).length;
-    const cx = S[0] + S[2] / 2, cy = S[1] + S[3] / 2;
-    out.push({ key: 'stand', text: `${name(g, k)}  ${c.value.toFixed(2)}`, x: cx, y: cy - 34, align: 'c', size: 'big', colour: srgb(g.colours[0]) });
-    out.push({ key: 'rank', text: `${up ? 'above' : 'below'} ${beyond} of ${R} words`, x: cx, y: cy + 26, align: 'c', size: 'mid' });
+    // where the word stands: the answer that sets it most apart, and the reference words laid out along it (0 … 1),
+    // the word among them — its rank seen, not written; then its nearest words, and whose words these are
+    const k = g.stand, c = g.cells[k], colour = srgb(g.colours[Math.max(0, c.key)]);
+    const cx = S[0] + S[2] / 2, cy = S[1] + S[3] / 2, x0 = S[0] + S[2] * 0.12, x1 = S[0] + S[2] * 0.88, ly = cy + 34;
+    const at = (v: number) => x0 + v * (x1 - x0);
+    out.push({ key: 'word', text: word, x: cx, y: cy - 86, align: 'c', size: 'big', colour });
+    out.push({ key: 'answer', text: `${name(g, k)}  ${c.value.toFixed(2)}`, x: cx, y: cy - 28, align: 'c', size: 'mid', colour });
+    out.push({ key: 'rule', text: '', x: x0, y: ly, rule: x1 - x0 });
+    out.push({ key: 'r0', text: '0', x: x0 - 16, y: ly, align: 'c' }, { key: 'r1', text: '1', x: x1 + 16, y: ly, align: 'c' });
+    c.lex.forEach((v, j) => out.push({ key: `d${j}`, text: '', x: at(v), y: ly, align: 'c', anchor: true }));
+    const near = geo?.nearest ?? [];
+    near.forEach((w2, i) => { const j = g.refs.indexOf(w2); if (j >= 0) out.push({ key: `n${i}`, text: w2, x: at(c.lex[j]), y: ly + 18 + 15 * i, align: 'c' }); });
+    out.push({ key: 'me', text: '', x: at(c.value), y: ly, align: 'c', anchor: true, me: true, colour });
+    out.push({ key: 'melabel', text: word, x: at(c.value), y: ly - 10, align: 'c', colour });
+    out.push({ key: 'note', text: `${R} reference words, chosen by the artist`, x: cx, y: S[1] + S[3] - 18, align: 'c' });
     return out;
   }
   const text = st.viz === 'tiles' ? `${K} answers that matter`
@@ -51,12 +59,18 @@ export function notes(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w:
   // labels on the data: each anchor projected through the step's camera into its rectangle
   if (space && geo) {
     const [rx, ry, rw, rh] = space.rect, vp = space.vp;
-    geo.anchors[space.viz].forEach((a, k) => {
+    const placed: [number, number][] = [];
+    // (the word's own label first: it is never the one left out)
+    [...geo.anchors[space.viz].entries()].sort(([, a], [, b]) => Number(b.text === word) - Number(a.text === word)).forEach(([k, a]) => {
       const [x, y, z] = a.p;
       const cw = vp[3] * x + vp[7] * y + vp[11] * z + vp[15];
       if (cw <= 0.05) return;
       const nx = (vp[0] * x + vp[4] * y + vp[8] * z + vp[12]) / cw, ny = (vp[1] * x + vp[5] * y + vp[9] * z + vp[13]) / cw;
       if (Math.abs(nx) > 0.98 || Math.abs(ny) > 0.98) return;
+      // (a label that would land on one already placed is left out)
+      const px = (rx + (nx * 0.5 + 0.5) * rw) / dpr, py = (ry + (0.5 - ny * 0.5) * rh) / dpr;
+      if (placed.some(([qx, qy]) => Math.abs(qx - px) < 90 && Math.abs(qy - py) < 13)) return;
+      placed.push([px, py]);
       out.push({ key: `a${k}`, text: a.text, x: (rx + (nx * 0.5 + 0.5) * rw) / dpr, y: (ry + (0.5 - ny * 0.5) * rh) / dpr - 7, anchor: true, colour: a.c ? srgb(g.colours[a.c - 1]) : undefined });
     });
   }

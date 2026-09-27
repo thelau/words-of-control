@@ -149,7 +149,7 @@ fn cellDraw(k: u32, p: vec2f, r: vec4f, t: f32) -> vec4f {
   let markAt = cf(k, 9u);
   let m = min(r.z, r.w);
   let pad = 0.07 * m;
-  let th = 0.075 * m;
+  let th = select(0.075, 0.1, key >= 0.0 && t >= markAt) * m; // (a marked cell's words grow: read from further)
   let u = p - r.xy;
   var bg = vec3f(0.0);
   var a = 0.0;

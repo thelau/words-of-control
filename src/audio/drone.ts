@@ -4,9 +4,9 @@
  * noise. Nothing periodic faster than ~0.25 Hz. It remembers: each reaction
  * leaves a residue (octaves and fifths only, τ ≈ 35 s), a colour (roughness =
  * more plate modes, brightness; τ ≈ 25 s) and a slow evening drift (τ ≈ 20 min).
- * It ducks at the cut to black and exhales (opens) under the drift.
+ * It falls silent under the steps of a performance and returns after the black.
  */
-import { D2, dbToGain, type AudioEngine } from './audio.ts';
+import { D2, type AudioEngine } from './audio.ts';
 
 const RATIOS = [1, 2, 3, 4, 5, 6, 8, 2.76, 5.4, 8.93];
 const GAINS = [0.14, 0.2, 0.15, 0.11, 0.06, 0.05, 0.025, 0.05, 0.03, 0.015]; // the fundamental is implied by its harmonics
@@ -124,13 +124,15 @@ export class Drone {
     f.setTargetAtTime(charge > 0.05 ? 1200 * (1 + charge * 2) : 6000, this.a.now, 0.3);
   }
 
-  /** The black lands: the room holds its breath (−12 dB in 30 ms), then returns. */
-  duck(at: number) {
+  /** The steps begin: the room falls silent (cut in 10 ms, so every cut of the steps is clean), and returns slowly
+   *  after the black (`to`). */
+  hush(from: number, to: number) {
     const g = this.duckGain.gain;
-    g.cancelScheduledValues(at - 0.05);
-    g.setValueAtTime(1, at - 0.03);
-    g.linearRampToValueAtTime(dbToGain(-12), at);
-    g.setTargetAtTime(1, at + 1.2, 0.8);
+    g.cancelScheduledValues(from - 0.05);
+    g.setValueAtTime(1, from - 0.01);
+    g.linearRampToValueAtTime(0, from);
+    g.setValueAtTime(0, to);
+    g.setTargetAtTime(1, to, 0.8);
   }
 
   /** The room remembers a reaction. */

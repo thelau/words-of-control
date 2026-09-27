@@ -4,11 +4,8 @@
  *   renderGrid  — from the start to just past the cut into the steps: each result a test tone at its value, 25 ms
  *                 (a choice two, a yes/no a click; a doubtful one noise), each cell going out a dry click where it
  *                 was; the cut a hard transient
- *   renderSteps — from the steps' start to the end: a sequencer — two arpeggios of the marked answers, of different
- *                 lengths, drifting in and out of phase (sine through a wavefolder and a filter), bent by the word's
- *                 mood (see renderSteps); each step re-patches it (fold, octave, gate, density: the space on screen sets them);
- *                 noise ticks and sub hits on euclidean patterns; a full-frame step a burst of white noise and a high
- *                 sine; the last step the pitch of the answer that sets the word most apart, alone, briefly
+ *   renderSteps — from the steps' start to the end: a sequencer building one crescendo (see renderSteps), bent by
+ *                 the word's mood; the last step the pitch of where the word stands, alone, briefly
  * Pitches on the house's D, in a mode from the mood.
  */
 import type { Appraisal } from '../jev/appraisal.ts';
@@ -17,6 +14,7 @@ import { COLS } from '../show/grid.ts';
 import { mulberry32 } from '../core/rng.ts';
 
 const D3 = 146.832;
+
 
 /** A value (0..1) as a note of the word's mode over two octaves, `oct` octaves above D3: lydian for a positive word,
  *  phrygian for a negative one, minor pentatonic for a neutral one. */
@@ -76,104 +74,121 @@ export function renderGrid(A: Appraisal, g: Grid, sr: number): Samples {
   return { L: T.L, R: T.R };
 }
 
-/** How each space patches the sequencer: fold (timbre), octave, gate (s), density (share of 16ths that sound). */
-const PATCH: Partial<Record<Viz, { fold: number; oct: number; gate: number; dens: number }>> = {
-  cloud: { fold: 0.8, oct: 1, gate: 0.07, dens: 1 },
-  network: { fold: 2.8, oct: 2, gate: 0.05, dens: 0.8 },
-  terrain: { fold: 1.2, oct: 0, gate: 0.12, dens: 0.6 },
-  map: { fold: 0.5, oct: 1, gate: 0.16, dens: 0.4 },
-  globe: { fold: 1.8, oct: 1, gate: 0.09, dens: 0.9 },
-  lattice: { fold: 3.4, oct: 2, gate: 0.03, dens: 1 },
-  ridges: { fold: 1.0, oct: 0, gate: 0.2, dens: 0.5 },
-  planes: { fold: 2.2, oct: 1, gate: 0.06, dens: 0.75 },
+/** How each space colours the sequencer (the patterns stay; only the timbre and the register move with the bar). */
+const PATCH: Partial<Record<Viz, { fold: number; oct: number }>> = {
+  cloud: { fold: 0.8, oct: 0 }, network: { fold: 1.8, oct: 1 }, ridges: { fold: 1.2, oct: 0 }, table: { fold: 2.4, oct: 1 },
+  terrain: { fold: 1.0, oct: -1 }, map: { fold: 0.6, oct: 0 }, globe: { fold: 1.6, oct: 1 },
 };
 
-/** k onsets spread evenly over n steps (Bjorklund's rhythm). */
-const euclid = (k: number, n: number) => Array.from({ length: n }, (_, i) => Math.floor(((i + 1) * k) / n) - Math.floor((i * k) / n) === 1);
+/** k onsets spread evenly over n steps (Bjorklund's rhythm), rotated by r. */
+const euclid = (k: number, n: number, r = 0) => Array.from({ length: n }, (_, i) => { const j = (i + r) % n; return Math.floor(((j + 1) * k) / n) - Math.floor((j * k) / n) === 1; });
 
-/** The steps, as samples starting at g.seq. The mood bends the whole sequencer, continuously — the more negative the
- *  more rapid and broken (after Ikeda), the more positive the more pleasant:
- *  negative — lower pitch for the arpeggio but in 32nds, short and clean, the second voice detuned against the first
- *             (it beats); clicks in 32nd-note rolls, glitch bursts of 64th-note grains flung left and right, high sine
- *             stabs; short sub pulses;
- *  neutral  — clinical: test-tone pitches (half-octaves of 1 kHz) instead of the mode, pure sines, sparser, no sub;
- *  positive — the mode (lydian), higher, longer and softer notes, the filter opening, a quiet chord of the answers
- *             that matter under it all. */
+/** The steps, as samples starting at g.seq: one crescendo over the four bars. Each marked answer is a note — which
+ *  degree of the word's mode by which answer it is, moved up or down by how far it stands from the reference words
+ *  (not by its value: those crowd near 1). Two voices play them on fixed euclidean patterns, the second one note
+ *  longer (K and K + 1: they drift in and out of phase); bar one the first voice, bar two both, then a dotted-eighth
+ *  delay whose feedback grows, the notes lengthening and the filter opening. The space on screen colours the timbre.
+ *  The mood:
+ *  negative — by subtraction: no tune — a fixed grid of clicks, a test-tone blip per answer, short sub pulses, and
+ *             digital silence on the strobe frames;
+ *  neutral  — clinical: test-tone pitches (half-octaves of 1 kHz), pure sines, no sub;
+ *  positive — lydian, higher, softer and longer, a quiet chord of the answers under it all. */
 export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
   const rand = mulberry32(A.seed ^ 0x2545f491);
   const T = tape(g.seq, g.end + 0.05, sr, rand);
   const { pos, neu, neg } = A.mood;
-  const mode = tuning(A);
-  const lift = Math.round(0.6 * pos - 0.6 * neg); // octaves
-  const note = (v: number, oct: number) => {
-    const f = mode(v, oct + lift);
-    // neutral: the same place on a test-tone scale (1 kHz and its half-octaves)
+  const m = A.mood;
+  const S = m.pos >= m.neg && m.pos >= m.neu ? [0, 2, 4, 6, 7, 9, 11] : m.neg >= m.neu ? [0, 1, 3, 5, 7, 8, 10] : [0, 3, 5, 7, 10];
+  const lift = Math.round(0.6 * pos - 0.6 * neg);
+  /** Degree j of the mode, `oct` octaves above D3 (neutral: moved onto the test-tone scale). */
+  const deg = (j: number, oct: number) => {
+    const f = D3 * 2 ** (oct + lift + (S[((j % S.length) + S.length) % S.length] + 12 * Math.floor(j / S.length)) / 12);
     return neu > 0.5 ? 1000 * 2 ** (Math.round(Math.log2(f / 1000) * 2) / 2) : f;
   };
-  const foldBy = 1 + 0.4 * neg - 0.7 * neu - 0.5 * pos, drive = 1 + 1.5 * neg, detune = 2 ** ((0.3 * neg) / 12);
-  const gateBy = 1 - 0.55 * neg + 0.8 * pos;
+  // each marked answer's degree: by which it is (spread over the mode), moved by how far it stands out (±3 degrees)
+  const notes = g.keys.map((k, i) => {
+    const c = g.cells[k], mean = c.lex.reduce((a, b) => a + b, 0) / c.lex.length;
+    const sd = Math.sqrt(c.lex.reduce((a, b) => a + (b - mean) ** 2, 0) / c.lex.length) + 0.05;
+    return (2 * i) % S.length + Math.round(Math.max(-3, Math.min(3, (c.value - mean) / sd)));
+  });
+  const seqA = notes, seqB = [...notes].reverse().concat(notes[0]); // lengths K and K + 1: they drift
   const sixteenth = g.beat / 4;
-  const vals = g.keys.map((k) => g.cells[k].value);
-  const top = vals[0]; // the answer that sets the word most apart
-  const seqA = vals, seqB = [...vals].reverse().concat(top); // lengths K and K + 1: they drift
-  const ticks = euclid(3 + Math.round(6 * A.s.arousal), 16), subs = euclid(3 + Math.round(2 * A.s.intensity + 2 * neg), 8);
-  const rolls = euclid(Math.round(4 + 24 * neg * (0.4 + 0.6 * A.s.arousal)), 32);
-  let cut = 1800 + 1500 * neg; // the filter opens across the sequence
-  const open = 1 + 0.12 * (1 - neg);
+  const patA = euclid(7 + Math.round(4 * A.s.arousal), 16), patB = euclid(5 + Math.round(3 * A.s.arousal), 16, 3);
+  const subs = euclid(3 + Math.round(2 * A.s.intensity), 8);
+  const tonal = neg <= 0.6;
+
+  // ---- the voices (a wavefolded sine through a one-pole filter), onto a tape of their own for the delay
+  const V = tape(g.seq, g.end + 0.05, sr, rand);
   const lp = [0, 0];
+  let cut = 1400;
   const voice = (t: number, f: number, gate: number, fold: number, pan: number, amp: number, which: 0 | 1) => {
-    const s0 = T.at(t), n = Math.floor(gate * 1.6 * sr), w = (2 * Math.PI * f) / sr;
+    const s0 = V.at(t), n = Math.floor(gate * 1.6 * sr), w = (2 * Math.PI * f) / sr;
     let y0 = lp[which];
     for (let i = 0; i < n; i++) {
       const x = i / sr;
-      const env = Math.min(1, x / 0.002) * Math.exp(-x / (gate * 0.5));
-      const y = Math.tanh(drive * Math.sin(fold * (1 + env) * Math.sin(w * i))) / Math.tanh(drive); // folder, then drive
-      y0 += (1 - Math.exp((-2 * Math.PI * cut * (0.3 + env)) / sr)) * (y - y0);
-      T.put(s0 + i, y0 * env * amp, pan);
+      const env = Math.min(1, x / 0.003) * Math.exp(-x / (gate * 0.5));
+      y0 += (1 - Math.exp((-2 * Math.PI * cut * (0.3 + env)) / sr)) * (Math.sin(fold * (1 + env) * Math.sin(w * i)) - y0);
+      V.put(s0 + i, y0 * env * amp, pan);
     }
     lp[which] = y0;
   };
-  // a positive word: a quiet chord of the answers that matter under the steps, breathing with the bars
-  if (pos > 0.4) {
-    const fs = vals.slice(0, 4).map((v) => (2 * Math.PI * note(v, 0)) / sr), s0 = T.at(g.seq), n = T.at(g.end) - s0, bar = 4 * g.beat * sr;
-    for (let i = 0; i < n; i++) {
-      let x = 0;
-      for (const w of fs) x += Math.sin(w * i);
-      T.put(s0 + i, x * 0.012 * pos * (0.6 + 0.4 * Math.sin((Math.PI * i) / bar)) * Math.min(1, i / (sr * 0.3)), 0);
+  let n16 = 0;
+  const spaceSteps = g.steps.filter((st) => st.viz !== 'stand');
+  for (const st of spaceSteps) {
+    const p = PATCH[st.viz] ?? { fold: 1, oct: 0 };
+    const count = Math.round(st.dur / sixteenth);
+    for (let i = 0; i < count; i++, n16++) {
+      const t = st.t + i * sixteenth, bar = Math.floor(n16 / 16), fold = p.fold * (1 - 0.6 * neu - 0.4 * pos);
+      const gate = (0.07 + 0.05 * bar) * (1 + 0.8 * pos);
+      if (tonal) {
+        if (patA[n16 % 16]) voice(t, deg(seqA[n16 % seqA.length], p.oct), gate, fold, -0.45, 0.07, 0);
+        if (bar >= 1 && patB[n16 % 16]) voice(t, deg(seqB[n16 % seqB.length], p.oct + 1), gate * 0.8, fold * 0.8, 0.45, 0.045, 1);
+      } else if (patA[n16 % 16]) {
+        // (negative: a test-tone blip per answer instead of a tune)
+        V.tone(t, 1000 * 2 ** (seqA[n16 % seqA.length] / 4), 0.012, 0.05, (n16 % 2) * 1.2 - 0.6);
+      }
+    }
+    cut = Math.min(8000, cut * 1.1);
+  }
+  // the delay (dotted eighth), its feedback growing over the bars (from the third)
+  {
+    const d = Math.floor(3 * sixteenth * sr), start = V.at(g.seq + 32 * sixteenth);
+    for (let i = Math.max(d, start); i < V.L.length; i++) {
+      const fb = Math.min(0.55, 0.25 + ((i - start) / (32 * sixteenth * sr)) * 0.3);
+      V.L[i] += V.R[i - d] * fb; V.R[i] += V.L[i - d] * fb; // (ping-pong)
     }
   }
-  let n16 = 0;
-  for (const st of g.steps) {
-    const p = PATCH[st.viz];
-    if (st.full) { T.noise(st.t, 0.04, 0.3, 0, 0.02); T.tone(st.t, 9000 + 3000 * top, 0.04, 0.03); }
-    if (st.viz === 'stand') {
-      // where the word stands: the pitch of that answer, alone — held a second at most, and never high (folded down
-      // below ~500 Hz: a pure tone up there is piercing)
-      let f = note(top, 1);
-      while (f > 520) f /= 2;
-      T.tone(st.t, f, Math.min(1, st.dur), 0.08);
-      continue;
-    }
+  T.L.set(V.L.map((x, i) => x + T.L[i]));
+  T.R.set(V.R.map((x, i) => x + T.R[i]));
+
+  // ---- the pulse: noise ticks and sub pulses on fixed patterns; the negative grid of clicks
+  const ticks = euclid(3 + Math.round(6 * A.s.arousal), 16), grid = euclid(9 + Math.round(4 * A.s.arousal), 16, 1);
+  n16 = 0;
+  for (const st of spaceSteps) {
     const count = Math.round(st.dur / sixteenth);
     for (let i = 0; i < count; i++, n16++) {
       const t = st.t + i * sixteenth;
-      if (ticks[n16 % 16]) T.noise(t, 0.008, 0.1 * (1 - 0.6 * pos), (n16 % 2) * 0.8 - 0.4, 0.002);
-      if (neu < 0.5 && n16 % 2 === 0 && subs[(n16 / 2) % 8]) T.sub(t, 48, 0.3 + 0.15 * neg, 0.03 + 0.05 * (1 - neg));
-      // the negative side, after Ikeda: clicks in 32nd rolls, glitch bursts, high sine stabs
-      if (neg > 0.3) {
-        for (const h of [0, 1]) if (rolls[(n16 * 2 + h) % 32]) T.click(t + (h * sixteenth) / 2, 0.2 * neg, h ? 0.6 : -0.6);
-        if (rand() < 0.3 * neg) for (let k = 0, m = 3 + Math.floor(rand() * 5); k < m; k++) T.noise(t + (k * sixteenth) / 4, 0.003, 0.24 * neg, k % 2 ? 0.9 : -0.9, 0.001);
-        if (rand() < 0.3 * neg) T.tone(t, 6000 + 8000 * vals[n16 % vals.length], 0.012 + 0.018 * rand(), 0.05 * neg, rand() * 1.6 - 0.8);
-      }
-      if (!p || rand() > p.dens * (1 - 0.4 * neu)) continue;
-      // (a negative word's arpeggio runs in 32nds)
-      for (const h of neg > 0.5 ? [0, 1] : [0]) {
-        const th = t + (h * sixteenth) / 2, j = n16 * (neg > 0.5 ? 2 : 1) + h;
-        voice(th, note(seqA[j % seqA.length], p.oct), p.gate * gateBy, p.fold * foldBy, -0.5, 0.07, 0);
-        voice(th + (j % 3 === 2 && neg <= 0.5 ? sixteenth / 2 : 0), note(seqB[j % seqB.length], p.oct + 1) * detune, p.gate * 0.7 * gateBy, p.fold * 0.7 * foldBy, 0.5, 0.045, 1);
-      }
+      if (ticks[n16 % 16]) T.noise(t, 0.008, 0.09 * (1 - 0.6 * pos), (n16 % 2) * 0.8 - 0.4, 0.002);
+      if (neu < 0.5 && n16 % 2 === 0 && subs[(n16 / 2) % 8]) T.sub(t, 48, 0.3 * (1 - 0.5 * pos), 0.04 + 0.04 * (1 - neg));
+      if (!tonal && grid[n16 % 16]) T.click(t, 0.22, (n16 % 4) * 0.4 - 0.6);
     }
-    cut = Math.min(9000, cut * open);
+    if (st.full) { T.noise(st.t, 0.04, 0.25, 0, 0.02); T.tone(st.t, 4000 + 2000 * g.cells[g.stand].value, 0.03, 0.025); }
   }
+  // a positive word: a quiet chord of the answers that matter, breathing with the bars
+  if (pos > 0.4) {
+    const fs = notes.slice(0, 4).map((j) => (2 * Math.PI * deg(j, -1)) / sr), s0 = T.at(g.seq), n = T.at(g.steps[g.steps.length - 1].t) - s0, bar = 16 * sixteenth * sr;
+    for (let i = 0; i < n; i++) {
+      let x = 0;
+      for (const w of fs) x += Math.sin(w * i);
+      T.put(s0 + i, x * 0.006 * pos * (0.6 + 0.4 * Math.sin((Math.PI * i) / bar)) * Math.min(1, i / (sr * 0.3)), 0);
+    }
+  }
+  // where it stands: the pitch of that answer, alone — a second at most, never high (folded below ~500 Hz)
+  const last = g.steps[g.steps.length - 1];
+  let f = deg(notes[g.keys.indexOf(g.stand)] ?? notes[0], 0);
+  while (f > 520) f /= 2;
+  T.tone(last.t, f, Math.min(1, last.dur), 0.08);
+  // digital silence on the strobe frames (a negative word)
+  for (const b of g.flashes) { const s0 = T.at(g.seq + b * g.beat); T.L.fill(0, s0, s0 + Math.floor(sr / 30)); T.R.fill(0, s0, s0 + Math.floor(sr / 30)); }
   return { L: T.L, R: T.R };
 }

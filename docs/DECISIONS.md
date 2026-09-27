@@ -4,6 +4,14 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
+- **After the round-8 reviews** ("ok go fix", on the proposal): the strobe made safe; the ending shows the word
+  among the reference words on the answer that sets it apart (never a category slot), its nearest words, and says
+  the 61 were chosen by the artist; one space per bar, chosen by the data, the camera cutting on the beat; the ring a
+  film strip of the spaces already shown; the marked cells held longer, their words larger; saturated colours; the
+  sequencer rebuilt (pitch from which answer and how far it stands out, fixed patterns, one crescendo, a growing
+  delay), negative by subtraction, the drone silent under the steps; a faint "type a word" in the room; the lattice
+  replaced by the real table of answers × words; labels never on top of each other.
+
 - **Two more measurements: ambiguity and concreteness** (chosen among four, "so we have a perfect grid"): "How many
   different meanings could the words have?" and "How abstract or concrete are the words?" — 45 answers, a full
   9 × 5 grid. Test words re-recorded (scripts/fixtures.ts), reference lexicon rebuilt (scripts/lexicon.ts).

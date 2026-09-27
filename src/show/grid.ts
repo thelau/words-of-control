@@ -4,10 +4,10 @@
  *             value, a small live figure of it (a score a sine, a choice its bars, a yes/no a field of dots)
  *   mark    — the cells that matter take the word's own colours (Jev's colour answer), one by one
  *   select  — every other cell goes out, staccato; the marked ones stay where they were
- *   steps   — cut: the marked cells as one block on the stage at the centre (7 × 3 cells), then on every beat of a
- *             4/4 at the word's tempo a new 3D space of the data (show/space.ts), a few beats bursting to the full
- *             frame; the last bar in halves; then a bar held on where the word stands: the answer that sets it
- *             most apart, ranked among the reference words (show/notes.ts)
+ *   steps   — cut: the marked cells as one block on the stage at the centre (7 × 3 cells), then a 4/4 at the word's
+ *             tempo: a 3D space of the data per bar, chosen by the data (show/space.ts), the camera cutting on each
+ *             beat, a few beats bursting to the full frame; the last bar in halves; then a bar held on where the word
+ *             stands: the answer that sets it most apart, placed among the reference words (show/notes.ts)
  *   black   — on the last step's end
  * "What matters": how far an answer stands from the piece's reference words (lexicon.json, never visitors' words),
  * if the machine is sure enough of it. Times are seconds from the verdict's start.
@@ -27,7 +27,7 @@ export const LABELS = [...DIMS.map(([id]) => id), ...CHOICE_IDS.flatMap((id) => 
 const OPT0 = Object.fromEntries(CHOICE_IDS.map((id) => [id, DIMS.length + CHOICE_IDS.slice(0, CHOICE_IDS.indexOf(id)).reduce((a, x) => a + OPTIONS[x].length, 0)]));
 
 /** The 3D spaces of the data a step can show (show/space.ts). */
-export const SPACES = ['cloud', 'network', 'terrain', 'map', 'globe', 'lattice', 'ridges', 'planes'] as const;
+export const SPACES = ['cloud', 'network', 'terrain', 'map', 'globe', 'table', 'ridges'] as const;
 /** What a step shows: the marked cells merged (tiles, grid.wgsl), where the word stands (stand, show/notes.ts), or a
  *  space. */
 export const VIZ = ['tiles', 'stand', ...SPACES] as const;
@@ -52,6 +52,10 @@ export type Grid = {
   colours: RGB[];
   mark: number; select: number; seq: number; end: number;
   bpm: number; beat: number; steps: Step[];
+  /** The cell the performance ends on: where the word stands. */
+  stand: number;
+  /** The beats (from the steps' start) that strobe. */
+  flashes: number[];
 };
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -95,37 +99,43 @@ export function grid(A: Appraisal): Grid {
   out.forEach((k, i) => (cells[k].vanish = select + 0.9 * Math.pow(i / out.length, 0.85)));
   const colours = keyColours(A, keys.length);
 
-  // the steps: 4/4 at the word's tempo, cut in straight after the clearing — a beat each for three bars, the fourth
-  // in halves; the downbeats of bars two and four burst to the full frame (and of bar three, for an intense word)
+  // the steps: 4/4 at the word's tempo, cut in after the marked cells have held a moment. A space holds a whole bar
+  // (the camera cuts on each beat), chosen by what the data says: where the word sits (cloud), its neighbours
+  // (network), how far it stands out (ridges, for a word far from all the others) or the whole table, then the
+  // ground it stands on (terrain where the words crowd round it, a contour map where it stands alone), and all its
+  // answers at once (globe) in the last bar, in halves. The downbeats of bars two and four burst to the full frame
+  // (and of bar three, for an intense word).
   const bpm = Math.round(lerp(92, 150, clamp01(aro * 0.5 + A.s.energy * 0.3 + A.s.tension * 0.2)) - 14 * A.lazy);
   const beat = 60 / bpm;
-  const seq = select + 0.9 + 0.3;
+  const seq = select + 0.9 + 1.1;
+  const zMean = keys.reduce((a, k) => a + cells[k].z, 0) / keys.length;
+  const [ka, kb] = [cells[keys[0]], cells[keys[1] ?? keys[0]]];
+  const crowd = words.filter((_, j) => Math.hypot(ka.lex[j] - ka.value, kb.lex[j] - kb.value) < 0.15).length;
+  const plan: Viz[] = ['cloud', 'network', zMean > 2.5 ? 'ridges' : 'table', crowd >= 4 ? 'terrain' : 'map'];
   const steps: Step[] = [];
-  const recent: Viz[] = []; // (no space again within four steps)
   let t = seq;
   for (let b = 0; b < 16; b++) {
     for (const half of b >= 12 ? [0, 1] : [0]) {
       const dur = b >= 12 ? beat / 2 : beat;
-      let viz: Viz;
-      if (b === 0) viz = 'tiles'; // the marked cells, merged
-      else do viz = SPACES[Math.floor(rand() * SPACES.length)]; while (recent.includes(viz));
+      const viz: Viz = b === 0 ? 'tiles' : b >= 14 ? 'globe' : plan[Math.floor(b / 4)];
       const full = half === 0 && (b === 4 || b === 12 || (b === 8 && A.s.intensity > 0.6));
       steps.push({ t, dur, viz, full, cam: rand() });
-      recent.push(viz);
-      if (recent.length > 4) recent.shift();
       t += dur;
     }
   }
   // then a bar held on where the word stands (long enough to read)
-  steps.push({ t, dur: Math.max(2.4, 4 * beat), viz: 'stand', full: false, cam: 0 });
+  steps.push({ t, dur: Math.max(3.2, 4 * beat), viz: 'stand', full: false, cam: 0 });
   t += steps[steps.length - 1].dur;
-  const g: Grid = { cells, keys, refs: words, colours, mark, select, seq, end: t, bpm, beat, steps };
+  // where it stands: the marked answer that sets it most apart — among those a person would say (not a category slot
+  // like who, act or kind)
+  const stand = keys.find((k) => !CATEGORY.has(cells[k].id)) ?? keys[0];
+  const g: Grid = { cells, keys, refs: words, colours, mark, select, seq, end: t, bpm, beat, steps, stand, flashes: strobes(A, 16) };
   GRIDS.set(A, g);
   return g;
 }
 
-/** The word's colours (probability ≥ 8%, at most four; a neutral one becomes pearl, steel or ink), then lighter
- *  and deeper shades of them for the rest. */
+/** The word's colours (probability ≥ 8%, at most four; a neutral one becomes pearl, steel or ink), then deeper
+ *  shades of them for the rest (saturated, never pastel). */
 /** Named colours of the `colour` question, linear RGB. */
 const COLOURS: Record<string, RGB> = {
   black: [0.02, 0.02, 0.02], white: [0.9, 0.88, 0.85], grey: [0.35, 0.35, 0.36], red: [0.9, 0.03, 0.02], orange: [1, 0.3, 0.04],
@@ -139,8 +149,24 @@ function keyColours(A: Appraisal, n: number): RGB[] {
   const base = ranked.filter(([, p], i) => i === 0 || p >= 0.08).slice(0, 4).map(([k]) => TONE[k] ?? COLOURS[k]);
   return Array.from({ length: n }, (_, i) => {
     const c = base[i % base.length], round = Math.floor(i / base.length);
-    return round === 0 ? c : round % 2 ? c.map((x) => x + (1 - x) * 0.5) as RGB : c.map((x) => x * 0.55) as RGB;
+    return round === 0 ? c : c.map((x) => x * (round % 2 ? 0.62 : 0.4)) as RGB;
   });
+}
+
+/** Answers that are category slots, not something a person would say of a word: never where it ends. */
+const CATEGORY = new Set(['who', 'act', 'kind', 'time', 'daytime', 'sense', 'rhythm', 'domain']);
+
+/** The beats that strobe — safely: only a word more than half negative, never two beats running (at most 2 flashes a
+ *  second at the fastest tempo: photosensitive safety asks for fewer than 3), as often as it is negative and aroused. */
+function strobes(A: Appraisal, beats: number): number[] {
+  const p = Math.max(0, A.mood.neg - 0.5) * 2 * (0.3 + 0.7 * A.s.arousal);
+  const out: number[] = [];
+  let prev = false;
+  for (let k = 1; k < beats; k++) {
+    prev = !prev && (((k + 1) * 2654435761) >>> 0) / 4294967296 < p;
+    if (prev) out.push(k);
+  }
+  return out;
 }
 
 /** A measurement as it is written in the captions: its name, and a choice's answer ("texture: cracked"). */

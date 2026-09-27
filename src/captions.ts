@@ -14,6 +14,10 @@ export type Caption = {
   colour?: string;
   /** Larger type (the last step). */
   size?: 'big' | 'mid';
+  /** A hairline this wide (CSS px), instead of text. */
+  rule?: number;
+  /** A larger dot (the word, among the others). */
+  me?: boolean;
 };
 
 const root = document.getElementById('captions')!;
@@ -31,14 +35,15 @@ export function showCaptions(items: Caption[]) {
       e = { el, state: '' };
       live.set(c.key, e);
     }
-    const state = `${c.text}|${Math.round(c.x)}|${Math.round(c.y)}|${c.align}|${c.anchor}|${c.colour}|${c.size}`;
+    const state = `${c.text}|${Math.round(c.x)}|${Math.round(c.y)}|${c.align}|${c.anchor}|${c.colour}|${c.size}|${c.rule}|${c.me}`;
     if (state === e.state) continue;
     e.state = state;
     const el = e.el;
-    el.className = ['cap', c.anchor && 'anchor', c.size].filter(Boolean).join(' ');
+    el.className = ['cap', c.anchor && 'anchor', c.me && 'me', c.rule && 'rule', c.size].filter(Boolean).join(' ');
     el.textContent = c.text;
     el.style.transform = `translate(${Math.round(c.x)}px, ${Math.round(c.y)}px)${SHIFT[c.align ?? 'tl']}`;
     el.style.color = c.colour ?? '';
+    el.style.width = c.rule ? `${Math.round(c.rule)}px` : '';
   }
   for (const [k, e] of live) if (!seen.has(k)) { e.el.remove(); live.delete(k); }
 }

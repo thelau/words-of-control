@@ -5,14 +5,15 @@
  * The axes are the measurements that matter; the other points are the piece's reference words (never visitors').
  *   cloud    — every reference word a haze of points in the space of the first three marked measurements; the word a
  *              dense knot in its colour; the box, its ticks
- *   network  — the reference words, each joined to its three nearest; the word joined to its six
+ *   network  — the reference words, each joined to its four nearest; the word joined to its eight nearest (nearest on
+ *              all 45 answers, as everywhere)
  *   terrain  — the density of the reference words over two marked measurements, as a field of points, its rows drawn
  *   map      — the same density as contour lines on a plane, the reference words as points, the word a cross
  *   globe    — every measurement as a meridian band of a sphere, bulging with their value; the marked ones in colour
- *   lattice  — a cube of points, each lit by chance at the value of its measurement
+ *   table    — the whole table: every answer (across) of every reference word (in depth, the word's nearest in front)
+ *              as a height; the word's own row in colour
  *   ridges   — every measurement's spread over the reference words, as a ridge line, stacked in depth; the word's
  *              value a tick
- *   planes   — each pair of marked measurements a scatter plane, the planes set in depth
  * Each space also carries its caption (a label: what it is) and anchors: small labels placed on the data
  * itself (axis names, the word, its nearest reference words). All coordinates within [−1, 1]³.
  */
@@ -28,6 +29,8 @@ export type Geometry = {
   /** Each space's first point and count, first line vertex and count. */
   ranges: Record<Space, [number, number, number, number]>;
   captions: Record<Space, string>;
+  /** The word's nearest reference words, on all its answers (nearest first). */
+  nearest: string[];
   anchors: Record<Space, Anchor[]>;
   /** Where the word is in each space (a close-up turns round it). */
   focus: Record<Space, number[]>;
@@ -67,6 +70,10 @@ export function build(g: Grid, seed: number, word: string): Geometry {
   /** A fine dust through the box: the space itself. */
   const dust = (n: number) => { for (let i = 0; i < n; i++) pt(rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1, WHITE(0.12 + rand() * 0.15)); };
   const me = at(-1);
+  // nearest on all the answers (each answer's gap measured against how widely the reference words spread on it)
+  const spread = g.cells.map((c) => Math.max(0.05, Math.max(...c.lex) - Math.min(...c.lex)));
+  const gap = (j: number) => g.cells.reduce((a, c, k) => a + ((c.value - (c.lex[j] ?? 0)) / spread[k]) ** 2, 0);
+  const byNear = Array.from({ length: R }, (_, j) => j).sort((a, b) => gap(a) - gap(b));
 
   const nm = (i: number) => name(g, g.keys[i % K]);
   const space = (sp: Space, fill: () => string) => {
@@ -94,15 +101,15 @@ export function build(g: Grid, seed: number, word: string): Geometry {
   space('network', () => {
     const pts = [...Array.from({ length: R }, (_, j) => at(j)), me];
     const d2 = (a: number[], b: number[]) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
-    const nearest = pts.slice(0, R).map((q, i) => [i, d2(me, q)] as const).sort((x, y) => x[1] - y[1]).slice(0, 3).map(([i]) => i);
+    const nearest = byNear.slice(0, 3);
     for (const i of nearest) mark(g.refs[i], pts[i]);
     mark(W, me, 1);
     axes();
     pts.forEach((p, j) => {
       const mine = j === R;
       for (let n = 0; n < (mine ? 120 : 40); n++) pt(p[0] + gauss() * 0.015, p[1] + gauss() * 0.015, p[2] + gauss() * 0.015, mine ? KEY(0, 0.95) : WHITE(0.8));
-      const near = pts.map((q, i) => [i, d2(p, q)] as const).filter(([i]) => i !== j).sort((x, y) => x[1] - y[1]).slice(0, mine ? 8 : 4);
-      for (const [i] of near) seg(p, pts[i], mine ? KEY(0, 0.95) : WHITE(0.45));
+      const near = mine ? byNear.slice(0, 8) : pts.map((q, i) => [i, d2(p, q)] as const).filter(([i]) => i !== j && i < R).sort((x, y) => x[1] - y[1]).slice(0, 4).map(([i]) => i);
+      for (const i of near) seg(p, pts[i], mine ? KEY(0, 0.95) : WHITE(0.45));
       // and a thread to each axis wall: where it stands
       if (mine) for (let a = 0; a < 3; a++) { const q = [...p]; q[a] = -1; seg(p, q, KEY(0, 0.6)); }
     });
@@ -183,15 +190,29 @@ export function build(g: Grid, seed: number, word: string): Geometry {
     return `globe · ${n} answers`;
   });
 
-  space('lattice', () => {
-    const n = 14, cells = g.cells.length;
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) {
-      const c = g.cells[(i * n + j) % cells], lit = rand() < c.value;
-      if (!lit && rand() < 0.7) continue;
-      pt(-1 + (2 * i) / (n - 1), -1 + (2 * j) / (n - 1), -1 + (2 * k) / (n - 1), lit ? (c.key >= 0 ? KEY(c.key, 0.95) : WHITE(0.85)) : WHITE(0.12));
+  space('table', () => {
+    // every answer across, every reference word in depth (nearest in front), the value as height
+    const n = g.cells.length, x = (k: number) => -1 + (2 * k) / (n - 1), y = (v: number) => -0.45 + v * 0.8;
+    const rows = byNear.slice(0, Math.min(R, 48));
+    rows.forEach((j, r) => {
+      const z = -0.85 + (1.85 * r) / (rows.length - 1);
+      for (let k = 0; k < n; k++) {
+        const c = g.cells[k], v = c.lex[j] ?? 0;
+        pt(x(k), y(v), z, c.key >= 0 ? KEY(c.key, 0.45 + 0.4 * v) : WHITE(0.3 + 0.5 * v));
+        if (k < n - 1) seg([x(k), y(v), z], [x(k + 1), y(g.cells[k + 1].lex[j] ?? 0), z], WHITE(0.18));
+      }
+      if (r < 3) mark(g.refs[j], [1.06, y(g.cells[n - 1].lex[j] ?? 0), z]);
+    });
+    // the word's own row, in front of all
+    const zw = -1;
+    for (let k = 0; k < n; k++) {
+      const c = g.cells[k];
+      for (let m = 0; m < 6; m++) pt(x(k) + gauss() * 0.004, y(c.value) + gauss() * 0.004, zw, KEY(Math.max(0, c.key), 0.95));
+      if (k < n - 1) seg([x(k), y(c.value), zw], [x(k + 1), y(g.cells[k + 1].value), zw], KEY(0, 0.9));
+      if (c.key >= 0) { seg([x(k), -0.5, zw], [x(k), y(c.value), zw], KEY(c.key, 0.9)); mark(name(g, k), [x(k), -0.58, zw], 1 + c.key); }
     }
-    box(WHITE(0.25));
-    return `lattice · ${g.cells.length} answers`;
+    mark(W, [-1.06, y(g.cells[0].value), zw], 1);
+    return `table · ${n} answers × ${rows.length} words`;
   });
 
   space('ridges', () => {
@@ -210,21 +231,7 @@ export function build(g: Grid, seed: number, word: string): Geometry {
     return `ridges · ${n} answers × ${R} words`;
   });
 
-  space('planes', () => {
-    const pairs = Math.min(K - 1, 5);
-    for (let p = 0; p < pairs; p++) {
-      const z = pairs === 1 ? 0 : -0.9 + (1.8 * p) / (pairs - 1);
-      const a = key(p), b = key(p + 1);
-      for (let j = 0; j < R; j++) for (let n = 0; n < 30; n++) pt(ax(p, a.lex[j]) + gauss() * 0.012, ax(p + 1, b.lex[j]) + gauss() * 0.012, z, WHITE(0.75));
-      for (let n = 0; n < 160; n++) pt(ax(p, a.value) + gauss() * 0.015, ax(p + 1, b.value) + gauss() * 0.015, z, KEY(p, 0.95));
-      for (let n = 0; n < 900; n++) pt(rand() * 2 - 1, rand() * 2 - 1, z, WHITE(0.1));
-      for (const [u, v] of [[[-1, -1], [1, -1]], [[1, -1], [1, 1]], [[1, 1], [-1, 1]], [[-1, 1], [-1, -1]]]) seg([u[0], u[1], z], [v[0], v[1], z], WHITE(0.3));
-      mark(`${nm(p)} × ${nm(p + 1)}`, [-1, -1.12, z]);
-    }
-    return `planes · answers two by two`;
-  });
-
-  return { points: new Float32Array(P), lines: new Float32Array(L), ranges, captions, anchors, focus };
+  return { points: new Float32Array(P), lines: new Float32Array(L), ranges, captions, anchors, focus, nearest: byNear.slice(0, 3).map((j) => g.refs[j]) };
 }
 
 /** How far each space reaches from its centre: the camera stands back far enough to hold all of it. */

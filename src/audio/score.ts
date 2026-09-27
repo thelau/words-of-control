@@ -29,7 +29,7 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, g: G
   const loud = Math.max(A.s.loudness * 0.5 + A.s.intensity * 0.5, A.mood.pos * 0.5);
   const out = c.createGain();
   // (the mood changes the sound's density: a dark word's rolls and bursts add up, a neutral word is sparse)
-  out.gain.value = dbToGain(lerp(0, 8, loud) - 2 * A.mood.neg + 7 * A.mood.neu);
+  out.gain.value = dbToGain(lerp(0, 8, loud) + 2.5 * A.mood.neg + 7 * A.mood.neu);
   out.connect(a.perfDry);
   const send = c.createGain();
   send.gain.value = 0.12;
@@ -52,7 +52,7 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, g: G
   }
 
   a.cutAt(t0 + g.end, t0 + g.end + TAIL);
-  drone.duck(t0 + g.end);
+  drone.hush(t0 + g.seq, t0 + g.end + 1);
   drone.remember({ rough: Math.min(1, A.s.arousal * 0.6 + A.s.tension * 0.4), bright: A.s.light, residue: residue.slice(0, 2) }, t0 + g.end);
   return (steps) => play(steps, t0 + g.seq);
 }

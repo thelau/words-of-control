@@ -1,8 +1,8 @@
 /**
  * WebGPU renderer: one render pass straight to the canvas at native resolution — a fullscreen triangle (grid.wgsl:
  * the room — the drone's own waveform —, the wait, the performance and the black are its modes), then, during a step
- * that shows a space, its points and lines (space.wgsl) once per view: the stage, and each cell around it, every view
- * its own camera (a slot of one uniform buffer, bound at its offset). Text comes from two atlases painted once at boot: the
+ * that shows a space, its points and lines (space.wgsl) once per view: the stage, and the cells around it holding the
+ * spaces already shown, every view its own camera (a slot of one uniform buffer, bound at its offset). Text comes from two atlases painted once at boot: the
  * digits (twice: small and large), and every name the grid shows (show/grid.ts LABELS).
  */
 import commonWGSL from './shaders/common.wgsl?raw';
@@ -15,12 +15,13 @@ import type { Geometry } from '../show/space.ts';
 /** A camera block's size in the views buffer (space.wgsl Cam, padded to the uniform offset alignment), in floats. */
 export const CAM_SLOT = 64;
 export const VIEWS_MAX = 32;
-/** A space to draw this frame: its views (`cams`: one Cam block per view, CAM_SLOT floats apart; `rects`: each view's
- *  rectangle, device px) and which points and lines. */
 /** Points of the drone's waveform the room draws. */
 export const WAVE_N = 256;
 
-export type SpaceDraw = { cams: Float32Array; rects: [number, number, number, number][]; points: [number, number]; lines: [number, number] };
+/** The spaces to draw this frame: one Cam block per view in `cams` (CAM_SLOT floats apart), and per view its
+ *  rectangle (device px) and which points and lines (first, count); the first view is the stage (round points), the
+ *  others the ring (one-pixel dots). */
+export type SpaceDraw = { cams: Float32Array; views: { rect: [number, number, number, number]; points: [number, number]; lines: [number, number] }[] };
 
 export class Renderer {
   /** Canvas size in device pixels. */
@@ -163,17 +164,17 @@ export class Renderer {
     p.setBindGroup(0, this.bg);
     p.draw(3);
     if (space && this.pointBuf && this.lineBuf) {
-      d.queue.writeBuffer(this.camBuf, 0, space.cams, 0, space.rects.length * CAM_SLOT);
-      space.rects.forEach(([x, y, w, h], i) => {
+      d.queue.writeBuffer(this.camBuf, 0, space.cams, 0, space.views.length * CAM_SLOT);
+      space.views.forEach(({ rect: [x, y, w, h], points, lines }, i) => {
         p.setViewport(x, y, w, h, 0, 1);
         p.setScissorRect(x, y, w, h);
         p.setBindGroup(0, this.camBg, [i * CAM_SLOT * 4]);
         p.setPipeline(this.linePipe);
         p.setVertexBuffer(0, this.lineBuf);
-        p.draw(space.lines[1], 1, space.lines[0]);
+        p.draw(lines[1], 1, lines[0]);
         p.setVertexBuffer(0, this.pointBuf);
-        if (i === 0) { p.setPipeline(this.pointPipe); p.draw(6, space.points[1], 0, space.points[0]); }
-        else { p.setPipeline(this.dotPipe); p.draw(space.points[1], 1, space.points[0]); }
+        if (i === 0) { p.setPipeline(this.pointPipe); p.draw(6, points[1], 0, points[0]); }
+        else { p.setPipeline(this.dotPipe); p.draw(points[1], 1, points[0]); }
       });
     }
     p.end();

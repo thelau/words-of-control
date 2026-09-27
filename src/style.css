@@ -125,6 +125,8 @@ html, body {
 #captions .cap { position: absolute; left: 0; top: 0; white-space: pre; }
 #captions .big { font-size: 64px; line-height: 1; letter-spacing: 0; }
 #captions .mid { font-size: 16px; }
+#captions .rule { height: 1px; background: rgba(237, 230, 220, 0.4); }
+#captions .me::before { width: 9px; height: 9px; margin-right: 0; }
 #captions .anchor { color: rgba(237, 230, 220, 0.8); }
 #captions .anchor::before {
   content: '';

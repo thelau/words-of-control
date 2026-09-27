@@ -72,8 +72,8 @@ async function boot() {
   /** The spaces' camera blocks, one per view (space.wgsl Cam): view-projection, palette, point size and viewport,
    *  time, unrest and distance. */
   const cams = new Float32Array(CAM_SLOT * VIEWS_MAX);
-  /** The cells of the grid's ring, around the stage. */
-  const RING = [...Array(45).keys()].filter((k) => k % 9 === 0 || k % 9 === 8 || k < 9 || k >= 36);
+  /** The cells of the grid's ring, around the stage, clockwise from the top left: the film strip. */
+  const STRIP = [0, 1, 2, 3, 4, 5, 6, 7, 8, 17, 26, 35, 44, 43, 42, 41, 40, 39, 38, 37, 36, 27, 18, 9];
   const wave = new Float32Array(WAVE_N);
   let keysTyped = 0;
   let charge = 0;
@@ -258,38 +258,44 @@ async function boot() {
         const st = show.g.steps.find((x) => t >= x.t && t < x.t + x.dur);
         if (st) {
           f('viz', VIZ.indexOf(st.viz)); f('full', st.full ? 1 : 0);
-          // a space: the stage (or the whole frame) and, around the stage, each cell of the grid's ring — the same
-          // space drawn another way (show/space.ts ringView: angles, scans, drawings, close-ups)
-          if (VIZ.indexOf(st.viz) >= 2 && phase === 'grid' && show.geo) {
-            const W = renderer.width, H = renderer.height, dpr = renderer.dpr;
-            const views: [View, [number, number, number, number]][] = [[stageView(st.cam, show.A.mood.neu), st.full ? [0, 0, W, H] : stage(W, H)]];
-            if (!st.full) for (const k of RING) views.push([ringView(k, st.cam, t - st.t), [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2]]);
-            // the more negative the word, the more it breaks: the camera cuts on every eighth, then every sixteenth
-            const { neg, pos } = show.A.mood, sub = (t - st.t) / (show.g.beat / 4);
-            const cut = neg > 0.75 ? Math.floor(sub) : neg > 0.4 ? Math.floor(sub / 2) : 0;
-            // (points: softer and larger for a positive word, finer for a negative one)
-            const size = (1.5 + 0.9 * pos - 0.4 * neg) * dpr;
-            views.forEach(([view, rect], v) => {
-              const c = camera(st.viz as Space, { ...view, seed: (view.seed + cut * 0.382) % 1 }, t - st.t, rect[2] / rect[3], show!.A.mood, show!.geo!.focus[st.viz as Space]);
-              cams.set(c.vp, v * CAM_SLOT);
-              cams.set([v === 0 ? size : dpr, rect[2], rect[3], 0, t, neg, c.dist, 0, view.slab?.[0] ?? -1, view.slab?.[1] ?? 0, 0.14, 0], v * CAM_SLOT + 52);
-            });
-            const rects = views.map(([, r]) => r);
-            const r = show.geo.ranges[st.viz as Space];
-            space = { cams, rects, points: [r[0], r[1]], lines: [r[2], r[3]] };
+          // the spaces: the one on the stage (or the whole frame) and, in the cells of the ring, the film strip of
+          // those already shown — clockwise from the top left, each frozen as it ended, drawn another way (show/space.ts
+          // ringView: plans, sections, close-ups, orbits); the ring is empty on the merged cells and on the ending
+          const isSpace = VIZ.indexOf(st.viz) >= 2;
+          if (isSpace && phase === 'grid' && show.geo) {
+            const W = renderer.width, H = renderer.height, dpr = renderer.dpr, geo = show.geo, mood = show.A.mood;
+            const views: SpaceDraw['views'] = [];
+            const view = (sp: Space, v: View, lt: number, rect: [number, number, number, number], size: number, cut = 0) => {
+              const c = camera(sp, { ...v, seed: (v.seed + cut * 0.382) % 1 }, lt, rect[2] / rect[3], mood, geo.focus[sp]);
+              const n = views.length;
+              cams.set(c.vp, n * CAM_SLOT);
+              cams.set([size, rect[2], rect[3], 0, t, mood.neg, c.dist, 0, v.slab?.[0] ?? -1, v.slab?.[1] ?? 0, 0.14, 0], n * CAM_SLOT + 52);
+              const r = geo.ranges[sp];
+              views.push({ rect, points: [r[0], r[1]], lines: [r[2], r[3]] });
+            };
+            // the more negative the word, the more it breaks: the camera cuts on every eighth, then every sixteenth;
+            // points softer and larger for a positive word, finer for a negative one
+            const sub = (t - st.t) / (show.g.beat / 4);
+            const cut = mood.neg > 0.75 ? Math.floor(sub) : mood.neg > 0.4 ? Math.floor(sub / 2) : 0;
+            view(st.viz as Space, stageView(st.cam, mood.neu), t - st.t, st.full ? [0, 0, W, H] : stage(W, H), (1.5 + 0.9 * mood.pos - 0.4 * mood.neg) * dpr, cut);
+            if (!st.full) {
+              const shown = show.g.steps.filter((x) => VIZ.indexOf(x.viz) >= 2 && x.t + x.dur <= t);
+              shown.slice(0, STRIP.length).forEach((x, i) => {
+                const k = STRIP[i];
+                view(x.viz as Space, ringView(k, x.cam, x.dur), x.dur, [L.x + (k % 9) * L.cs + 1, L.y + Math.floor(k / 9) * L.cs + 1, L.cs - 2, L.cs - 2], dpr);
+              });
+            }
+            space = { cams, views };
           }
         }
         f('beatU', ((t - show.g.seq) / show.g.beat) % 1);
-        // and it strobes — safely: only a word more than half negative, only on a beat and never on two beats running
-        // (at most 2 flashes a second at the fastest tempo: photosensitive safety asks for fewer than 3), as often as it
-        // is negative and aroused, one frame of pale grey (never full white)
+        // and it strobes on the beats the score chose (grid.ts strobes(): safe), one frame of pale grey
         const beatNo = Math.floor((t - show.g.seq) / show.g.beat);
-        const strobe = Math.max(0, show.A.mood.neg - 0.5) * 2 * (0.3 + 0.7 * show.A.s.arousal);
-        const flash = t >= show.g.seq && st?.viz !== 'stand' && strobeOn(beatNo, strobe) && (t - show.g.seq) % show.g.beat < 1 / 30;
+        const flash = t >= show.g.seq && st?.viz !== 'stand' && show.g.flashes.includes(beatNo) && (t - show.g.seq) % show.g.beat < 1 / 30;
         f('flash', flash ? 1 : 0);
         if (flash) space = null;
         if (phase === 'grid') caps = notes(show.A, show.g, show.geo, t, renderer.width, renderer.height, renderer.dpr,
-          space && st ? { viz: st.viz as Space, vp: cams.subarray(0, 16), rect: space.rects[0] } : null);
+          space && st ? { viz: st.viz as Space, vp: cams.subarray(0, 16), rect: space.views[0].rect } : null);
       }
     }
     if (phase === 'room') roomFade = Math.min(1, roomFade + dt / 1.8);
@@ -297,6 +303,8 @@ async function boot() {
     f('mode', { grid: 0, room: 1, wait: 2, black: 3 }[phase]);
     // the room draws the drone as it sounds (before the first key there is no sound yet: a still line)
     if (phase === 'room' || phase === 'wait') { drone?.wave(wave); renderer.setWave(wave); }
+    // the room, nothing typed yet: an invitation, faint, under the line
+    if (phase === 'room' && state === 'idle') caps = [{ key: 'hint', text: 'type a word', x: renderer.width / renderer.dpr / 2, y: (renderer.height / renderer.dpr) * 0.68 + 44, align: 'c', colour: 'rgba(237,230,220,0.3)' }];
     renderer.render(frame.f32, space);
     showCaptions(caps);
     for (const h of app.frameHooks) h(now);
@@ -309,16 +317,6 @@ async function boot() {
     mountHarness(app);
     (window as unknown as { __woc: App }).__woc = app;
   }
-}
-
-/** Whether beat b strobes: by chance at `p`, never right after a beat that did. */
-function strobeOn(b: number, p: number): boolean {
-  let prev = false, on = false;
-  for (let k = 0; k <= b; k++) {
-    on = !prev && (((k + 1) * 2654435761) >>> 0) / 4294967296 < p;
-    prev = on;
-  }
-  return on;
 }
 
 void boot();
