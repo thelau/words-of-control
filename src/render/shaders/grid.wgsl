@@ -245,6 +245,7 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   if (t >= seq && F.flash > 0.5) { return out(WHITE * 0.55); }
   let r = select(stage(L), vec4f(0.0, 0.0, F.resX, F.resY), F.full > 0.5);
   if (inRect(p, r)) { return out(viz(F.viz < 0.5, p, r)); }
-  // around it the grid, pulsing with the beat
-  return out(WHITE * gridLines(p, L) * (0.12 + 0.3 * exp(-F.beatU * 6.0)));
+  // around it the grid, pulsing with the beat — still and dim on the ending (VIZ 1: where the words stand)
+  let pulse = select(0.3 * exp(-F.beatU * 6.0), 0.0, abs(F.viz - 1.0) < 0.5);
+  return out(WHITE * gridLines(p, L) * (0.12 + pulse));
 }
