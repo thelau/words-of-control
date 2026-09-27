@@ -17,14 +17,14 @@ import { plateModes } from '../show/chladni.ts';
 import { DATA_CLIPS } from '../show/director.ts';
 import { loud } from './score.ts';
 import { mulberry32 } from '../core/rng.ts';
-import { atlasModel } from '../show/atlas.ts';
+import { reading } from '../show/matrix.ts';
 import { PLUGINS, isPlugin } from '../show/species/index.ts';
 import { VOICES } from './species/index.ts';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PLATE = [1, 2.76, 5.4, 8.93, 13.34, 18.64];
 /** Per-clip trims (dB) so each lands near the same loudness at full level (measured with scripts/listen.ts). */
-const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, hall: 5, curtain: 6, ink: 4, solids: 4, atlas: 2,
+const CAL: Record<Shot['clip'], number> = { relief: 14, chladni: 6, landscape: 4, city: 4, lattice: 2, cloud: 4, tube: 6, drift: 10, hall: 5, curtain: 6, ink: 4, solids: 4, matrix: 2,
   threads: PLUGINS.threads.cal };
 
 /** One shot's voice: `strike` — it carries the verdict's strike; `pos` — a positive word (its beats sit high, no sub);
@@ -147,7 +147,7 @@ export function playShot(a: AudioEngine, drone: Drone, A: Appraisal, plan: Plan,
   const v: V = { a, drone, A, shot, start, end, tail, off, out: gate, rand: mulberry32(shot.seed), strike, pos };
   // (strike: the ink's voice is scheduled from its first shot, which is the strike's shot)
   switch (shot.clip) {
-    case 'atlas': return atlas(v);
+    case 'matrix': return matrix(v);
     case 'ink': return ink(v, plan);
     case 'solids': return solids(v);
     case 'threads': return VOICES[shot.clip](kit(v, plan));
@@ -456,88 +456,91 @@ function data(v: V): number[] {
   return [f0];
 }
 
-// ------------------------------------------------------------------ atlas: the plates heard as they are drawn
-/** Every element of an atlas plate (show/atlas.ts, the same reveal times as the image) is heard as it appears
- *  (the certainty plate: the sure answers as pure tones, each one it will not call as two tones beating — what it said
- *  and what it almost said; the hand: the visitor's keystrokes clicked back at their pace; the sigil: a chord of every
- *  answer) —
- *  Ikeda's palette: test tones, clicks, a sub — and nothing else. The grid: a short rectangular test tone per
- *  cell, its pitch the answer's value (half-octaves of 1 kHz), a red cell with a deep thump; the focus: a pure tone
- *  gliding up with the wipe to the answer's own pitch, and a thump as it lands; the crowd: each row a rain of
- *  clicks (the reference words, placed in time by their value), this word's own louder and pitched; the map: a soft
- *  ping per word, lower the nearer it is to this one. */
-function atlas(v: V): number[] {
-  const m = atlasModel(v.A);
-  const plate = m.plates[v.shot.seed] ?? m.plates[0];
-  const pitch = (x: number) => 1000 * 2 ** (Math.round((x - 0.5) * 6) / 2);
+// ------------------------------------------------------------------ matrix: the score heard as it is drawn
+/** Each section of the matrix (show/matrix.ts) is the sound of the very data it draws — sines, noise, pulses, clicks,
+ *  nothing else: the scan is its bit stream as a pulse train (the word's own bytes first); the matrix, its numbers as
+ *  blips of sine (the word's own loudest); the zoom, a glissando rising with the scale; the signal, a playhead
+ *  sounding each band in turn — a sure answer a sine, one the machine will not call noise; the field, a click as
+ *  each point turns past the front, a ping for the word; the end, the answers' chord collapsing into one sine. */
+function matrix(v: V): number[] {
+  const r = reading(v.A);
+  const dims = r.dims, n = dims.length;
+  const sec = v.shot.seed, dur = v.shot.dur;
+  const f = (x: number) => 150 * 2 ** (x * 5); // a value → 150 Hz … 4.8 kHz
+  const rand = mulberry32((v.A.seed ^ (sec * 7919)) >>> 0);
   const src = rendered(v, (L, R, sr) => {
-    const n = L.length;
-    const tone = (t: number, f: number, dur: number, amp: number, pan = 0) => {
-      const s0 = Math.floor(t * sr);
-      for (let i = 0; i < dur * sr && s0 + i < n; i++) { const x = Math.sin((2 * Math.PI * f * i) / sr) * amp; L[s0 + i] += x * (1 - pan); R[s0 + i] += x * (1 + pan); }
-    };
-    const thump = (t: number, amp: number) => {
-      const s0 = Math.floor(t * sr);
-      let ph = 0;
-      for (let i = 0; i < sr * 0.6 && s0 + i < n; i++) { const u = i / sr; ph += (2 * Math.PI * (44 + 60 * Math.exp(-u / 0.02))) / sr; const x = Math.sin(ph) * Math.exp(-u / 0.25) * amp; L[s0 + i] += x; R[s0 + i] += x; }
-    };
-    const click = (t: number, amp: number, pan: number) => { const s0 = Math.floor(t * sr); if (s0 < n) { L[s0] += amp * (1 - pan); R[s0] += amp * (1 + pan); } };
-    if (plate.kind === 'grid') plate.items.forEach((it, k) => {
-      const pan = (k % 7) / 3 - 1;
-      tone(it.t, pitch(it.value), 0.025, 0.08, pan * 0.7);
-      if (it.red) thump(it.t, 0.5);
-    });
-    if (plate.kind === 'focus') {
-      const it = plate.items[0];
-      let ph = 0;
-      const f1 = pitch(it.value), s0 = Math.floor(it.t * sr), len = Math.floor((it.dur + 1.2) * sr);
-      for (let i = 0; i < len && s0 + i < n; i++) {
-        const u = i / sr, g = Math.min(1, u / it.dur);
-        ph += (2 * Math.PI * (200 * (f1 / 200) ** g)) / sr;
-        const x = Math.sin(ph) * 0.07 * Math.min(1, u / 0.02) * (u > it.dur ? Math.exp(-(u - it.dur) / 0.6) : 1);
-        L[s0 + i] += x; R[s0 + i] += x;
+    const len = Math.min(L.length, Math.floor(dur * sr));
+    const put = (i: number, x: number, pan = 0) => { if (i >= 0 && i < L.length) { L[i] += x * (1 - pan); R[i] += x * (1 + pan); } };
+    // every section opens with a cut: one hard click
+    put(0, 0.5); put(1, -0.5);
+    if (sec === 0) {
+      // the stream, as the first band draws it: word bytes, then values and confidences as bytes
+      const bytes = [...v.A.bytes, ...dims.flatMap((d) => [Math.round(d.value * 255), Math.round(d.conf * 255)])];
+      const rate = 900 + 2600 * v.A.s.arousal;
+      for (let i = 0; i < len; i++) {
+        const b = Math.floor((i / sr) * rate);
+        const bit = (bytes[Math.floor(b / 8) % bytes.length] >> (7 - (b % 8))) & 1;
+        put(i, bit ? (b % 2 ? 0.07 : -0.07) : 0);
       }
-      thump(it.t + it.dur, 0.7);
+    } else if (sec === 1) {
+      // the numbers streaming by: 60 blips a second, column after column, the word's own value louder
+      for (let e = 0; e * (1 / 60) < dur; e++) {
+        const k = e % n, j = Math.floor(e / n) % (r.ref.length + 1), me = j === r.ref.length;
+        const x = me ? dims[k].value : dims[k].lex[j] ?? 0;
+        const s0 = Math.floor((e / 60) * sr), fr = f(x), pan = (k / n) * 1.6 - 0.8;
+        for (let i = 0; i < sr * 0.014; i++) put(s0 + i, Math.sin((2 * Math.PI * fr * i) / sr) * (me ? 0.09 : 0.03), pan);
+      }
+    } else if (sec === 2) {
+      // the fall into one number: a sine rising with the scale, and noise thickening under it
+      let ph = 0;
+      for (let i = 0; i < len; i++) {
+        const u = i / len;
+        const scale = Math.exp(u * u * 6.5);
+        ph += (2 * Math.PI * 60 * Math.pow(scale, 0.62)) / sr;
+        put(i, Math.sin(ph) * 0.06 + (rand() * 2 - 1) * 0.02 * u * u);
+      }
+      put(len - 1, 0.6);
+    } else if (sec === 3) {
+      // the playhead: each band in turn — a sine if sure, noise if not
+      const phs = new Float64Array(n);
+      for (let i = 0; i < len; i++) {
+        const head = (i / len) * n;
+        for (let k = Math.max(0, Math.floor(head - 1)); k <= Math.min(n - 1, Math.floor(head + 1)); k++) {
+          const w = Math.max(0, 1 - Math.abs(k + 0.5 - head));
+          if (w <= 0) continue;
+          const doubt = Math.min(1, Math.max(0, (0.75 - dims[k].conf) / 0.6));
+          phs[k] += (2 * Math.PI * f(dims[k].value)) / sr;
+          put(i, (Math.sin(phs[k]) * (1 - doubt) * 0.08 + (rand() * 2 - 1) * doubt * 0.06) * w, (k / n) * 1.2 - 0.6);
+        }
+      }
+    } else if (sec === 4) {
+      // the points turning past the front: a click each (the word's a sine ping)
+      const omega = 0.6 + 1.0 * v.A.s.arousal;
+      const pts = [r.me, ...r.ref.map((x) => x.v)];
+      pts.forEach((p, j) => {
+        const qx = p[0] - 0.5, qz = p[2] - 0.5;
+        let last = qx;
+        for (let i = 1; i < len; i += 48) {
+          const a = (i / sr) * omega, x = qx * Math.cos(a) + qz * Math.sin(a);
+          if (Math.sign(x) !== Math.sign(last)) {
+            if (j === 0) for (let q = 0; q < sr * 0.08; q++) put(i + q, Math.sin((2 * Math.PI * 2000 * q) / sr) * 0.08 * Math.exp(-q / (sr * 0.02)));
+            else put(i, 0.3 * (p[1] - 0.2));
+          }
+          last = x;
+        }
+      });
+    } else {
+      // the end: the answers' chord, shrinking, into one sine — the answer that sets the word apart
+      const fz = f(dims[r.focus].value);
+      for (let i = 0; i < len; i++) {
+        const u = i / len, t = Math.min(1, u / 0.7), out = 1 - Math.max(0, (u - 0.9) / 0.1);
+        let x = Math.sin((2 * Math.PI * fz * i) / sr) * 0.09 * t;
+        if (t < 1) for (let k = 0; k < n; k += 3) x += Math.sin((2 * Math.PI * f(dims[k].value) * i) / sr) * 0.012 * (1 - t);
+        put(i, x * out);
+      }
     }
-    if (plate.kind === 'crowd') plate.items.forEach((it, k) => {
-      const d = m.dims[k];
-      d.lex.forEach((x) => click(it.t + x * it.dur, 0.12, x * 1.4 - 0.7));
-      tone(it.t + d.value * it.dur, pitch(d.value), 0.02, it.red ? 0.14 : 0.06, d.value * 1.4 - 0.7);
-    });
-    if (plate.kind === 'map') plate.items.forEach((it) => tone(it.t, 3000 + it.value * 5000, 0.012, 0.03, (it.x0 - 0.5) * 1.4));
-    if (plate.kind === 'certainty') plate.items.forEach((it, k) => {
-      const sure = k < m.sure.length, d = sure ? m.sure[k] : m.nocall[k - m.sure.length];
-      const f = pitch(d.value);
-      if (sure) tone(it.t, f, 0.18, 0.06, -0.5);
-      else {
-        // no call: what it said and what it almost said, sounding together — they beat, undecided
-        const f2 = f * (1 + 0.012 + 0.03 * (1 - d.conf));
-        tone(it.t, f, 0.9, 0.035, 0.5); tone(it.t, f2, 0.9, 0.035, 0.5);
-      }
-    });
-    // hand: the visitor's own keystrokes, clicked back at their pace (the longest pause lands with a thump)
-    if (plate.kind === 'hand') plate.items.forEach((it) => { click(it.t, 0.35, (it.x0 - 0.5) * 1.2); if (it.red) thump(it.t, 0.4); });
   });
   src.connect(v.out);
-  if (plate.kind === 'sigil') {
-    // the mark's chord: every answer a partial of D, as loud as its value, the doubtful ones faint; it swells as the
-    // rays are drawn and rings on into the black (oscillators: a sample loop here stalled the page at Enter)
-    const c = v.a.ctx;
-    m.dims.forEach((d, k) => {
-      const f = D2 * 2 * (1 + k * 0.5);
-      if (f > 12000) return;
-      const o = c.createOscillator();
-      o.frequency.value = f;
-      const g = c.createGain();
-      const on = v.start + plate.items[k].t;
-      g.gain.setValueAtTime(0, on);
-      g.gain.linearRampToValueAtTime(0.012 * d.value * (0.3 + 0.7 * d.conf), on + 0.3);
-      const pan = c.createStereoPanner();
-      pan.pan.value = k % 2 ? 0.3 : -0.3;
-      o.connect(g).connect(pan).connect(v.out);
-      o.start(on); o.stop(v.end + v.tail);
-    });
-  }
   return [];
 }
 

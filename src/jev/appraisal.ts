@@ -34,9 +34,8 @@ export type Appraisal = {
   c: Record<string, Choice>;
   n: Record<string, number>;
   /** How sure Jev is of each answer (0..1), by question id: a choice's or a score's own confidence; for the others
-   *  (a probability of yes), how far from a coin toss. And each score's distribution over its levels. */
+   *  (a probability of yes), how far from a coin toss. */
   k: Record<string, number>;
-  sd: Record<string, number[]>;
   /** Every number above in a fixed order: the data the machine shows and sounds. */
   tape: Float32Array;
   /** 0..1 — how indifferent the machine is to this word. */
@@ -50,13 +49,11 @@ const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 export function buildAppraisal(a: Answers, text: string, typing: TypingTrace, seed: number): Appraisal {
   const s: Record<string, number> = {};
   const k: Record<string, number> = {};
-  const sd: Record<string, number[]> = {};
   for (const id of SCORE_IDS) {
     const q = a[id] as ScoreAnswer | undefined;
     const levels = Array.isArray(ALL[id].criteria) ? (ALL[id].criteria as unknown[]).length : 5;
     s[id] = q ? clamp01(q.score / (levels - 1)) : 0.5;
     k[id] = q?.confidence ?? 0;
-    sd[id] = Array.from({ length: levels }, (_, i) => q?.probabilities[String(i)] ?? 0);
   }
   const c: Record<string, Choice> = {};
   for (const id of CHOICE_IDS) {
@@ -90,5 +87,5 @@ export function buildAppraisal(a: Answers, text: string, typing: TypingTrace, se
   const neg = (em.anger + em.fear + em.anxiety + em.sadness) * (1.4 - s.valence) + n.violence * 0.8 + n.loss * 0.4;
   const neu = clamp01(lazy) * 0.9 + (1 - s.intensity) * 0.5 + (1 - c.emotion.confidence) * 0.3 + (c.kind?.p?.object ?? 0) * 0.5;
   const sum = pos + neg + neu + 1e-6;
-  return { seed, bytes, typing, s, c, n, k, sd, tape: new Float32Array(tape), lazy: clamp01(lazy), mood: { pos: pos / sum, neu: neu / sum, neg: neg / sum } };
+  return { seed, bytes, typing, s, c, n, k, tape: new Float32Array(tape), lazy: clamp01(lazy), mood: { pos: pos / sum, neu: neu / sum, neg: neg / sum } };
 }

@@ -8,7 +8,7 @@ import type { Appraisal } from '../jev/appraisal.ts';
 import { mulberry32 } from '../core/rng.ts';
 import type { Layer } from '../render/gpu.ts';
 import { PLUGINS, isPlugin, type PluginName } from './species/index.ts';
-import { atlasModel } from './atlas.ts';
+import { score } from './matrix.ts';
 
 /** The verdict vocabulary. The appraisal gone 3D — data formations (field.wgsl), each the spatial form of
  *  a 2D reading, and drift, the void — and two matters the data acts on: the relief (data → surface) and
@@ -17,7 +17,7 @@ import { atlasModel } from './atlas.ts';
  *  Ink and solids are other species (the reading gone liquid, ink.wgsl; made matter, solids.wgsl), each a
  *  whole performance of its own. */
 export const DATA_CLIPS = ['landscape', 'city', 'lattice', 'cloud', 'tube', 'drift', 'hall', 'curtain'] as const;
-export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink', 'solids', 'threads', 'atlas'] as const;
+export const CLIPS = [...DATA_CLIPS, 'relief', 'chladni', 'ink', 'solids', 'threads', 'matrix'] as const;
 export type ClipId = (typeof CLIPS)[number];
 
 /** Which renderer layer draws a clip. */
@@ -48,7 +48,7 @@ export type Shot = { clip: ClipId; start: number; dur: number; seed: number; abo
 
 /** What a performance is made of, seen at a glance: the points (the data formations, the relief, the sand), ink,
  *  or solids. Two performances in a row are never the same species — the second word must not look like the first. */
-export type Species = 'atlas' | 'points' | 'ink' | 'solids' | PluginName;
+export type Species = 'matrix' | 'points' | 'ink' | 'solids' | PluginName;
 
 /** The performance's form, chosen from the reading (see direct()). */
 export type Drama = 'storm' | 'barrage' | 'endless' | 'misreading' | 'bloom' | 'measure' | 'shrug' | 'name' | 'greeting' | 'question' | 'void';
@@ -106,7 +106,7 @@ function affinity(A: Appraisal): Record<ClipId, number> {
       + d.nature * 0.3 + A.c.sense.p.hearing * 0.3 + 0.3,
     // (their own species: never mixed into a performance of points)
     ink: 0,
-    atlas: 0,
+    matrix: 0,
     solids: 0,
     threads: 0,
   };
@@ -142,16 +142,16 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
     : md.neu >= md.neg ? 'measure'
     : 'storm';
 
-  // ---- the species: the atlas (the word as a specimen, after Ikeda's data-verse); the earlier species only when
+  // ---- the species: the matrix (the verdict as a score of pure data, after Ikeda); the earlier species only when
   // the picker asks for them
-  const species: Species = force ?? 'atlas';
+  const species: Species = force ?? 'matrix';
 
   // ---- appraisal: rapid cuts, faster when the word is charged
   const appraisalDur = lerp(1.7, 2.6, clamp01(A.tape.length / 180)) * lerp(1.1, 0.85, aro);
   const cutLen = lerp(0.26, 0.075, aro) * (lazy > 0.6 ? 1.8 : 1);
   // it opens on the word itself and its bytes, held long enough to be read: proof the machine is reading *this*
-  // (the atlas starts straight on the readings: no title card of the word first)
-  const cuts: Cut[] = species === 'atlas' ? [] : [{ start: 0, dur: lerp(0.7, 0.45, aro), mode: 'word', variant: 0 }];
+  // (the matrix starts straight on the readings: no title card of the word first)
+  const cuts: Cut[] = species === 'matrix' ? [] : [{ start: 0, dur: lerp(0.7, 0.45, aro), mode: 'word', variant: 0 }];
   let t = cuts[0]?.dur ?? 0;
   let prev: CutMode | null = cuts.length ? 'word' : null;
   // which readings the machine favours depends on what it found: ordered words read as barcodes and bits,
@@ -186,8 +186,8 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
   // the one the echo rebuilds, so the last flat frame and the first 3D frame are the same image)
   let lastVariant = rand();
   while (handOff === 'city' && Math.floor((lastVariant * 13.7) % 1 * 4) !== 0) lastVariant = rand();
-  // (the atlas cuts straight from the readings to its first plate: no held reading to hand over)
-  if (species === 'atlas') { /* no hand-off */ }
+  // (the matrix cuts straight from the readings into its score: no held reading to hand over)
+  if (species === 'matrix') { /* no hand-off */ }
   else if (drama === 'question') {
     cuts.push({ start: t, dur: 0.6, mode: 'line', variant: 0 });
     t += 0.6;
@@ -348,14 +348,13 @@ export function direct(A: Appraisal, salt = (Math.random() * 2 ** 31) | 0, force
 
   const shots: Shot[] = [];
   t += 0.15;
-  if (species === 'atlas') {
-    // the atlas: its plates, cut hard, a frame of black between them (show/atlas.ts); shot.seed = the plate
-    atlasModel(A).plates.forEach((p, k) => {
-      shots.push({ clip: 'atlas', start: t, dur: p.dur, seed: k, aborted: false, angles: [WIDE], ops: STILL });
-      t += p.dur + 0.1;
-    });
-    // (the sigil is its signature: no caption after it)
-    t -= 0.1;
+  if (species === 'matrix') {
+    // the matrix: its sections, cut on frames, a few frames of black between them (show/matrix.ts); shot.seed =
+    // the section
+    for (const x of score(A)) {
+      shots.push({ clip: 'matrix', start: t, dur: x.dur, seed: x.section, aborted: false, angles: [WIDE], ops: STILL });
+      t += x.dur + x.gap;
+    }
     return { drama, species, cuts, shots, fade: 0, blackAt: t, end: t + form.tail };
   }
   // low confidence (outside the misreading itself): a false start — a shot begins, is cut off, and the machine starts again

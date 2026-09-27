@@ -4,6 +4,13 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-09-27
 
+- **The atlas read as an annual report** ("act as Ryoji Ikeda and his team … it feels like a cheap far away clone …
+  more like an annual report"). Replaced by the matrix: no sentences, no charts, no labels but numbers — white on
+  black, 1 px, digits from the glyph atlas; six sections cut on frames: scan (the reading as one bit stream), matrix
+  (every value of the word and of the reference words, ≈2 700 numbers), zoom (into the number that sets it apart),
+  signal (sure = sine, no call = noise, a playhead sounding each band), field (the words as points in space), end
+  (one line, one sine). Sound is the same data: pulse train, sine blips, glissando, sine vs noise, clicks, one sine.
+
 - **The atlas shows the machine's certainty** ("what the machine is sure of and what the machine is confidently not
   knowing or doesn't want to make a call on"): a certainty plate (SURE / NO CALL, the near-ties with what it almost
   said, heard as two tones beating), doubtful answers drawn out of focus and wavering everywhere. Also built, as

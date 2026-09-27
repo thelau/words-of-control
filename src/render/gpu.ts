@@ -15,8 +15,7 @@ import sandWGSL from './shaders/sand.wgsl?raw';
 import sandDrawWGSL from './shaders/sand_draw.wgsl?raw';
 import inkWGSL from './shaders/ink.wgsl?raw';
 import solidsWGSL from './shaders/solids.wgsl?raw';
-import atlasWGSL from './shaders/atlas.wgsl?raw';
-import { MAX_ITEMS } from './atlasPaint.ts';
+import matrixWGSL from './shaders/matrix.wgsl?raw';
 import threadsWGSL from './shaders/threads.wgsl?raw';
 import { PLUGINS, PLUGIN_NAMES, type PluginName } from '../show/species/index.ts';
 import blitWGSL from './shaders/blit.wgsl?raw';
@@ -25,7 +24,7 @@ import bloomWGSL from './shaders/bloom.wgsl?raw';
 import compositeWGSL from './shaders/composite.wgsl?raw';
 import { FRAME_BYTES, frameStructWGSL } from './frame.ts';
 
-export type Layer = 'room' | 'black' | 'appraisal' | 'atlas' | 'relief' | 'sand' | 'data' | 'ink' | 'solids' | PluginName;
+export type Layer = 'room' | 'black' | 'appraisal' | 'matrix' | 'relief' | 'sand' | 'data' | 'ink' | 'solids' | PluginName;
 
 const PLUGIN_WGSL: Record<PluginName, string> = { threads: threadsWGSL };
 
@@ -74,10 +73,8 @@ export class Renderer {
   private inkDye: GPUTexture[] = [];
   private inkFib: GPUTexture[] = [];
   private solidsBuf!: GPUBuffer;
-  /** The atlas's plates (painted per performance at native resolution: white in r, red in g, item in b) and their items. */
-  private atlasTex: GPUTexture | null = null;
-  private atlasRects!: GPUBuffer;
-  static readonly ATLAS_PLATES = 7;
+  /** The reading's numbers for the matrix (show/matrix.ts pack()). */
+  private readingBuf!: GPUBuffer;
   /** The plug-in species (src/show/species): pipelines, state, and their own last two frames (trails). */
   private plug: Partial<Record<PluginName, { setup: GPUComputePipeline; draw: GPURenderPipeline; bgSetup: GPUBindGroup; state: GPUBuffer; hist: Target[]; bgDraw: GPUBindGroup[]; bgDof: GPUBindGroup[]; flip: number }>> = {};
   private drawLayout!: GPUBindGroupLayout;
@@ -170,8 +167,8 @@ export class Renderer {
 
     this.p.room = full('room', roomWGSL);
     this.p.appraisal = full('appraisal', appraisalWGSL);
-    this.p.atlas = full('atlas', atlasWGSL);
-    this.atlasRects = d.createBuffer({ size: Renderer.ATLAS_PLATES * MAX_ITEMS * 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.p.matrix = full('matrix', matrixWGSL);
+    this.readingBuf = d.createBuffer({ size: 64 * 1024, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.p.blit = full('blit', blitWGSL);
     this.p.dof = full('dof', dofWGSL);
     this.p.composite = full('composite', compositeWGSL, this.format);
@@ -230,6 +227,10 @@ export class Renderer {
       this.bg[name] = d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries });
     };
     for (const k of ['room']) group(k, this.p[k], [{ binding: 0, resource: uni }]);
+    group('matrix', this.p.matrix, [
+      { binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } },
+      { binding: 2, resource: this.atlas.createView() }, { binding: 3, resource: { buffer: this.readingBuf } },
+    ]);
     group('appraisal', this.p.appraisal, [
       { binding: 0, resource: uni }, { binding: 1, resource: { buffer: this.tapeBuf } },
       { binding: 2, resource: this.atlas.createView() },
@@ -300,11 +301,9 @@ export class Renderer {
     this.d.queue.copyExternalImageToTexture({ source: c }, { texture: this.wordTex }, [WORD_W, WORD_H]);
   }
 
-  /** Upload the atlas's plates (atlasPaint.ts) for this performance. */
-  setAtlas(plates: ImageBitmap[], rects: Float32Array) {
-    plates.slice(0, Renderer.ATLAS_PLATES).forEach((c, k) =>
-      this.d.queue.copyExternalImageToTexture({ source: c }, { texture: this.atlasTex!, origin: [0, 0, k] }, [Math.min(c.width, this.width), Math.min(c.height, this.height)]));
-    this.d.queue.writeBuffer(this.atlasRects, 0, rects);
+  /** The reading's numbers for the matrix, for this performance. */
+  setReading(data: Float32Array) {
+    this.d.queue.writeBuffer(this.readingBuf, 0, data);
   }
 
   setTape(tape: Float32Array) {
@@ -349,12 +348,6 @@ export class Renderer {
         { binding: 5, resource: pl.hist[1 - k].view }, { binding: 6, resource: this.sampler }] }));
       pl.bgDof = [0, 1].map((k) => this.d.createBindGroup({ layout: this.p.dof.getBindGroupLayout(0), entries: [{ binding: 0, resource: pl.hist[k].view }] }));
     }
-    // the atlas's plates, at the screen's size
-    this.atlasTex?.destroy();
-    this.atlasTex = this.d.createTexture({ size: [w, h, Renderer.ATLAS_PLATES], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
-    this.bg.atlas = this.d.createBindGroup({ layout: this.p.atlas.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: { buffer: this.fBuf } }, { binding: 1, resource: this.atlasTex.createView({ dimension: '2d-array' }) },
-      { binding: 2, resource: { buffer: this.atlasRects } }] });
     this.bg.composite = this.d.createBindGroup({
       layout: this.p.composite.getBindGroupLayout(0),
       entries: [
@@ -480,7 +473,7 @@ export class Renderer {
       pl.flip = 1 - k;
       fullPass(pl.draw, pl.bgDraw[k], pl.hist[k].view, {});
       fullPass(this.p.dof, pl.bgDof[k], this.scene.view, {});
-    } else if ((layer === 'appraisal' || layer === 'atlas') && hi) {
+    } else if ((layer === 'appraisal' || layer === 'matrix') && hi) {
       fullPass(this.p[layer], this.bg[layer], this.sceneHi.view);
       enc.beginRenderPass({ colorAttachments: [{ view: this.scene.view, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] }).end();
     } else {
@@ -528,7 +521,7 @@ export class Renderer {
 
   /** Draw every layer once so no pipeline compiles mid-performance. */
   warmUp(frame: Float32Array) {
-    for (const l of ['room', 'appraisal', 'atlas', 'relief', 'sand', 'data', 'ink', 'solids', ...PLUGIN_NAMES, 'black'] as Layer[]) this.render(l, frame, l === 'appraisal' || l === 'atlas');
+    for (const l of ['room', 'appraisal', 'matrix', 'relief', 'sand', 'data', 'ink', 'solids', ...PLUGIN_NAMES, 'black'] as Layer[]) this.render(l, frame, l === 'appraisal' || l === 'matrix');
   }
 
 }
