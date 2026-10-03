@@ -32,7 +32,7 @@ src/
   jev/                  questions (the battery), appraisal (answers → typed data), client, mock, fixtures, lexicon
   safety/               blocklist, routing thresholds
   show/                 grid.ts the score (cells, what matters, timing, steps); space.ts the 3D spaces; prepare worker
-  render/               WebGPU renderer (scene, then the monitor), frame uniforms; shaders: grid.wgsl (2D), space.wgsl (points, lines), post.wgsl (the light: halation, roll-off)
+  render/               WebGPU renderer (one pass), frame uniforms; shaders: grid.wgsl (2D), space.wgsl (points, lines)
   audio/                engine (master, reverb, performance bus), drone, keys, render (the performance as samples), score (plays it)
   dev/                  harness, recorder
 proxy/                  Jev proxy core (dev: Vite middleware)
