@@ -40,3 +40,10 @@ scripts/                perf, e2e, capture, film, listen, sequence, lexicon, app
 docs/                   grid (current direction), spec, decisions, engineering, Jev docs, reviews
 references/             artist's references (local only, not in git)
 ```
+
+## Open source
+
+Code under the [MIT licence](LICENSE). Jev is TypeSafe AI's service: to run it live you need your own key in
+`.env.local` (`TYPESAFE_API_KEY`, see `.env.example`); without it the piece runs on mock Jev. Visitors' words are never
+stored or logged, anywhere.
+

@@ -66,8 +66,11 @@ export function renderGrid(A: Appraisal, g: Grid, sr: number): Samples {
     else if (x.kind === 0) T.tone(t, f, 0.025, 0.05, pan);
     else if (x.kind === 1) { T.tone(t, f, 0.018, 0.045, pan); T.tone(t + 0.03, 400 * 2 ** (4 * ([...x.probs].sort((p, q) => q - p)[1] ?? 0)), 0.018, 0.03, pan); }
     else T.click(t, 0.25, pan);
-    if (x.key < 0) T.click(x.vanish, 0.22, pan);
   });
+  // each batch going out: one dry click, panned where its cells are
+  const batch = new Map<number, number[]>();
+  g.cells.forEach((x, k) => { if (x.key < 0 && Number.isFinite(x.vanish)) batch.set(x.vanish, [...(batch.get(x.vanish) ?? []), col(k)]); });
+  for (const [t, p] of batch) T.click(t, 0.3, p.reduce((a, b) => a + b, 0) / p.length);
   // the cut into the steps: one hard transient
   T.noise(g.seq, 0.04, 0.25, 0, 0.012);
   T.sub(g.seq, 42, 0.5, 0.08);

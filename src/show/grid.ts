@@ -111,7 +111,8 @@ export function grid(A: Appraisal): Grid {
   keys.forEach((k, r) => { cells[k].key = r; cells[k].markAt = mark + (r * 0.5) / keys.length; });
   const select = mark + 0.65;
   const out = cells.map((_, k) => k).filter((k) => cells[k].key < 0).sort(() => rand() - 0.5);
-  out.forEach((k, i) => (cells[k].vanish = select + 0.9 * Math.pow(i / out.length, 0.85)));
+  // (in eight batches, a click each: one by one, ~40 clicks a second fused into a buzz)
+  out.forEach((k, i) => (cells[k].vanish = select + 0.9 * Math.pow(Math.floor((i * 8) / out.length) / 8, 0.85)));
   const colours = keyColours(A, keys.length);
 
   // how unusual the words are, overall: the mean rarity of what matters (bits); how far beyond every reference word
@@ -160,7 +161,7 @@ export function grid(A: Appraisal): Grid {
   const said = (k: number) => (cells[k].kind === 1 ? LABELS[cells[k].opt] : plain(cells[k].id, cells[k].value)).toLowerCase();
   const echo = (k: number) => own.some((y) => said(k).includes(y)) || content(said(k)).some((x) => text.includes(x));
   const stand = keys.find((k) => !CATEGORY.has(cells[k].id) && !echo(k)) ?? keys.find((k) => !CATEGORY.has(cells[k].id)) ?? keys[0];
-  if (nonsense) for (const c of cells) { c.markAt = Infinity; c.vanish = Math.min(c.vanish, select + 0.5 * rand()); }
+  if (nonsense) for (const c of cells) { c.markAt = Infinity; c.vanish = Math.min(c.vanish, select + Math.floor(rand() * 6) / 12); }
   const g: Grid = {
     cells, keys, rank, refs: words, total: Object.keys(LEX).length, member: words.length < Object.keys(LEX).length,
     near, nonsense, colours, mark, select, seq, end: t, bpm, beat, steps, stand,

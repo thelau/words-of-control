@@ -1,7 +1,7 @@
 /**
  * Plays a performance's sound (audio/render.ts) on the image's clock (t0 = its start, audio time): the grid part at
  * once, the steps when the prepare worker hands them over (well before they begin); the tones of what matters held
- * on oscillators from their mark, cut dead on the first step. At the cut to black the hall blooms once (audio.ts).
+ * (two, soft) on oscillators from their mark, cut dead on the first step. At the cut to black the hall blooms once (audio.ts).
  */
 import type { Appraisal } from '../jev/appraisal.ts';
 import type { Grid } from '../show/grid.ts';
@@ -36,17 +36,22 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, g: G
   out.connect(send).connect(a.perfSend);
   play(renderGrid(A, g, c.sampleRate), t0);
 
-  // what matters, held: a pure tone per marked cell from its mark, cut dead on the first step
+  // what matters, held: the first two marked answers as soft tones from their mark (into the hall more than dry), cut
+  // dead on the first step. (Every marked one held, a tone or a semitone apart and loud, beat into a buzz.)
   const residue: number[] = [];
   for (const k of g.keys) {
-    if (!Number.isFinite(g.cells[k].markAt)) continue; // (nonsense: nothing is marked, nothing held)
-    const x = g.cells[k], o = c.createOscillator(), gg = c.createGain(), f = note(x.value, 0);
+    if (residue.length === 2 || !Number.isFinite(g.cells[k].markAt)) continue; // (nonsense: nothing is marked, nothing held)
+    const x = g.cells[k], f = note(x.value, 0);
+    if (residue.some((r) => Math.abs(Math.log2(f / r)) < 2.5 / 12)) continue;
+    const o = c.createOscillator(), gg = c.createGain(), wet = c.createGain();
     o.frequency.value = f;
     gg.gain.setValueAtTime(0, t0 + x.markAt);
-    gg.gain.linearRampToValueAtTime(0.025, t0 + x.markAt + 0.01);
-    gg.gain.setValueAtTime(0.025, t0 + g.seq - 0.003);
+    gg.gain.linearRampToValueAtTime(0.006, t0 + x.markAt + 0.25);
+    gg.gain.setValueAtTime(0.006, t0 + g.seq - 0.003);
     gg.gain.linearRampToValueAtTime(0, t0 + g.seq);
+    wet.gain.value = 3;
     o.connect(gg).connect(out);
+    gg.connect(wet).connect(a.perfSend);
     o.start(t0 + x.markAt);
     o.stop(t0 + g.seq + 0.01);
     residue.push(f);
