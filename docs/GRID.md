@@ -20,8 +20,7 @@ model. This supersedes the species, the matrix and the verdict clips of DIRECTIO
 
 **The mood** (Jev's reading, negative / neutral / positive, a blend). Negative, by subtraction: no tune — a fixed grid
 of clicks, a test-tone blip per answer, short sub pulses; the camera cutting on eighths or sixteenths, the points
-trembling, and a strobe that is safe (only a word more than half negative, on a beat, never two beats running: at most
-2 flashes a second; pale grey, never white) with digital silence on its frames. Neutral: test-tone pitches, pure sines,
+trembling, (no strobe: the artist found it annoying). Neutral: test-tone pitches, pure sines,
 no sub; long-lens technical drawings. Positive: lydian, softer and longer notes, a quiet chord; larger, softer points.
 
 **Captions** (src/show/notes.ts, drawn as DOM text; tracked capitals, IBM Plex Mono, the visitor's word always as typed): above the grid the word and where the reading stands (received,

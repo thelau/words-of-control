@@ -54,7 +54,7 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
     const short = (w2: string) => (w2.length > 22 ? `${w2.slice(0, 21)}…` : w2);
     // (a long phrase is set smaller, to fit the stage: Plex Mono's advance is 0.6 em)
     out.push({ key: 'word', text: word, x: cx, y: cy - 96, align: 'c', size: 'big', colour, px: Math.min(64, (S[2] * 0.8) / (word.length * 0.6)) });
-    if (g.member && lt > 1.5) out.push({ key: 'member', text: `also one of the ${g.total}`, x: cx, y: cy - 62, align: 'c' });
+    if (g.member && lt > 1.5) out.push({ key: 'member', text: `also one of the ${g.total}`, x: cx, y: cy - 142, align: 'c' });
     if (g.nonsense) {
       if (lt > 1.2) out.push({ key: 'answer', text: 'nothing stands out', x: cx, y: cy - 30, align: 'c', size: 'mid' });
       return out;
@@ -82,16 +82,33 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
       return ly - 5 - gap * hh;
     });
     out.push({ key: 'me', text: '', x: at(c.value), y: ly - 5, align: 'c', anchor: true, me: true, colour });
-    out.push({ key: 'melabel', text: word, x: at(c.value), y: ly - 22 - Math.min(40, 6 * (stack.get(Math.round(at(c.value) / 7)) ?? 0)), align: 'c', colour });
+    // the words' own label: above the tallest stack it spans (never on the dots), a thin line down to their dot
+    const CHAR = 8.5; // (a caption's advance: 12.5 px Plex Mono, 0.6 em + 0.08 em tracking)
+    const xw = at(c.value), half = (word.length * CHAR) / 2;
+    const lx = Math.max(x0 + half, Math.min(x1 - half, xw));
+    const top = Math.min(ly - 5, ...c.lex.map((v, j) => (Math.abs(at(v) - lx) <= half + 4 ? dotY[j] : ly)));
+    const labelY = Math.min(ly - 24, top - 16);
+    out.push({ key: 'melabel', text: word, x: lx, y: labelY, align: 'c', colour });
+    out.push({ key: 'meline', text: '', x: xw, y: labelY + 8, vline: Math.max(0, ly - 9 - (labelY + 8)) });
     // the nearest on this answer, one by one (their own family left out; left to right, each on its own line, a line
     // up to its dot)
     const kin = new Set(g.near);
     const onAxis = c.lex.map((v, j) => [j, Math.abs(v - c.value)] as const).filter(([j]) => kin.has(j)).sort((a2, b2) => a2[1] - b2[1]).slice(0, 3).map(([j]) => j).sort((a2, b2) => c.lex[a2] - c.lex[b2]);
+    // (one row below the line, spread so no two labels overlap; each joined to its dot by an elbow: down from the dot,
+    // along, down to the label)
+    const rowY = ly + 34, elbow = ly + 14;
+    const width = onAxis.map((j) => short(g.refs[j]).length * CHAR + 18), right = S[0] + S[2] - 12;
+    const place = onAxis.map((j) => at(c.lex[j]));
+    // (pushed right past each other, then back from the stage's edge, so none overlaps)
+    for (let i = 0; i < place.length; i++) place[i] = Math.max(place[i], i ? place[i - 1] + (width[i - 1] + width[i]) / 2 : S[0] + 12 + width[i] / 2);
+    for (let i = place.length - 1; i >= 0; i--) place[i] = Math.min(place[i], i < place.length - 1 ? place[i + 1] - (width[i] + width[i + 1]) / 2 : right - width[i] / 2);
     onAxis.forEach((j, i) => {
       if (lt < 3 + i * 1.2) return;
-      const x = at(c.lex[j]), y = ly + 22 + 16 * i;
-      out.push({ key: `nl${i}`, text: '', x, y: dotY[j], vline: y - dotY[j] - 6 });
-      out.push({ key: `n${i}`, text: short(g.refs[j]), x, y, align: 'c' });
+      const dx = at(c.lex[j]), lxn = place[i];
+      out.push({ key: `nl${i}`, text: '', x: dx, y: dotY[j] + 4, vline: elbow - dotY[j] - 4 });
+      if (Math.abs(lxn - dx) > 1) out.push({ key: `nh${i}`, text: '', x: Math.min(dx, lxn), y: elbow, rule: Math.abs(lxn - dx) });
+      out.push({ key: `nv${i}`, text: '', x: lxn, y: elbow, vline: rowY - elbow - 9 });
+      out.push({ key: `n${i}`, text: short(g.refs[j]), x: lxn, y: rowY, align: 'c' });
     });
     if (lt > 6.5) out.push({ key: 'overall', text: `nearest on all ${n} answers: ${g.near.slice(0, 3).map((j) => short(g.refs[j])).join(' · ')}`, x: cx, y: S[1] + S[3] - 56, align: 'c' });
     // (words in another script than English's are still measured against English words: said plainly)

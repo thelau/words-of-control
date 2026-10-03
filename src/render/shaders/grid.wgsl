@@ -160,8 +160,8 @@ fn cellDraw(k: u32, p: vec2f, r: vec4f, t: f32) -> vec4f {
     a = 1.0;
     fg = inkOn(bg);
   }
-  // its arrival: a white flash
-  let flash = exp(-(t - arrive) / 0.05) * 0.8;
+  // its arrival: a brief, dim glint (not a flash)
+  let flash = exp(-(t - arrive) / 0.04) * 0.25;
   var c = bg;
   var cov = a;
   let settle = t - arrive;
@@ -248,8 +248,7 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
     }
     return out(c);
   }
-  // the steps: the step on screen comes from main.ts; a strobe frame is pale grey
-  if (t >= seq && F.flash > 0.5) { return out(WHITE * 0.55); }
+  // the steps: the step on screen comes from main.ts
   let r = select(stage(L), vec4f(0.0, 0.0, F.resX, F.resY), F.full > 0.5);
   if (inRect(p, r)) { return out(viz(F.viz < 0.5, p, r)); }
   // around it the grid, pulsing with the beat — still and dim on the ending (VIZ 1: where the words stand)

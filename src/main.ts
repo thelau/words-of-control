@@ -301,11 +301,6 @@ async function boot() {
           }
         }
         f('beatU', ((t - show.g.seq) / show.g.beat) % 1);
-        // and it strobes on the beats the score chose (grid.ts strobes(): safe), one frame of pale grey
-        const beatNo = Math.floor((t - show.g.seq) / show.g.beat);
-        const flash = t >= show.g.seq && st?.viz !== 'stand' && show.g.flashes.includes(beatNo) && (t - show.g.seq) % show.g.beat < 1 / 30;
-        f('flash', flash ? 1 : 0);
-        if (flash) space = null;
         if (phase === 'grid') caps = notes(show.A, show.g, show.geo, t, renderer.width, renderer.height, renderer.dpr,
           space && st ? { viz: st.viz as Space, vp: cams.subarray(0, 16), rect: space.views[0].rect } : null);
       }

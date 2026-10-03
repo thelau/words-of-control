@@ -88,8 +88,7 @@ const PATCH: Partial<Record<Viz, { fold: number; oct: number }>> = {
  *  delay whose feedback grows, the notes lengthening and the filter opening; when the words earn three bars or
  *  more, the one before the last stripped back to one voice, long notes, no pulse; the last in full. The space on screen colours the timbre.
  *  Jev's doubt about what matters puts the notes out of tune by as much. The mood:
- *  negative — by subtraction: no tune — a fixed grid of clicks, a test-tone blip per answer, short sub pulses, and
- *             digital silence on the strobe frames;
+ *  negative — by subtraction: no tune — a fixed grid of clicks, a test-tone blip per answer, short sub pulses;
  *  neutral  — clinical: test-tone pitches (half-octaves of 1 kHz), pure sines, no sub;
  *  positive — lydian, higher, softer and longer, a quiet chord of the answers under it all. */
 export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
@@ -192,7 +191,5 @@ export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
   let f = deg(notes[g.keys.indexOf(g.stand)] ?? notes[0], 0);
   while (f > 520) f /= 2;
   T.tone(last.t, f, Math.min(1, last.dur), 0.08);
-  // digital silence on the strobe frames (a negative word)
-  for (const b of g.flashes) { const s0 = T.at(g.seq + b * g.beat); T.L.fill(0, s0, s0 + Math.floor(sr / 30)); T.R.fill(0, s0, s0 + Math.floor(sr / 30)); }
   return { L: T.L, R: T.R };
 }

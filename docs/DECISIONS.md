@@ -4,6 +4,10 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-10-03
 
+- **No strobe; the cells' arrival a glint** ("the white flashing is annoying for some of the analysis, like war"): the
+  negative strobe removed (and its silences); a cell's arrival a brief dim glint instead of a white flash. The ending's
+  labels never collide ("the graph and the labels conflict on the last screen").
+
 - **Less repetition (after the round-11 reviews: new media artists, curators, spectators)** ("go"): the middle
   earns its length (one to four bars by how unusual the words are) and its order (opening on what is most striking);
   colour from the words (no more shared orange); the ending ≥ 12 s, the words alone first, "also one of the 400",

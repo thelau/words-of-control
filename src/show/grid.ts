@@ -63,8 +63,6 @@ export type Grid = {
   bpm: number; beat: number; steps: Step[];
   /** The cell the performance ends on: where the word stands. */
   stand: number;
-  /** The beats (from the steps' start) that strobe. */
-  flashes: number[];
   /** When each sequencer voice sounds a note (the ring's playheads). */
   onsets: { t: number; v: 0 | 1 }[];
 };
@@ -166,7 +164,7 @@ export function grid(A: Appraisal): Grid {
   const g: Grid = {
     cells, keys, rank, refs: words, total: Object.keys(LEX).length, member: words.length < Object.keys(LEX).length,
     near, nonsense, colours, mark, select, seq, end: t, bpm, beat, steps, stand,
-    flashes: strobes(A, Math.round((t - seq) / beat)), onsets: onsets(A, steps, beat),
+    onsets: onsets(A, steps, beat),
   };
   GRIDS.set(A, g);
   return g;
@@ -244,19 +242,6 @@ const content = (t: string) => t.toLowerCase().split(/[^\p{L}']+/u).filter((w) =
 
 /** Answers that are category slots, not something a person would say of a word: never where it ends. */
 const CATEGORY = new Set(['who', 'act', 'kind', 'time', 'daytime', 'sense', 'rhythm', 'domain']);
-
-/** The beats that strobe — safely: only a word more than half negative, never two beats running (at most 2 flashes a
- *  second at the fastest tempo: photosensitive safety asks for fewer than 3), as often as it is negative and aroused. */
-function strobes(A: Appraisal, beats: number): number[] {
-  const p = Math.max(0, A.mood.neg - 0.5) * 2 * (0.3 + 0.7 * A.s.arousal);
-  const out: number[] = [];
-  let prev = false;
-  for (let k = 1; k < beats; k++) {
-    prev = !prev && (((k + 1) * 2654435761) >>> 0) / 4294967296 < p;
-    if (prev) out.push(k);
-  }
-  return out;
-}
 
 /** A measurement as it is written in the captions: its name, and a choice's answer ("texture: cracked"). */
 export function name(g: Grid, k: number): string {

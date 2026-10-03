@@ -9,12 +9,20 @@ import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { openSession } from './lib/headless.ts';
+import { normalizeInput, xmur3 } from '../src/core/rng.ts';
 
 const args = process.argv.slice(2);
 const opt = (k: string, d: string) => { const i = args.indexOf(`--${k}`); if (i < 0) return d; const v = args[i + 1]; args.splice(i, 2); return v; };
 const dir = path.resolve('docs/captures', opt('dir', 'v2'));
 const [W, H, DPR] = opt('size', '1280x720x1').split('x').map(Number);
 const fixtures = JSON.parse(readFileSync('src/jev/fixtures.json', 'utf8'));
+// (a phrase with no recorded answers borrows one, as mock mode does: src/jev/mock.ts)
+const answersFor = (w: string) => {
+  const key = normalizeInput(w);
+  if (fixtures[key]) return fixtures[key];
+  const all = Object.keys(fixtures).filter((x) => x !== 'want to die' && x !== 'fuck you');
+  return fixtures[all[xmur3(key)() % all.length]];
+};
 const words = args.length ? args : ['fuck', 'knife', 'nothing', 'ocean', 'mother', 'dust', 'glass', 'goodbye'];
 mkdirSync(dir, { recursive: true });
 
@@ -26,8 +34,7 @@ await s.page.waitForFunction(() => (window as any).__woc, null, { timeout: 90000
 await s.page.waitForTimeout(1200);
 
 for (const w of words) {
-  if (!fixtures[w]) { console.error(`no fixture for ${w}`); continue; }
-  await s.page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [fixtures[w], w]);
+  await s.page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [answersFor(w), w]);
   const g = await s.page.evaluate(() => (window as any).__woc.show().g);
   // moments to grab, in performance time
   const at: [string, number][] = [['fill', (g.mark - 0.3) * 0.5], ['filled', g.mark - 0.05], ['marked', g.select - 0.02],
