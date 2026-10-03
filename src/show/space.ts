@@ -1,7 +1,7 @@
 /**
  * The spaces: the data as 3D point clouds and connected points, one per step (show/grid.ts SPACES). Built once per
  * word, as two lists the renderer draws (gpu.ts): points (x, y, z, colour) and line segments (two such vertices).
- * Colour: its integer part is the palette slot (0 white, 1… the marked cells' colours), its fraction the brightness.
+ * Colour: its integer part is the palette slot (0 the panel's phosphor, 1… the marked cells' inks), its fraction the brightness.
  * The axes are the measurements that matter; the other points are the piece's reference words (never visitors').
  *   cloud    — every reference word a point in the space of the first three marked measurements, a stem to the floor
  *              (to read its depth); the word in its colour; the box, its ticks
@@ -24,7 +24,7 @@ import { name, SPACES } from './grid.ts';
 import { mulberry32 } from '../core/rng.ts';
 
 export type Space = (typeof SPACES)[number];
-/** A label on the data: its text, where it is, and its palette slot (0 white, 1… a marked cell's colour). */
+/** A label on the data: its text, where it is, and its palette slot (0 the phosphor, 1… a marked cell's ink). */
 export type Anchor = { text: string; p: number[]; c: number };
 export type Geometry = {
   points: Float32Array; lines: Float32Array;

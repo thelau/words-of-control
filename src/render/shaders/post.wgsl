@@ -1,7 +1,8 @@
-// THE MONITOR — the scene (grid + spaces, rendered to a float texture) seen on a worn video monitor: phosphor glow
-// (taller than wide: light bleeds down the tube in streaks), the three guns a little out of register, chroma smeared
-// along the line as on tape, fine scanlines, grain. One look for every phase; nothing in it flashes.
-// Glow: the scene → a quarter-size copy (fs_down) → blurred across (fs_across) → blurred down, longer (fs_down_tube).
+// THE MONITOR — the scene (grid + spaces, linear light in a float texture) seen as light on dark glass: what is bright
+// blooms a little (halation), highlights roll off softly instead of
+// clipping where lines and points add up, the glass a touch darker at its corners; then to the screen (sRGB).
+// Glow: the scene → a quarter-size copy of what is bright (fs_down) → blurred across (fs_across) → blurred down
+// (fs_vertical).
 
 @group(0) @binding(0) var<uniform> F: FrameU;
 @group(0) @binding(1) var lin: sampler;
@@ -18,7 +19,7 @@ fn fs_down(v: FsOut) -> @location(0) vec4f {
   let c = (textureSample(src, lin, uv + d * vec2f(-1, -1)).rgb + textureSample(src, lin, uv + d * vec2f(1, -1)).rgb
          + textureSample(src, lin, uv + d * vec2f(-1, 1)).rgb + textureSample(src, lin, uv + d * vec2f(1, 1)).rgb) * 0.25;
   let l = max(c.r, max(c.g, c.b));
-  return vec4f(c * smoothstep(0.05, 0.6, l), 1.0);
+  return vec4f(c * smoothstep(0.15, 0.8, l), 1.0);
 }
 
 // a 9-tap gaussian along `dir` (in texels), with linear-sampling offsets
@@ -39,36 +40,25 @@ fn fs_across(v: FsOut) -> @location(0) vec4f {
 }
 
 @fragment
-fn fs_down_tube(v: FsOut) -> @location(0) vec4f {
+fn fs_vertical(v: FsOut) -> @location(0) vec4f {
   let d = px(src);
-  return vec4f(blur(v.pos.xy * d, vec2f(0.0, d.y * 3.5)), 1.0);
+  return vec4f(blur(v.pos.xy * d, vec2f(0.0, d.y * 1.6)), 1.0);
 }
 
-fn luma(c: vec3f) -> f32 { return dot(c, vec3f(0.299, 0.587, 0.114)); }
+/** Highlights roll off: unchanged up to the knee, then approaching white without ever clipping hard. */
+fn roll(c: vec3f) -> vec3f {
+  let k = 0.65;
+  return select(c, k + (1.0 - k) * (1.0 - exp(-(c - k) / (1.0 - k))), c > vec3f(k));
+}
 
 @fragment
 fn fs_post(v: FsOut) -> @location(0) vec4f {
-  let res = vec2f(F.resX, F.resY);
-  let uv = v.pos.xy / res;
-  let dp = F.dpr / res.x;
-  // the guns out of register: red right, blue left, more towards the edges
-  let mis = dp * (0.9 + 1.6 * abs(uv.x - 0.5));
-  let r = textureSample(src, lin, uv + vec2f(mis, 0.0)).r;
-  let g = textureSample(src, lin, uv).g;
-  let b = textureSample(src, lin, uv - vec2f(mis, 0.0)).b;
-  var c = vec3f(r, g, b);
-  // tape: brightness sharp, colour smeared along the line (and trailing to the right)
-  let ch = (textureSample(src, lin, uv - vec2f(dp * 2.5, 0.0)).rgb + textureSample(src, lin, uv - vec2f(dp * 6.5, 0.0)).rgb + c * 2.0) * 0.25;
-  c = luma(c) + (ch - luma(ch)) * 1.15;
-  // phosphor glow
-  c += textureSample(glow, lin, uv).rgb * 1.1;
-  // scanlines: two CSS pixels a line, the bright parts filling them in
-  let line = 0.5 + 0.5 * cos(v.pos.y / F.dpr * 3.14159265);
-  c *= mix(1.0, 0.8 + 0.2 * line, 1.0 - smoothstep(0.4, 1.0, luma(c)));
-  // grain, and the tube's corners a little darker
-  let n = f32(pcg(u32(v.pos.x) + u32(v.pos.y) * 4099u + pcg(u32(F.time * 60.0))) & 1023u) / 1023.0 - 0.5;
-  c += n * 0.025;
+  let uv = v.pos.xy / vec2f(F.resX, F.resY);
+  var c = textureSample(src, lin, uv).rgb + textureSample(glow, lin, uv).rgb * 0.3;
   let e = uv - 0.5;
-  c *= 1.0 - dot(e, e) * 0.35;
-  return vec4f(max(c, vec3f(0.0)), 1.0);
+  c = roll(c * (1.0 - dot(e, e) * 0.25));
+  let n = f32(pcg(u32(v.pos.x) + u32(v.pos.y) * 4099u + pcg(u32(F.time * 60.0))) & 1023u) / 1023.0 - 0.5;
+  let x = clamp(c, vec3f(0.0), vec3f(1.0));
+  let s = select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3f(0.0031308));
+  return vec4f(s + n * 0.006, 1.0);
 }

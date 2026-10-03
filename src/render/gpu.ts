@@ -3,8 +3,9 @@
  * the room — the drone's own waveform —, the wait, the performance and the black are its modes), then, during a step
  * that shows a space, its points and lines (space.wgsl) once per view: the stage, and each cell around it (the same
  * space drawn another way), every view its own camera (a slot of one uniform buffer, bound at its offset). Text comes from two atlases painted once at boot: the
- * digits (twice: small and large), and every name the grid shows (show/grid.ts LABELS). Then the monitor
- * (post.wgsl): a quarter-size glow blurred across and down, and the scene finished as on a video tube, to the canvas.
+ * digits (twice: small and large; Geist Mono), and every name the grid shows (show/grid.ts LABELS; Barlow Semi
+ * Condensed). Then the monitor
+ * (post.wgsl): a quarter-size glow blurred across and down, highlights rolled off, to the canvas (sRGB).
  */
 import commonWGSL from './shaders/common.wgsl?raw';
 import gridWGSL from './shaders/grid.wgsl?raw';
@@ -48,7 +49,7 @@ export class Renderer {
   private camBg!: GPUBindGroup;
   private pointBuf: GPUBuffer | null = null;
   private lineBuf: GPUBuffer | null = null;
-  private post!: { down: GPURenderPipeline; across: GPURenderPipeline; tube: GPURenderPipeline; out: GPURenderPipeline; layout: GPUBindGroupLayout; lin: GPUSampler };
+  private post!: { down: GPURenderPipeline; across: GPURenderPipeline; vertical: GPURenderPipeline; out: GPURenderPipeline; layout: GPUBindGroupLayout; lin: GPUSampler };
   /** The scene, and the glow at a quarter of its size (two, blurred back and forth), with their bind groups. */
   private tex: { scene: GPUTexture; q: [GPUTexture, GPUTexture]; bg: GPUBindGroup[] } | null = null;
   private qs: GPUQuerySet | null = null;
@@ -84,9 +85,10 @@ export class Renderer {
     this.scoreBuf = d.createBuffer({ size: 64 * 1024, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.waveBuf = d.createBuffer({ size: WAVE_N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.camBuf = d.createBuffer({ size: CAM_SLOT * 4 * VIEWS_MAX, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    await document.fonts.load('400 40px "IBM Plex Mono"');
+    await Promise.all([document.fonts.load('400 44px "Geist Mono"'), document.fonts.load('500 32px "Barlow Semi Condensed"')]);
     const format = SCENE;
     const m = d.createShaderModule({ label: 'grid', code: commonWGSL + '\n' + frameStructWGSL() + '\n' + gridWGSL });
+    check(m);
     this.pipe = await d.createRenderPipelineAsync({
       label: 'grid', layout: 'auto',
       vertex: { module: m, entryPoint: 'vs_full' },
@@ -94,15 +96,16 @@ export class Renderer {
     });
     this.bg = d.createBindGroup({ layout: this.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: this.fBuf } },
-      { binding: 1, resource: atlas(d, 16, 40, 60, 44, [...'0123456789ABCDEF.-x:+σ'], 'center').createView() },
+      { binding: 1, resource: atlas(d, 16, 40, 60, 44, [...'0123456789ABCDEF.-x:+σ'], 'center', NUMERALS).createView() },
       { binding: 2, resource: { buffer: this.scoreBuf } },
-      { binding: 3, resource: atlas(d, 4, 512, 48, 32, LABELS.map((l) => l.toUpperCase()), 'left', 3).createView() },
+      { binding: 3, resource: atlas(d, 4, 512, 48, 32, LABELS.map((l) => l.toUpperCase()), 'left', LABEL_FACE, 3).createView() },
       // (the same digits at three times the size, for the big number: sharp at any size)
-      { binding: 4, resource: atlas(d, 16, 120, 180, 132, [...'0123456789ABCDEF.-x:+σ'], 'center').createView() },
+      { binding: 4, resource: atlas(d, 16, 120, 180, 132, [...'0123456789ABCDEF.-x:+σ'], 'center', NUMERALS).createView() },
       { binding: 5, resource: { buffer: this.waveBuf } },
     ] });
     // the spaces: additive light, no depth (points and lines add up where they crowd)
     const sm = d.createShaderModule({ label: 'space', code: spaceWGSL });
+    check(sm);
     const add: GPUBlendState = { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one' } };
     const camLayout = d.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { hasDynamicOffset: true } }] });
     const layout = d.createPipelineLayout({ bindGroupLayouts: [camLayout] });
@@ -121,6 +124,7 @@ export class Renderer {
 
     // the monitor
     const pm = d.createShaderModule({ label: 'post', code: commonWGSL + '\n' + frameStructWGSL() + '\n' + postWGSL });
+    check(pm);
     const tex = { texture: { sampleType: 'float' } } as const;
     const postLayout = d.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: {} },
@@ -132,8 +136,8 @@ export class Renderer {
       label: entryPoint, layout: d.createPipelineLayout({ bindGroupLayouts: [postLayout] }),
       vertex: { module: pm, entryPoint: 'vs_full' }, fragment: { module: pm, entryPoint, targets: [{ format: f }] },
     });
-    const [down, across, tube, out] = await Promise.all([pass('fs_down', SCENE), pass('fs_across', SCENE), pass('fs_down_tube', SCENE), pass('fs_post', screen)]);
-    this.post = { down, across, tube, out, layout: postLayout, lin: d.createSampler({ magFilter: 'linear', minFilter: 'linear' }) };
+    const [down, across, vertical, out] = await Promise.all([pass('fs_down', SCENE), pass('fs_across', SCENE), pass('fs_vertical', SCENE), pass('fs_post', screen)]);
+    this.post = { down, across, vertical, out, layout: postLayout, lin: d.createSampler({ magFilter: 'linear', minFilter: 'linear' }) };
   }
 
   /** The scene and glow textures at the canvas's size, and the bind groups of the four monitor passes (what each
@@ -225,7 +229,7 @@ export class Renderer {
     };
     post(this.post.down, T.bg[0], T.q[0]);
     post(this.post.across, T.bg[1], T.q[1]);
-    post(this.post.tube, T.bg[2], T.q[0]);
+    post(this.post.vertical, T.bg[2], T.q[0]);
     post(this.post.out, T.bg[3], this.ctx.getCurrentTexture(), true);
     if (timed) {
       enc.resolveQuerySet(this.qs!, 0, 2, this.qResolve!, 0);
@@ -244,13 +248,22 @@ export class Renderer {
   }
 }
 
-/** Strings painted white in IBM Plex Mono, one per slot (w × h px, `perRow` a row, `tracking` px between letters),
- *  for the shader to read. */
-function atlas(d: GPUDevice, perRow: number, w: number, h: number, px: number, items: string[], align: CanvasTextAlign, tracking = 0): GPUTexture {
+/** Dev: a shader's compile errors, with their lines, in the console. */
+function check(m: GPUShaderModule) {
+  if (import.meta.env.DEV) void m.getCompilationInfo().then((i) => i.messages.forEach((x) => console.error(`[wgsl ${m.label}] ${x.lineNum}:${x.linePos} ${x.message}`)));
+}
+
+/** The panel's two faces: numerals (lit readouts) and the printed labels' (style.css). */
+const NUMERALS = '400 {px}px "Geist Mono", monospace';
+const LABEL_FACE = '500 {px}px "Barlow Semi Condensed", sans-serif';
+
+/** Strings painted white in `face`, one per slot (w × h px, `perRow` a row, `tracking` px between letters), for the
+ *  shader to read. */
+function atlas(d: GPUDevice, perRow: number, w: number, h: number, px: number, items: string[], align: CanvasTextAlign, face: string, tracking = 0): GPUTexture {
   const c = new OffscreenCanvas(w * perRow, h * Math.ceil(items.length / perRow));
   const g = c.getContext('2d')!;
   g.fillStyle = '#fff';
-  g.font = `400 ${px}px "IBM Plex Mono", monospace`;
+  g.font = face.replace('{px}', String(px));
   g.textAlign = align;
   g.textBaseline = 'middle';
   g.letterSpacing = `${tracking}px`;

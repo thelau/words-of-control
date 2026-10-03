@@ -42,13 +42,36 @@ say, qualities, everyday sentences — never visitors' words. The ending says th
 
 ## Engine
 
-The scene at native resolution into a float texture: a fullscreen triangle (src/render/shaders/grid.wgsl — the room,
-the wait, the cells, the square, the number, the black), then during a space its points (instanced dots) and lines
-(1 px) in the step's rectangle (space.wgsl). Then **the monitor** (post.wgsl): everything is seen on a worn video
-tube — phosphor glow from a quarter-size copy blurred across and, longer, down (light streaks down the tube), the
-three guns slightly out of register (more at the edges), colour smeared along the line as on tape, scanlines two CSS
-px apart (filled in where bright), grain, darker corners. Never a flash. The DOM captions and the typed words carry
-the same misregistration and glow (style.css --tube). Cost: ~1–3 ms GPU at 3456 × 2234. The score (src/show/grid.ts) is computed once per word; the
+### The look: an instrument panel
+
+From the artist's references (Silo, Alien: Romulus, Severance, 1980s digital dashboards — the Nissan 300ZX, Citroën
+BX Digit, Lancia/Aston VFD panels; local copies in references/hud/) and his notes ("not make-up over what we had",
+"not trying too hard to be old school", "slick", "people need to enjoy this"). The piece is read like an instrument:
+
+- **Two layers.** A *printed* layer — the panel's silkscreen: faint rules with small crosses at the corners, each
+  gauge's name, its scale (hairline, ticks at 0, ½, 1), an empty readout box, an unlit lamp, and the *ghosts* of every
+  segment (an unlit vacuum-fluorescent segment is still faintly there). A *lit* layer — the light: segmented bar
+  graphs, needles, numerals. The panel is there from the first frame (it powers on left to right in 0.4 s); the
+  answers light it; what is cleared goes dark and the panel stays.
+- **One phosphor, lamps for what matters.** Everything lit is the panel's phosphor (#52f2d2); the cells that matter
+  light in the words' own ink (Jev's colour → red, orange, amber, lime, sky, blue, violet, magenta or white; a second
+  ink when Jev sees two colours), like warning lamps: their lamp on, their gauge outlined. Never a fill.
+- **The gauge.** The reference words' spread on an answer as a bar graph of 32 columns × 9 segments (a column as high
+  as the square root of its share; a quarter of the words fills it), the words' needle the full height with a
+  pointer under the scale, the value in a boxed readout. Doubt: dimmer segments, the needle in dashes.
+- **Type.** Printed labels in Barlow Semi Condensed (500, caps, tracked 0.14 em, grey #8c96a3); lit numerals in
+  Geist Mono; the visitor's words in Barlow Light, as typed, white phosphor, an underscore cursor.
+- **Where they stand.** The words large; the measure printed small, the answer lit in their ink; the reference
+  words as a 64-column bar graph lighting left to right, their needle and name; three fields along the bottom, each a
+  printed label over a lit value cut to its width (nothing can overlap): nearest on this answer (numbered like the
+  ticks under the scale), nearest on all the answers, who answered and how sure.
+- **Light.** Linear light in a float texture; the monitor (post.wgsl) adds a little halation, rolls highlights off
+  instead of clipping where points and lines add up (lines at half a point's light), darkens the glass's corners a
+  touch, then sRGB. No scanlines, no tape, no flashes. Captions fade in over 220 ms.
+
+The scene at native resolution: a fullscreen triangle (src/render/shaders/grid.wgsl — the room, the wait, the panel,
+the merged gauges, where the words stand, the black), then during a space its points and lines in the step's
+rectangle (space.wgsl), then the monitor. The score (src/show/grid.ts) is computed once per word; the
 spaces' geometry and the steps' sound are built in a worker while the grid fills (src/show/prepare.worker.ts), so
 Enter never stalls the page. Per frame the CPU supplies only the clock, the step on screen and its camera.
 

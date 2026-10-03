@@ -61,8 +61,10 @@ export type Grid = {
   colours: RGB[];
   mark: number; select: number; seq: number; end: number;
   bpm: number; beat: number; steps: Step[];
-  /** The cell the performance ends on: where the word stands. */
+  /** The cell the performance ends on: where the word stands; its three nearest reference words on that answer
+   *  (their own family left out), lowest value first. */
   stand: number;
+  standNear: number[];
   /** When each sequencer voice sounds a note (the ring's playheads). */
   onsets: { t: number; v: 0 | 1 }[];
 };
@@ -161,54 +163,54 @@ export function grid(A: Appraisal): Grid {
   const said = (k: number) => (cells[k].kind === 1 ? LABELS[cells[k].opt] : plain(cells[k].id, cells[k].value)).toLowerCase();
   const echo = (k: number) => own.some((y) => said(k).includes(y)) || content(said(k)).some((x) => text.includes(x));
   const stand = keys.find((k) => !CATEGORY.has(cells[k].id) && !echo(k)) ?? keys.find((k) => !CATEGORY.has(cells[k].id)) ?? keys[0];
+  const kin = new Set(near), sc = cells[stand];
+  const standNear = sc.lex.map((v, j) => [j, Math.abs(v - sc.value)] as const).filter(([j]) => kin.has(j)).sort((a, b) => a[1] - b[1]).slice(0, 3).map(([j]) => j).sort((a, b) => sc.lex[a] - sc.lex[b]);
   if (nonsense) for (const c of cells) { c.markAt = Infinity; c.vanish = Math.min(c.vanish, select + Math.floor(rand() * 6) / 12); }
   const g: Grid = {
     cells, keys, rank, refs: words, total: Object.keys(LEX).length, member: words.length < Object.keys(LEX).length,
-    near, nonsense, colours, mark, select, seq, end: t, bpm, beat, steps, stand,
+    near, nonsense, colours, mark, select, seq, end: t, bpm, beat, steps, stand, standNear,
     onsets: onsets(A, steps, beat),
   };
   GRIDS.set(A, g);
   return g;
 }
 
-/** Named colours of the `colour` question, linear RGB. */
-const COLOURS: Record<string, RGB> = {
-  black: [0.02, 0.02, 0.02], white: [0.9, 0.88, 0.85], grey: [0.35, 0.35, 0.36], red: [0.9, 0.03, 0.02], orange: [1, 0.3, 0.04],
-  yellow: [1, 0.72, 0.12], green: [0.12, 0.6, 0.18], blue: [0.05, 0.25, 0.95], violet: [0.35, 0.1, 0.8], pink: [1, 0.35, 0.5],
-  brown: [0.45, 0.2, 0.07],
-};
+/** The words' inks: lamp colours, lit on the panel's phosphor (render/shaders/grid.wgsl PHOS, #52f2d2) for what
+ *  matters — never a fill (sRGB hex). Green and cyan kept clear of the phosphor (lime, sky). */
+const INK = {
+  red: 0xff3b30, orange: 0xff7a1a, amber: 0xffb000, green: 0xb4ff3c, cyan: 0x58b8ff, blue: 0x5a7dff,
+  violet: 0xa070ff, magenta: 0xff3dcb, white: 0xf2f5ff,
+} as const;
+type Ink = keyof typeof INK;
+const lin = (h: number): RGB => [16, 8, 0].map((sh) => { const x = ((h >> sh) & 255) / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }) as RGB;
 
+/** The ink of each named colour of the `colour` question (black has none: it falls to the next colour). */
+const COLOURS: Record<string, Ink | null> = {
+  black: null, white: 'white', grey: 'white', red: 'red', orange: 'orange', yellow: 'amber', green: 'green', blue: 'blue',
+  violet: 'violet', pink: 'magenta', brown: 'orange',
+};
 const NEUTRAL = new Set(['white', 'grey', 'black']);
-/** The colour of a matter, for a word Jev sees as white, grey or black (linear RGB). */
-const MATTER: Record<string, RGB> = {
-  fire: [1, 0.3, 0.04], water: [0.05, 0.35, 0.9], ice: [0.55, 0.8, 1], metal: [0.45, 0.55, 0.72], wood: [0.55, 0.28, 0.1],
-  flesh: [1, 0.4, 0.45], stone: [0.62, 0.56, 0.46], sand: [0.85, 0.65, 0.3], light: [1, 0.85, 0.4], smoke: [0.6, 0.6, 0.66],
-  cloth: [0.75, 0.55, 0.62], glass: [0.6, 0.9, 0.85],
+/** The ink of a matter, for a word Jev sees as white, grey or black. */
+const MATTER: Record<string, Ink> = {
+  fire: 'orange', water: 'blue', ice: 'cyan', metal: 'cyan', wood: 'orange', flesh: 'magenta', stone: 'amber',
+  sand: 'amber', light: 'amber', smoke: 'white', cloth: 'magenta', glass: 'cyan',
 };
-/** A colourless word: white and grey. */
-const COLOURLESS: RGB = [0.85, 0.85, 0.85];
 
-/** The words' colour: Jev's colour answer, blended toward its second colour when that one is strong (love and war do
- *  not share one red); a word seen as white, grey or black takes its second colour, else its matter's; a word with
- *  neither (void, silence) stays colourless — white and grey. */
-function wordColour(A: Appraisal): RGB {
+/** The words' two inks: Jev's colour answer, and its second colour when that one is strong (love: red and magenta;
+ *  war: red alone); a word seen as white, grey or black takes its second colour, else its matter's; a word with
+ *  neither (void, silence) stays white. */
+function wordInks(A: Appraisal): [Ink, Ink] {
   const ranked = Object.entries(A.c.colour.p).sort((a, b) => b[1] - a[1]);
-  const [top, p1] = ranked[0];
-  const second = ranked.find(([k, p], i) => i > 0 && !NEUTRAL.has(k) && p >= 0.15);
-  if (!NEUTRAL.has(top)) {
-    const c = COLOURS[top];
-    if (!second) return c;
-    const w = (0.8 * second[1]) / (p1 + second[1]);
-    return c.map((x, i) => x + (COLOURS[second[0]][i] - x) * w) as RGB;
-  }
-  if (second) return COLOURS[second[0]];
-  return MATTER[A.c.material.top] ?? COLOURLESS;
+  const strong = ranked.filter(([k, p], i) => i > 0 && !NEUTRAL.has(k) && p >= 0.15).map(([k]) => COLOURS[k]).filter((x): x is Ink => !!x);
+  const first: Ink = (!NEUTRAL.has(ranked[0][0]) && COLOURS[ranked[0][0]]) || strong.shift() || MATTER[A.c.material.top] || 'white';
+  return [first, strong.find((x) => x !== first) ?? first];
 }
 
+/** The marked cells' inks: the first (what matters most) in the words' ink, then the second ink and the first in
+ *  turn. */
 function keyColours(A: Appraisal, n: number): RGB[] {
-  // one hue, deeper for each answer that stands out less
-  const c = wordColour(A);
-  return Array.from({ length: n }, (_, i) => c.map((x) => x * (1 - (0.55 * i) / Math.max(1, n - 1))) as RGB);
+  const [a, b] = wordInks(A);
+  return Array.from({ length: n }, (_, i) => lin(INK[i % 2 ? b : a]));
 }
 
 /** k onsets spread evenly over n steps (Bjorklund's rhythm), rotated by r. */
@@ -259,6 +261,10 @@ export function layout(w: number, h: number) {
   const cs = Math.floor(Math.min((w - 2 * m) / COLS, (h - 2 * m) / ROWS));
   return { x: Math.floor((w - COLS * cs) / 2), y: Math.floor((h - ROWS * cs) / 2), cs };
 }
+
+/** Where the words stand: the large bar graph's rect inside the stage S (px; show/notes.ts sets the words around
+ *  it, render/shaders/grid.wgsl draws it). */
+export const standGraph = (S: readonly number[]): [number, number, number, number] => [S[0] + S[2] * 0.08, S[1] + S[3] * 0.5, S[2] * 0.84, S[3] * 0.17];
 
 /** The stage at the centre (7 × 3 cells, landscape), px: where the steps play. */
 export function stage(w: number, h: number): [number, number, number, number] {

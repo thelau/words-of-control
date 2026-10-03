@@ -11,9 +11,13 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 - **Open source** ("opensource this, let's keep any confidential info out"): the repository public under MIT; keys only
   in `.env.local` (never committed — history checked); the AI-persona reviews say so.
-- **A vintage monitor look** ("more refined … a bit Akira VHS rendering style in pixels and colors", on three references
-  of 3D cubic data viz; "could be a shader … you know better"): one post pass over everything — glow, misregistration,
-  tape chroma, scanlines, grain; no flashes.
+- **The look: an instrument panel** (on Silo, Alien: Romulus, Severance and 1980s digital dashboards; "the look is
+  just make-up to what we had … rethink the colours, fonts"; "no old computer would have that font"; "gimmicky,
+  trying too hard to be old school"; "slick as hell and world class"; "people need to enjoy this"): a printed panel
+  (rules, labels, scales, empty readouts, unlit lamps, ghost segments) lit by vacuum-fluorescent light — segmented
+  bar graphs, needles, numerals — in one phosphor, the words' ink only for what matters. Type: Barlow Semi Condensed
+  (labels), Geist Mono (numerals), Barlow Light (the visitor's words). The video-tube filter and the pixel faces
+  (VT323, Doto) tried and dropped. The last screen rebuilt as a readout with fields (no overlapping labels).
 - **No buzz after the mark** ("it makes a zzzzz type of sound"): the held tones of what matters were beating.
 
 - **No strobe; the cells' arrival a glint** ("the white flashing is annoying for some of the analysis, like war"): the
