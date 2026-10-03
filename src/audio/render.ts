@@ -85,9 +85,9 @@ const PATCH: Partial<Record<Viz, { fold: number; oct: number }>> = {
  *  degree of the word's mode by which answer it is, moved up or down by how far it stands from the reference words
  *  (not by its value: those crowd near 1). Two voices play them on fixed euclidean patterns, the second one note
  *  longer (K and K + 1: they drift in and out of phase); bar one the first voice, bar two both, then a dotted-eighth
- *  delay whose feedback grows, the notes lengthening and the filter opening; bar four stripped back to one voice,
- *  long notes, no pulse; bar five in full. The space on screen colours the timbre.
- *  The mood:
+ *  delay whose feedback grows, the notes lengthening and the filter opening; when the words earn three bars or
+ *  more, the one before the last stripped back to one voice, long notes, no pulse; the last in full. The space on screen colours the timbre.
+ *  Jev's doubt about what matters puts the notes out of tune by as much. The mood:
  *  negative — by subtraction: no tune — a fixed grid of clicks, a test-tone blip per answer, short sub pulses, and
  *             digital silence on the strobe frames;
  *  neutral  — clinical: test-tone pitches (half-octaves of 1 kHz), pure sines, no sub;
@@ -111,6 +111,9 @@ export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
     return (2 * i) % S.length + Math.round(Math.max(-3, Math.min(3, (c.value - mean) / sd)));
   });
   const seqA = notes, seqB = [...notes].reverse().concat(notes[0]); // lengths K and K + 1: they drift
+  // Jev's doubt about what matters: the notes drift out of tune by as much (up to ±0.4 semitone)
+  const doubt = g.keys.reduce((a, k) => a + Math.min(1, Math.max(0, (0.75 - g.cells[k].conf) / 0.6)), 0) / Math.max(1, g.keys.length);
+  const drift = () => 2 ** (((rand() - 0.5) * 0.8 * doubt) / 12);
   const sixteenth = g.beat / 4;
   const { a: patA, b: patB } = patterns(A);
   const subs = euclid(3 + Math.round(2 * A.s.intensity), 8);
@@ -137,12 +140,12 @@ export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
     const p = PATCH[st.viz] ?? { fold: 1, oct: 0 };
     const count = Math.round(st.dur / sixteenth);
     for (let i = 0; i < count; i++, n16++) {
-      const t = st.t + i * sixteenth, bar = Math.floor(n16 / 16), fold = p.fold * (1 - 0.6 * neu - 0.4 * pos);
-      // (bar four is stripped back: one voice, long notes, no pulse — then the last bar returns in full)
-      const stripped = bar === 3, gate = (stripped ? 0.45 : 0.12 + 0.05 * bar) * (1 + 0.8 * pos);
+      const t = st.t + i * sixteenth, bar = st.bar, fold = p.fold * (1 - 0.6 * neu - 0.4 * pos);
+      // (the stripped bar: one voice, long notes, no pulse — then the last bar returns in full)
+      const stripped = st.strip, gate = (stripped ? 0.45 : 0.12 + 0.05 * bar) * (1 + 0.8 * pos);
       if (tonal) {
-        if (patA[n16 % 16]) voice(t, deg(seqA[n16 % seqA.length], p.oct), gate, fold, -0.45, 0.07, 0);
-        if (bar >= 1 && !stripped && patB[n16 % 16]) voice(t, deg(seqB[n16 % seqB.length], p.oct + 1), gate * 0.8, fold * 0.8, 0.45, 0.045, 1);
+        if (patA[n16 % 16]) voice(t, deg(seqA[n16 % seqA.length], p.oct) * drift(), gate, fold, -0.45, 0.07, 0);
+        if (bar >= 1 && !stripped && patB[n16 % 16]) voice(t, deg(seqB[n16 % seqB.length], p.oct + 1) * drift(), gate * 0.8, fold * 0.8, 0.45, 0.045, 1);
       } else if (patA[n16 % 16]) {
         // (negative: a test-tone blip per answer instead of a tune)
         V.tone(t, 1000 * 2 ** (seqA[n16 % seqA.length] / 4), 0.012, 0.05, (n16 % 2) * 1.2 - 0.6);
@@ -168,7 +171,7 @@ export function renderSteps(A: Appraisal, g: Grid, sr: number): Samples {
     const count = Math.round(st.dur / sixteenth);
     for (let i = 0; i < count; i++, n16++) {
       const t = st.t + i * sixteenth;
-      if (Math.floor(n16 / 16) === 3) continue; // (the stripped bar: no pulse)
+      if (st.strip) continue; // (the stripped bar: no pulse)
       if (ticks[n16 % 16]) T.noise(t, 0.008, 0.09 * (1 - 0.6 * pos), (n16 % 2) * 0.8 - 0.4, 0.002);
       if (neu < 0.5 && n16 % 2 === 0 && subs[(n16 / 2) % 8]) T.sub(t, 48, 0.15 * (1 - 0.5 * pos), 0.04 + 0.04 * (1 - neg));
       if (!tonal && grid[n16 % 16]) T.click(t, 0.22, (n16 % 4) * 0.4 - 0.6);

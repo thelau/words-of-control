@@ -165,6 +165,8 @@ fn cellDraw(k: u32, p: vec2f, r: vec4f, t: f32) -> vec4f {
   var c = bg;
   var cov = a;
   let settle = t - arrive;
+  // (an answer Jev is unsure of arrives with false starts: on, off, on, before it holds)
+  if (clamp((0.75 - cf(k, 1u)) / 0.6, 0.0, 1.0) > 0.3 && settle < 0.6 && fract(settle * 9.0) > 0.5) { return vec4f(0.0); }
   let lab = label(p, r.xy + pad, th, cf(k, 6u), r.z - 2.0 * pad) * 0.62;
   var txt = lab;
   let kind = u32(cf(k, 2u));

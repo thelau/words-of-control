@@ -1,11 +1,13 @@
-# Review brief — Words of Control, "the grid" (2026-09-27, round 10: step-28+)
+# Review brief — Words of Control, "the grid" (2026-09-28, round 11: step-31+)
 
 You are reviewing a new media art installation in progress by Laurent Thevenet. Read `docs/GRID.md` first (the
 current direction and engine). Frames are in `docs/captures/review/` (local): for each word a contact sheet
 `sheet-<word>.png` and the individual frames `<word>-NN-<moment>.png` (2880 × 1800, a 16" laptop screen), in time
 order: the fill, the grid filled, the cells marked, cleared, then steps (tiles, the 3D spaces — `-full` = the whole
-frame —, the last step "stand"), black, and the room after. Words: war, love, spoon, nothing, mother, fuck,
-"i miss you", "to be or not to be". Loudness and spectrograms: `docs/captures/audio/spectrum-<word>.png`.
+frame —, the last step "stand"), black, and the room after. Words: war, love, spoon, mother, "i miss you",
+"my father never said he was proud of me", "the oceans are vast and beautiful", nothing. **One visitor typing six
+words in a row** (the marked grid, the merged cells, each bar's space, the ending — one row per words):
+`docs/captures/review/sequence.png`. Loudness and spectrograms: `docs/captures/audio/spectrum-<word>.png`.
 
 ## What a visitor lives through (about 14–18 s per words)
 
@@ -43,8 +45,15 @@ Captions are labels only, in tracked capitals; the visitor's words always as typ
 stored. Known and open: the 61 reference words are still the artist's test list (it includes asdfgh, qwerty,
 bitcoin) — the artist will choose a real set. Earlier reviews: docs/reviews/round8-*.md, round9-*.md.
 
-The artist finds the whole thing **a bit short** (about 16–20 s per words). Say whether it should be longer, and if
-so where the time should go (which phase, doing what) — or whether brevity is right.
+Since round 10: the reference set is now 400 entries of ordinary language (everyday things, people, places, feelings,
+ideas, actions, short things people say, everyday sentences) recorded with Jev; "what matters" is judged by rarity
+among them; the ending says the answer in plain words ("COMPLETELY SINCERE", "AWE", "OVERWHELMING") with the nearest
+words and phrases ("he never came back", "she didn't call back"); the ring round the stage is played by the sequencer
+(each note lights the next cell — one voice clockwise, the other anticlockwise); the whole lasts ~25–30 s.
+
+**The artist's concern now: it may be too boring in repetition** — the same structure, order and look for every
+words, and a visitor (or someone watching others) sees many in a row. Judge this first: what repeats that should
+not, what should stay constant (a ritual) and what should vary with the words, and how.
 
 ## Your task
 

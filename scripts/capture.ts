@@ -32,7 +32,8 @@ for (const w of words) {
   // moments to grab, in performance time
   const at: [string, number][] = [['fill', (g.mark - 0.3) * 0.5], ['filled', g.mark - 0.05], ['marked', g.select - 0.02],
     ['cleared', g.seq - 0.05]];
-  for (const k of [0, 4, 8, 12, 16, 20, 23, 24]) { const st = g.steps[k]; if (st) at.push([`step${k}-${st.viz}${st.full ? '-full' : ''}`, st.t + st.dur * 0.5]); }
+  // (the first step of each run of the same drawing, and the ending)
+  for (const k of g.steps.map((_: any, i: number) => i).filter((i: number) => i === 0 || g.steps[i].viz !== g.steps[i - 1].viz)) { const st = g.steps[k]; if (st) at.push([`step${k}-${st.viz}${st.full ? '-full' : ''}`, st.viz === 'stand' ? st.t + Math.min(10, st.dur - 0.3) : st.t + st.dur * 0.5]); }
   at.push(['black', g.end + 0.3]);
   const slug = w.replace(/[^\p{L}\p{N}]+/gu, '_');
   // a new edit of this word replaces the old frames (a shorter plan would otherwise interleave stale ones)

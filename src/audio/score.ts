@@ -39,6 +39,7 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, g: G
   // what matters, held: a pure tone per marked cell from its mark, cut dead on the first step
   const residue: number[] = [];
   for (const k of g.keys) {
+    if (!Number.isFinite(g.cells[k].markAt)) continue; // (nonsense: nothing is marked, nothing held)
     const x = g.cells[k], o = c.createOscillator(), gg = c.createGain(), f = note(x.value, 0);
     o.frequency.value = f;
     gg.gain.setValueAtTime(0, t0 + x.markAt);

@@ -20,7 +20,9 @@ for (const w of words) {
   await s.page.evaluate(([a, w]) => (window as any).__woc.perform(a, w), [fixtures[w], w]);
   const g = await s.page.evaluate(() => (window as any).__woc.show().g);
   console.log(`${w.padEnd(14)} ${String(g.bpm).padEnd(4)} bpm  ${g.keys.map((k: number) => g.cells[k].id).join(' ')}`);
-  for (const t of [g.mark + 0.3, g.seq - 0.1, g.steps[6].t + 0.05]) {
+  // the marked grid, the merged cells, each bar's space, and the ending once built
+  const at = (i: number) => (g.steps[i] ? g.steps[i].t + 0.3 : g.steps[g.steps.length - 1].t + 1);
+  for (const t of [g.mark + 0.6, at(0), at(4), at(8), at(12), g.steps[g.steps.length - 1].t + Math.min(10, g.steps[g.steps.length - 1].dur - 0.3)]) {
     await s.page.waitForFunction((t) => { const W = (window as any).__woc; const sh = W.show(); return !sh || W.audioClock() - sh.t0 >= t; }, t, { polling: 'raf', timeout: 90000 });
     await s.page.screenshot({ path: `${dir}/${String(n++).padStart(3, '0')}.png` });
   }
@@ -28,5 +30,5 @@ for (const w of words) {
 }
 await s.close();
 execFileSync('ffmpeg', ['-v', 'error', '-y', '-pattern_type', 'glob', '-i', `${dir}/*.png`,
-  '-vf', `scale=400:-1,tile=3x${words.length}:padding=4:color=0x3a3a3a`, '-frames:v', '1', 'docs/captures/sequence.png']);
+  '-vf', `scale=400:-1,tile=6x${words.length}:padding=4:color=0x3a3a3a`, '-frames:v', '1', 'docs/captures/sequence.png']);
 console.log('→ docs/captures/sequence.png');

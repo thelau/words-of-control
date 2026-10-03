@@ -75,10 +75,9 @@ export function build(g: Grid, seed: number, word: string): Geometry {
   const lim = g.cells.map((c) => { const xs = [...c.lex, c.value]; const lo = Math.min(...xs); return [lo, Math.max(Math.max(...xs) - lo, 0.05)]; });
   const nx = (k: number, v: number) => (((v - lim[k][0]) / lim[k][1]) * 2 - 1) * 0.9;
   const me = at(-1);
-  // nearest on all the answers (each answer's gap measured against how widely the reference words spread on it)
+  // (each answer's spread over the reference words: the network's scale)
   const spread = g.cells.map((c) => Math.max(0.05, Math.max(...c.lex) - Math.min(...c.lex)));
-  const gap = (j: number) => g.cells.reduce((a, c, k) => a + ((c.value - (c.lex[j] ?? 0)) / spread[k]) ** 2, 0);
-  const byNear = Array.from({ length: R }, (_, j) => j).sort((a, b) => gap(a) - gap(b));
+  const byNear = g.near; // (grid.ts: nearest on all the answers, the words' own family left out)
 
   const nm = (i: number) => name(g, g.keys[i % K]);
   const space = (sp: Space, fill: () => string) => {
@@ -103,7 +102,7 @@ export function build(g: Grid, seed: number, word: string): Geometry {
     axes();
     mark(W, me, 1);
     for (const j of byNear.slice(0, 3)) mark(g.refs[j], at(j));
-    return `cloud · ${W} among ${R} words`;
+    return `cloud · ${W} among ${g.total} words`;
   });
 
   space('network', () => {
@@ -205,7 +204,7 @@ export function build(g: Grid, seed: number, word: string): Geometry {
       if (c.key >= 0) { seg([x(k), -0.5, zw], [x(k), y(c.value), zw], KEY(c.key, 0.9)); mark(name(g, k), [x(k), -0.58, zw], 1 + c.key); }
     }
     mark(W, [-1.06, y(g.cells[0].value), zw], 1);
-    return `table · ${n} answers × ${rows.length} words`;
+    return `table · ${n} answers × the ${rows.length} nearest of ${g.total} words`;
   });
 
   space('ridges', () => {
@@ -221,7 +220,7 @@ export function build(g: Grid, seed: number, word: string): Geometry {
       if (c.key >= 0) mark(name(g, k), [-1.05, -0.4, z], 1 + c.key);
     }
     mark('0', [-1, -0.5, -1.05]); mark('1', [1, -0.5, -1.05]);
-    return `ridges · ${n} answers × ${R} words`;
+    return `ridges · ${n} answers × ${g.total} words`;
   });
 
   return { points: new Float32Array(P), lines: new Float32Array(L), ranges, captions, anchors, focus, pairs, nearest: byNear.slice(0, 3).map((j) => g.refs[j]) };

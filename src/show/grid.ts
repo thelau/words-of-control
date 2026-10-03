@@ -13,7 +13,7 @@
  * share of them at least as far out — if the machine is sure enough of it. Times are seconds from the verdict's start.
  */
 import type { Appraisal } from '../jev/appraisal.ts';
-import { CHOICE_IDS, NOUL_IDS, OPTIONS, SCORE_IDS } from '../jev/appraisal.ts';
+import { CHOICE_IDS, NOUL_IDS, OPTIONS, plain, SCORE_IDS } from '../jev/appraisal.ts';
 import { mulberry32 } from '../core/rng.ts';
 import lexicon from '../jev/lexicon.json';
 
@@ -44,14 +44,19 @@ export type Cell = {
   arrive: number; vanish: number; key: number; markAt: number;
 };
 /** A step: what it shows, whether it fills the frame, and its camera (a seed: every step is a new angle). */
-type Step = { t: number; dur: number; viz: Viz; full: boolean; cam: number };
+type Step = { t: number; dur: number; viz: Viz; full: boolean; cam: number; bar: number; strip: boolean };
 type RGB = [number, number, number];
 export type Grid = {
   cells: Cell[]; keys: number[];
   /** Every cell, by how much it matters (keys are the first). */
   rank: number[];
-  /** The reference words the word is measured against (never visitors' words). */
-  refs: string[];
+  /** The reference words the words are measured against (never visitors' words), how many there are in all, and
+   *  whether the typed words are themselves one of them (left out of their own norm). */
+  refs: string[]; total: number; member: boolean;
+  /** The reference words by nearness on all the answers, nearest first (their own family left out). */
+  near: number[];
+  /** Jev reads them as nonsense: nothing is marked, no steps. */
+  nonsense: boolean;
   /** Each marked cell's colour (linear RGB): the word's own colours, as Jev sees them, most likely first. */
   colours: RGB[];
   mark: number; select: number; seq: number; end: number;
@@ -111,34 +116,58 @@ export function grid(A: Appraisal): Grid {
   out.forEach((k, i) => (cells[k].vanish = select + 0.9 * Math.pow(i / out.length, 0.85)));
   const colours = keyColours(A, keys.length);
 
-  // the steps: 4/4 at the word's tempo, after the marked cells have held. Five bars: the marked cells merged (a bar,
-  // to be read); where the words sit (cloud); their neighbours (network); a bar stripped back (the music thins to one
-  // voice) on how far they stand out (ridges, for words far from all the others) or the whole table; and a last bar in
-  // halves: the ground they stand on (terrain), then the answer they end on, flat (axis) — the steps lead into where
-  // they stand. The downbeats of bars two and five burst to the full frame (and of bar four, for an intense word).
+  // how unusual the words are, overall: the mean rarity of what matters (bits); how far beyond every reference word
+  // they go on one answer; their nearest reference words on all the answers (each answer's gap in its own spread) —
+  // leaving out their own family (a reference entry sharing one of their words: "love" is not "near" "i love you")
+  const unusual = keys.reduce((a, k) => a + cells[k].rare, 0) / keys.length;
+  const beyondAll = Math.max(...keys.map((k) => cells[k].rare)) >= Math.log2(words.length + 1) - 0.6;
+  const spread = cells.map((c) => Math.max(0.05, Math.max(...c.lex) - Math.min(...c.lex)));
+  const gapTo = (j: number) => cells.reduce((a, c, k) => a + ((c.value - (c.lex[j] ?? 0)) / spread[k]) ** 2, 0) / cells.length;
+  const own = content(text);
+  const near = words.map((_, j) => j).filter((j) => !content(words[j]).some((x) => own.some((y) => x.includes(y) || y.includes(x)))).sort((a, b) => gapTo(a) - gapTo(b));
+  const nonsense = (A.c.act.p.nonsense ?? 0) > 0.5 || (A.c.kind.p.nonsense ?? 0) > 0.5;
+
+  // the steps: 4/4 at the words' tempo, after the marked cells have held. The marked cells merged (a bar, to be read),
+  // then as many bars of 3D space as the words earn — one for ordinary words, up to four for unusual ones — opening on
+  // what is most striking about them (ridges: beyond every reference word on an answer; network: a close neighbour;
+  // cloud: lost in the crowd; terrain: a place; else the whole table), the rest in an order of their own; the bar before the last
+  // stripped back (the music thins to one voice) when there are three or more; the last bar in halves, ending on the
+  // answer they end on, flat (axis). Downbeats burst to the full frame by chance, more for an intense word. Nonsense
+  // gets no steps: the grid fills, nothing is marked, and the ending says so.
   const bpm = Math.round(lerp(92, 150, clamp01(aro * 0.5 + A.s.energy * 0.3 + A.s.tension * 0.2)) - 14 * A.lazy);
   const beat = 60 / bpm;
-  const seq = select + 0.9 + 2;
-  const zMean = keys.reduce((a, k) => a + cells[k].z, 0) / keys.length;
-  const bars: Viz[] = ['tiles', 'cloud', 'network', zMean > 2.5 ? 'ridges' : 'table'];
+  const seq = nonsense ? select + 0.6 : select + 0.9 + 2;
+  const nBars = nonsense ? 0 : unusual < UNUSUAL[0] ? 1 : unusual < UNUSUAL[1] ? 2 : unusual < UNUSUAL[2] ? 3 : 4;
+  const first: Viz = beyondAll ? 'ridges' : gapTo(near[0]) < 0.05 ? 'network' : unusual < UNUSUAL[0] ? 'cloud' : (A.c.kind.p.place ?? 0) > 0.4 ? 'terrain' : 'table';
+  const rest = (['cloud', 'network', 'ridges', 'table', 'terrain'] as Viz[]).filter((v) => v !== first).sort(() => rand() - 0.5);
+  const spaces = [first, ...rest].slice(0, nBars);
   const steps: Step[] = [];
-  let t = seq;
-  for (let b = 0; b < 20; b++) {
-    for (const half of b >= 16 ? [0, 1] : [0]) {
-      const dur = b >= 16 ? beat / 2 : beat;
-      const viz: Viz = b < 16 ? bars[Math.floor(b / 4)] : b < 18 ? 'terrain' : 'axis';
-      const full = half === 0 && (b === 4 || b === 16 || (b === 12 && A.s.intensity > 0.6));
-      steps.push({ t, dur, viz, full, cam: rand() });
-      t += dur;
-    }
+  let t = seq, bar = 0;
+  const push = (viz: Viz, dur: number, full: boolean, strip: boolean) => { steps.push({ t, dur, viz, full, cam: rand(), bar, strip }); t += dur; };
+  if (!nonsense) {
+    for (let i = 0; i < 4; i++) push('tiles', beat, false, false);
+    spaces.forEach((viz, i) => {
+      bar++;
+      const last = i === spaces.length - 1, strip = spaces.length >= 3 && i === spaces.length - 2;
+      const full = !strip && rand() < 0.3 + 0.4 * A.s.intensity;
+      if (last) for (let h = 0; h < 8; h++) push(h < 4 ? viz : 'axis', beat / 2, full && h === 0, false);
+      else for (let b = 0; b < 4; b++) push(viz, beat, full && b === 0, strip);
+    });
   }
   // then where the words stand: the slow ending, built name by name (show/notes.ts), long enough to be read
-  steps.push({ t, dur: Math.max(10, 16 * beat), viz: 'stand', full: false, cam: 0 });
-  t += steps[steps.length - 1].dur;
-  // where it stands: the marked answer that sets it most apart — among those a person would say (not a category slot
-  // like who, act or kind)
-  const stand = keys.find((k) => !CATEGORY.has(cells[k].id)) ?? keys[0];
-  const g: Grid = { cells, keys, rank, refs: words, colours, mark, select, seq, end: t, bpm, beat, steps, stand, flashes: strobes(A, 20), onsets: onsets(A, steps, beat) };
+  bar++;
+  push('stand', nonsense ? 4 : Math.max(12, 16 * beat), false, false);
+  // where they stand: the marked answer that sets them most apart — one a person would say (not a category slot like
+  // who, act or kind), and not a mere echo of the words themselves ("love" does not end on LOVE)
+  const said = (k: number) => (cells[k].kind === 1 ? LABELS[cells[k].opt] : plain(cells[k].id, cells[k].value)).toLowerCase();
+  const echo = (k: number) => own.some((y) => said(k).includes(y)) || content(said(k)).some((x) => text.includes(x));
+  const stand = keys.find((k) => !CATEGORY.has(cells[k].id) && !echo(k)) ?? keys.find((k) => !CATEGORY.has(cells[k].id)) ?? keys[0];
+  if (nonsense) for (const c of cells) { c.markAt = Infinity; c.vanish = Math.min(c.vanish, select + 0.5 * rand()); }
+  const g: Grid = {
+    cells, keys, rank, refs: words, total: Object.keys(LEX).length, member: words.length < Object.keys(LEX).length,
+    near, nonsense, colours, mark, select, seq, end: t, bpm, beat, steps, stand,
+    flashes: strobes(A, Math.round((t - seq) / beat)), onsets: onsets(A, steps, beat),
+  };
   GRIDS.set(A, g);
   return g;
 }
@@ -150,15 +179,36 @@ const COLOURS: Record<string, RGB> = {
   brown: [0.45, 0.2, 0.07],
 };
 
-/** The house's accent (orange-red, linear RGB). */
-const ACCENT: RGB = [1, 0.1, 0.025];
 const NEUTRAL = new Set(['white', 'grey', 'black']);
+/** The colour of a matter, for a word Jev sees as white, grey or black (linear RGB). */
+const MATTER: Record<string, RGB> = {
+  fire: [1, 0.3, 0.04], water: [0.05, 0.35, 0.9], ice: [0.55, 0.8, 1], metal: [0.45, 0.55, 0.72], wood: [0.55, 0.28, 0.1],
+  flesh: [1, 0.4, 0.45], stone: [0.62, 0.56, 0.46], sand: [0.85, 0.65, 0.3], light: [1, 0.85, 0.4], smoke: [0.6, 0.6, 0.66],
+  cloth: [0.75, 0.55, 0.62], glass: [0.6, 0.9, 0.85],
+};
+/** A colourless word: white and grey. */
+const COLOURLESS: RGB = [0.85, 0.85, 0.85];
+
+/** The words' colour: Jev's colour answer, blended toward its second colour when that one is strong (love and war do
+ *  not share one red); a word seen as white, grey or black takes its second colour, else its matter's; a word with
+ *  neither (void, silence) stays colourless — white and grey. */
+function wordColour(A: Appraisal): RGB {
+  const ranked = Object.entries(A.c.colour.p).sort((a, b) => b[1] - a[1]);
+  const [top, p1] = ranked[0];
+  const second = ranked.find(([k, p], i) => i > 0 && !NEUTRAL.has(k) && p >= 0.15);
+  if (!NEUTRAL.has(top)) {
+    const c = COLOURS[top];
+    if (!second) return c;
+    const w = (0.8 * second[1]) / (p1 + second[1]);
+    return c.map((x, i) => x + (COLOURS[second[0]][i] - x) * w) as RGB;
+  }
+  if (second) return COLOURS[second[0]];
+  return MATTER[A.c.material.top] ?? COLOURLESS;
+}
 
 function keyColours(A: Appraisal, n: number): RGB[] {
-  // one hue: the word's own colour (Jev's colour answer, most likely first), deeper for each answer that stands out
-  // less; a word seen as white, grey or black takes the house's accent (it would vanish among the white points)
-  const top = Object.entries(A.c.colour.p).sort((a, b) => b[1] - a[1])[0][0];
-  const c = NEUTRAL.has(top) ? ACCENT : COLOURS[top];
+  // one hue, deeper for each answer that stands out less
+  const c = wordColour(A);
   return Array.from({ length: n }, (_, i) => c.map((x) => x * (1 - (0.55 * i) / Math.max(1, n - 1))) as RGB);
 }
 
@@ -169,20 +219,28 @@ export const euclid = (k: number, n: number, r = 0) => Array.from({ length: n },
 export const patterns = (A: Appraisal) => ({ a: euclid(7 + Math.round(4 * A.s.arousal), 16), b: euclid(5 + Math.round(3 * A.s.arousal), 16, 3) });
 
 /** When each voice sounds a note during the steps (the ring lights a cell on each): voice 0 from the first bar, voice 1
- *  from the second but not in the stripped fourth, nor for a negative word (no tune). */
+ *  from the second but not in the stripped bar, nor for a negative word (no tune). */
 function onsets(A: Appraisal, steps: Step[], beat: number): { t: number; v: 0 | 1 }[] {
   const pat = patterns(A), sixteenth = beat / 4, out: { t: number; v: 0 | 1 }[] = [];
   let n16 = 0;
   for (const st of steps) {
     if (st.viz === 'stand') continue;
     for (let i = 0; i < Math.round(st.dur / sixteenth); i++, n16++) {
-      const t = st.t + i * sixteenth, bar = Math.floor(n16 / 16);
+      const t = st.t + i * sixteenth;
       if (pat.a[n16 % 16]) out.push({ t, v: 0 });
-      if (A.mood.neg <= 0.6 && bar >= 1 && bar !== 3 && pat.b[n16 % 16]) out.push({ t, v: 1 });
+      if (A.mood.neg <= 0.6 && st.bar >= 1 && !st.strip && pat.b[n16 % 16]) out.push({ t, v: 1 });
     }
   }
   return out;
 }
+
+/** Where "how unusual" (mean rarity of what matters, bits) earns a second, third and fourth bar of steps — set at the
+ *  quartiles over the recorded test words. */
+const UNUSUAL = [5.3, 6.0, 6.75];
+
+const STOP = new Set(['the', 'and', 'you', 'was', 'are', 'for', 'not', 'but', 'with', 'this', 'that', 'have', 'has', 'will', 'all', 'his', 'her', 'she', 'him', 'they', 'them', 'our', 'your', 'its', 'who', 'what', 'were', 'been', 'from', 'can', 'just', 'never', 'again', 'too', 'very', 'don\'t', 'i\'m', 'it\'s']);
+/** A text's content words (three letters or more, not the little words), for finding its family among the references. */
+const content = (t: string) => t.toLowerCase().split(/[^\p{L}']+/u).filter((w) => w.length >= 3 && !STOP.has(w));
 
 /** Answers that are category slots, not something a person would say of a word: never where it ends. */
 const CATEGORY = new Set(['who', 'act', 'kind', 'time', 'daytime', 'sense', 'rhythm', 'domain']);

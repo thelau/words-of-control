@@ -25,7 +25,7 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
   space: { viz: Space; vp: Float32Array; rect: number[] } | null): Caption[] {
   const L = layout(w, h), gx = L.x / dpr, gy = L.y / dpr, gw = (9 * L.cs) / dpr, gh = (5 * L.cs) / dpr;
   const word = `“${new TextDecoder().decode(A.bytes)}”`;
-  const n = g.cells.length, K = g.keys.length, R = g.refs.length;
+  const n = g.cells.length, K = g.keys.length;
   const out: Caption[] = [];
   if (t < g.seq) {
     out.push({ key: 'head', text: `${word} · ${n} answers`, x: gx, y: gy - 10, align: 'bl' });
@@ -40,23 +40,35 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
   const st = g.steps[i];
   if (!st) return out;
   const m = A.mood, mood = m.neg >= m.pos && m.neg >= m.neu ? 'negative' : m.pos >= m.neu ? 'positive' : 'neutral';
-  const arc = st.viz === 'stand' ? 'where it stands' : `${n} answers → ${K} that matter → where it stands`;
-  out.push({ key: 'head', text: `${word} · ${arc} · ${mood} ${Math.max(m.pos, m.neu, m.neg).toFixed(2)}`, x: gx, y: gy - 10, align: 'bl' });
+  out.push({ key: 'head', text: `${word} · ${mood} ${Math.max(m.pos, m.neu, m.neg).toFixed(2)}`, x: gx, y: gy - 10, align: 'bl' });
   const S = stage(w, h).map((x) => x / dpr);
   if (st.viz === 'stand') {
-    // where the words stand, built slowly: the words and the answer that sets them most apart; the reference words as a
-    // dot plot along it (0 … 1, stacked where they agree), filling in, the words among them — the rank seen, not
-    // written; then one by one the nearest on this answer, a line to their dot; the nearest on all the answers; who
-    // answered and how sure; and last, alone, how many reference words they were measured against
-    const lt = t - st.t, k = g.stand, c = g.cells[k], colour = srgb(g.colours[Math.max(0, c.key)]);
+    // where the words stand, built slowly: the words alone first; then the answer that sets them most apart (when Jev
+    // is unsure, it wavers between two readings before it settles); the reference words as a dot plot along it (0 … 1,
+    // stacked where they agree), filling in, the words among them — the rank seen, not written; one by one the nearest
+    // on this answer, a line to their dot; the nearest on all the answers; who answered and how sure; and last, alone,
+    // how many reference words. Nonsense: the words, and that nothing stands out.
+    const lt = t - st.t, k = g.stand, c = g.cells[k], colour = srgb(g.colours[Math.max(0, c.key)] ?? [0.85, 0.85, 0.85]);
     const cx = S[0] + S[2] / 2, cy = S[1] + S[3] / 2, x0 = S[0] + S[2] * 0.12, x1 = S[0] + S[2] * 0.88, ly = cy + 40;
     const at = (v: number) => x0 + v * (x1 - x0);
     const short = (w2: string) => (w2.length > 22 ? `${w2.slice(0, 21)}…` : w2);
     // (a long phrase is set smaller, to fit the stage: Plex Mono's advance is 0.6 em)
     out.push({ key: 'word', text: word, x: cx, y: cy - 96, align: 'c', size: 'big', colour, px: Math.min(64, (S[2] * 0.8) / (word.length * 0.6)) });
+    if (g.member && lt > 1.5) out.push({ key: 'member', text: `also one of the ${g.total}`, x: cx, y: cy - 62, align: 'c' });
+    if (g.nonsense) {
+      if (lt > 1.2) out.push({ key: 'answer', text: 'nothing stands out', x: cx, y: cy - 30, align: 'c', size: 'mid' });
+      return out;
+    }
+    if (lt < 1.5) return out;
     // the answer in the battery's own words ("COMPLETELY SINCERE", "AWE"), the measure and its value small beneath
     const human = c.kind === 1 ? LABELS[c.opt] : plain(c.id, c.value);
-    out.push({ key: 'answer', text: human, x: cx, y: cy - 44, align: 'c', size: 'mid', colour });
+    let shown = human;
+    if (c.conf < 0.75 && lt < 4 && Math.floor(lt / 0.22) % 2 === 1) {
+      // (Jev's doubt: the reading it almost gave, flickering, until it settles)
+      if (c.kind === 1) { const ti = c.probs.indexOf(Math.max(...c.probs)); const si = c.probs.map((p, i) => [p, i] as const).filter(([, i]) => i !== ti).sort((a2, b2) => b2[0] - a2[0])[0][1]; shown = LABELS[c.opt - ti + si]; }
+      else shown = plain(c.id, c.value + (c.value > 0.5 ? -0.25 : 0.25));
+    }
+    out.push({ key: 'answer', text: shown, x: cx, y: cy - 44, align: 'c', size: 'mid', colour });
     out.push({ key: 'measure', text: `${c.id}  ${c.value.toFixed(2)}`, x: cx, y: cy - 22, align: 'c', colour });
     out.push({ key: 'rule', text: '', x: x0, y: ly, rule: x1 - x0 });
     out.push({ key: 'r0', text: '0', x: x0 - 16, y: ly, align: 'c' }, { key: 'r1', text: '1', x: x1 + 16, y: ly, align: 'c' });
@@ -66,22 +78,26 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
     const dotY = c.lex.map((v, j) => {
       const b = bins[j], hh = stack.get(b) ?? 0, gap = Math.min(6, 40 / (count.get(b) ?? 1));
       stack.set(b, hh + 1);
-      if (lt > j * 0.02) out.push({ key: `d${j}`, text: '', x: at(v), y: ly - 5 - gap * hh, align: 'c', anchor: true });
+      if (lt > 1.5 + j * 0.006) out.push({ key: `d${j}`, text: '', x: at(v), y: ly - 5 - gap * hh, align: 'c', anchor: true });
       return ly - 5 - gap * hh;
     });
     out.push({ key: 'me', text: '', x: at(c.value), y: ly - 5, align: 'c', anchor: true, me: true, colour });
     out.push({ key: 'melabel', text: word, x: at(c.value), y: ly - 22 - Math.min(40, 6 * (stack.get(Math.round(at(c.value) / 7)) ?? 0)), align: 'c', colour });
-    // the nearest on this answer, one by one (left to right, each on its own line, a line up to its dot)
-    const onAxis = c.lex.map((v, j) => [j, Math.abs(v - c.value)] as const).sort((a2, b2) => a2[1] - b2[1]).slice(0, 3).map(([j]) => j).sort((a2, b2) => c.lex[a2] - c.lex[b2]);
+    // the nearest on this answer, one by one (their own family left out; left to right, each on its own line, a line
+    // up to its dot)
+    const kin = new Set(g.near);
+    const onAxis = c.lex.map((v, j) => [j, Math.abs(v - c.value)] as const).filter(([j]) => kin.has(j)).sort((a2, b2) => a2[1] - b2[1]).slice(0, 3).map(([j]) => j).sort((a2, b2) => c.lex[a2] - c.lex[b2]);
     onAxis.forEach((j, i) => {
-      if (lt < 1.5 + i * 1.2) return;
+      if (lt < 3 + i * 1.2) return;
       const x = at(c.lex[j]), y = ly + 22 + 16 * i;
       out.push({ key: `nl${i}`, text: '', x, y: dotY[j], vline: y - dotY[j] - 6 });
       out.push({ key: `n${i}`, text: short(g.refs[j]), x, y, align: 'c' });
     });
-    if (lt > 5) out.push({ key: 'overall', text: `nearest on all ${n} answers: ${(geo?.nearest ?? []).map(short).join(' · ')}`, x: cx, y: S[1] + S[3] - 56, align: 'c' });
-    if (lt > 6.5) out.push({ key: 'ai', text: `${n} questions answered by an AI (Jev), sure to ${c.conf.toFixed(2)}`, x: cx, y: S[1] + S[3] - 36, align: 'c' });
-    if (lt > 8) out.push({ key: 'note', text: `${R} reference words`, x: cx, y: S[1] + S[3] - 16, align: 'c' });
+    if (lt > 6.5) out.push({ key: 'overall', text: `nearest on all ${n} answers: ${g.near.slice(0, 3).map((j) => short(g.refs[j])).join(' · ')}`, x: cx, y: S[1] + S[3] - 56, align: 'c' });
+    // (words in another script than English's are still measured against English words: said plainly)
+    const foreign = /[^\u0000-\u024f\s\p{P}\p{N}\p{S}]/u.test(word);
+    if (lt > 8) out.push({ key: 'ai', text: `${n} questions answered by an AI (Jev), sure to ${c.conf.toFixed(2)}${foreign ? ' · measured against English words' : ''}`, x: cx, y: S[1] + S[3] - 36, align: 'c' });
+    if (lt > 9.5) out.push({ key: 'note', text: `${g.total} reference words`, x: cx, y: S[1] + S[3] - 16, align: 'c' });
     return out;
   }
   const text = st.viz === 'tiles' ? `${K} answers that matter`

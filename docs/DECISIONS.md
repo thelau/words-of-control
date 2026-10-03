@@ -2,6 +2,16 @@
 
 Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
+## 2026-10-03
+
+- **Less repetition (after the round-11 reviews: new media artists, curators, spectators)** ("go"): the middle
+  earns its length (one to four bars by how unusual the words are) and its order (opening on what is most striking);
+  colour from the words (no more shared orange); the ending ≥ 12 s, the words alone first, "also one of the 400",
+  no echoes ("love" ends on MANY MEANINGS), nearest words without the words' own family, one count everywhere;
+  Jev's doubt as form (false starts, wavering answer, out-of-tune notes); nonsense gets a deadpan short version; words
+  in another script are said to be measured against English. Not now: the typing rhythm and a trace of the last
+  visitor ("I don't want the last 2 right now").
+
 ## 2026-09-28
 
 - **The ring follows the music** ("yes ok", to the proposal): each sequencer note lights a cell — the first voice
