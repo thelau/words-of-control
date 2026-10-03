@@ -4,6 +4,11 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-10-03
 
+- **Quality audio render** ("a bit more tapping into quality audio render … modular quality, echo, reverb"): the
+  voices plucked complex oscillators through a low-pass gate (FM, wavefold, resonant filter; the patch by space), a
+  tape echo (wow, darkening repeats, saturation), ticks rung through resonant filters, kicks with a pitch drop, a send
+  to a better room per sound, glue and soft saturation on the master. Same notes, patterns and structure.
+
 - **Open source** ("opensource this, let's keep any confidential info out"): the repository public under MIT; keys only
   in `.env.local` (never committed — history checked); the AI-persona reviews say so.
 - **A vintage monitor look** ("more refined … a bit Akira VHS rendering style in pixels and colors", on three references

@@ -1,6 +1,7 @@
 /**
- * Web Audio engine. Master: bus → 30 Hz high-pass (12 dB/oct) → limiter →
- * trim → hard ceiling (−1 dBFS) → out. Two spaces: a short room keeps the verdict's cuts hard; the long
+ * Web Audio engine. Master: bus → 30 Hz high-pass (12 dB/oct) → glue (gentle compression, soft saturation) →
+ * limiter → trim → hard ceiling (−1 dBFS) → out. Two spaces: a room (1.8 s, early reflections, darkening) for what
+ * the performance sends it; the long
  * hall is fed only in the last moment before the cut to black, so the tail
  * blooms once, over the black. Performances play through `perfDry` /
  * `perfSend`; at the cut the dry path dies in 5 ms and only the hall rings.
@@ -38,6 +39,14 @@ export class AudioEngine {
     hp1.type = 'highpass'; hp1.frequency.value = 30; hp1.Q.value = 0.707;
     const limit = c.createDynamicsCompressor();
     limit.threshold.value = -3; limit.ratio.value = 20; limit.attack.value = 0.0005; limit.release.value = 0.08; limit.knee.value = 0;
+    // the glue: a slow, gentle compressor and a soft saturation (unity for small signals, rounding the peaks)
+    const glue = c.createDynamicsCompressor();
+    glue.threshold.value = -22; glue.knee.value = 12; glue.ratio.value = 2; glue.attack.value = 0.012; glue.release.value = 0.2;
+    const warm = c.createWaveShaper();
+    const soft = new Float32Array(2048);
+    for (let i = 0; i < soft.length; i++) { const x = (i / 1023.5 - 1) * 1.5; soft[i] = Math.tanh(1.3 * x) / 1.3; }
+    warm.curve = soft;
+    warm.oversample = '2x';
     const trim = c.createGain();
     trim.gain.value = 0.5; // headroom and true-peak margin after the limiter (loudest words ≈ −16 LUFS)
     // the Web Audio limiter lets fast transients through: a hard ceiling at −1 dBFS is the last guard
@@ -49,21 +58,21 @@ export class AudioEngine {
 
     const verb = (seconds: number, wetGain: number, input: AudioNode) => {
       const hp = c.createBiquadFilter();
-      hp.type = 'highpass'; hp.frequency.value = 200; // the room never booms
+      hp.type = 'highpass'; hp.frequency.value = 220; // the room never booms
       const conv = c.createConvolver();
       conv.buffer = this.impulse(seconds);
       const wet = c.createGain();
       wet.gain.value = wetGain;
       input.connect(hp).connect(conv).connect(wet).connect(out);
     };
-    verb(0.9, 0.5, this.send);
+    verb(1.8, 0.6, this.send);
     verb(6.5, 0.7, this.hallSend);
 
     this.perfDry.connect(this.bus);
     this.perfDry.connect(this.hallSend);
     this.perfSend.connect(this.send);
     this.bus.connect(out);
-    out.connect(hp1).connect(limit).connect(trim).connect(ceiling).connect(c.destination);
+    out.connect(hp1).connect(glue).connect(warm).connect(limit).connect(trim).connect(ceiling).connect(c.destination);
     this.record = c.createMediaStreamDestination();
     ceiling.connect(this.record);
 
@@ -113,6 +122,8 @@ export class AudioEngine {
     this.perfSend.gain.setValueAtTime(1, t + 0.5);
   }
 
+  /** A room's impulse: a few early reflections (different each side), then a dense tail falling 60 dB over
+   *  `seconds`, darkening as it decays but staying air, not mud. */
   private impulse(seconds: number): AudioBuffer {
     const c = this.ctx;
     const len = Math.floor(c.sampleRate * seconds);
@@ -120,13 +131,17 @@ export class AudioEngine {
     const pre = Math.floor(c.sampleRate * 0.02);
     for (let ch = 0; ch < 2; ch++) {
       const d = b.getChannelData(ch);
+      for (let r = 0; r < 7; r++) {
+        const at = pre + Math.floor(c.sampleRate * (0.004 + Math.random() * 0.06));
+        d[at] += (Math.random() < 0.5 ? -1 : 1) * (0.25 + 0.35 * Math.random()) * (1 - r / 9);
+      }
       let lp = 0;
       for (let i = pre; i < len; i++) {
         const t = (i - pre) / (len - pre);
-        const x = (Math.random() * 2 - 1) * Math.pow(1 - t, 3.2);
-        const k = 0.6 - 0.3 * t; // darkens as it decays, but stays air, not mud
+        const x = (Math.random() * 2 - 1) * Math.pow(10, -3 * t) * 0.6;
+        const k = 0.65 - 0.4 * t;
         lp = lp + k * (x - lp);
-        d[i] = lp * (i - pre < 600 ? (i - pre) / 600 : 1);
+        d[i] += lp * Math.min(1, (i - pre) / (c.sampleRate * 0.03));
       }
     }
     return b;

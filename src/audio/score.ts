@@ -15,14 +15,17 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, g: Grid, t0: number): (steps: Samples) => void {
   const c = a.ctx;
   const note = tuning(A);
+  // (what is rendered plays twice from the same instant: dry, and its send into the room)
   const play = (x: Samples, at: number) => {
-    const b = c.createBuffer(2, x.L.length, c.sampleRate);
-    b.copyToChannel(x.L, 0);
-    b.copyToChannel(x.R, 1);
-    const src = c.createBufferSource();
-    src.buffer = b;
-    src.connect(out);
-    src.start(at);
+    for (const [l, r, to] of [[x.L, x.R, out], [x.sL, x.sR, wet]] as const) {
+      const b = c.createBuffer(2, l.length, c.sampleRate);
+      b.copyToChannel(l, 0);
+      b.copyToChannel(r, 1);
+      const src = c.createBufferSource();
+      src.buffer = b;
+      src.connect(to);
+      src.start(at);
+    }
   };
 
   // how loud: as Jev heard the word (a positive one never timid)
@@ -31,9 +34,9 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, g: G
   // (the mood changes the sound's density: a dark word's rolls and bursts add up, a neutral word is sparse)
   out.gain.value = dbToGain(lerp(0, 8, loud) + 2.5 * A.mood.neg + 7 * A.mood.neu);
   out.connect(a.perfDry);
-  const send = c.createGain();
-  send.gain.value = 0.12;
-  out.connect(send).connect(a.perfSend);
+  const wet = c.createGain();
+  wet.gain.value = out.gain.value;
+  wet.connect(a.perfSend);
   play(renderGrid(A, g, c.sampleRate), t0);
 
   // what matters, held: the first two marked answers as soft tones from their mark (into the hall more than dry), cut
@@ -41,17 +44,19 @@ export function playPerformance(a: AudioEngine, drone: Drone, A: Appraisal, g: G
   const residue: number[] = [];
   for (const k of g.keys) {
     if (residue.length === 2 || !Number.isFinite(g.cells[k].markAt)) continue; // (nonsense: nothing is marked, nothing held)
-    const x = g.cells[k], f = note(x.value, 0);
+    const x = g.cells[k];
+    let f = note(x.value, 0);
+    while (f < 260) f *= 2; // (above the drone's low harmonics: they would beat)
     if (residue.some((r) => Math.abs(Math.log2(f / r)) < 2.5 / 12)) continue;
-    const o = c.createOscillator(), gg = c.createGain(), wet = c.createGain();
+    const o = c.createOscillator(), gg = c.createGain(), hall = c.createGain();
     o.frequency.value = f;
     gg.gain.setValueAtTime(0, t0 + x.markAt);
     gg.gain.linearRampToValueAtTime(0.006, t0 + x.markAt + 0.25);
     gg.gain.setValueAtTime(0.006, t0 + g.seq - 0.003);
     gg.gain.linearRampToValueAtTime(0, t0 + g.seq);
-    wet.gain.value = 3;
+    hall.gain.value = 3;
     o.connect(gg).connect(out);
-    gg.connect(wet).connect(a.perfSend);
+    gg.connect(hall).connect(a.perfSend);
     o.start(t0 + x.markAt);
     o.stop(t0 + g.seq + 0.01);
     residue.push(f);

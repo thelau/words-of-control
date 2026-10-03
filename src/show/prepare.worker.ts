@@ -11,5 +11,5 @@ self.onmessage = (e: MessageEvent<{ id: number; A: Appraisal; g: Grid; sr: numbe
   const { id, A, g, sr } = e.data;
   const geo = build(g, A.seed, new TextDecoder().decode(A.bytes));
   const steps = renderSteps(A, g, sr);
-  (self as unknown as Worker).postMessage({ id, geo, steps }, [geo.points.buffer, geo.lines.buffer, steps.L.buffer, steps.R.buffer]);
+  (self as unknown as Worker).postMessage({ id, geo, steps }, [geo.points.buffer, geo.lines.buffer, steps.L.buffer, steps.R.buffer, steps.sL.buffer, steps.sR.buffer]);
 };
