@@ -126,7 +126,9 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
   if (space && geo && !st.full) RING.forEach((k, p) => {
     const pair = geo.pairs[p];
     // (trimmed to the cell: about 26 characters of this small type)
-    if (pair) out.push({ key: `p${p}`, text: pair.label.length > 26 ? `${pair.label.slice(0, 25)}…` : pair.label, x: gx + (k % 9) * (gw / 9) + 6, y: gy + Math.floor(k / 9) * (gh / 5) + 5, size: 'tiny' });
+    // (cut to the cell: a tiny caption advances ~5.9 px a letter, 9 px Plex Mono + 0.06 em)
+    const fit = Math.floor((gw / 9 - 12) / 5.9);
+    if (pair) out.push({ key: `p${p}`, text: pair.label.length > fit ? `${pair.label.slice(0, fit - 1)}…` : pair.label, x: gx + (k % 9) * (gw / 9) + 6, y: gy + Math.floor(k / 9) * (gh / 5) + 5, size: 'tiny' });
   });
   // labels on the data: each anchor projected through the step's camera into its rectangle. Which ones show is
   // decided on the step's first frame (one that would land on another is left out) and kept for the whole step — a

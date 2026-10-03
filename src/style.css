@@ -5,6 +5,8 @@
   --ink: #ede6dc;
   --cursor: #e8e2da;
   --type-size: 28px;
+  /* the DOM text on the same tube as the image (render/shaders/post.wgsl): the guns out of register, a glow */
+  --tube: -0.7px 0 rgba(255, 40, 60, 0.45), 0.7px 0 rgba(40, 140, 255, 0.45), 0 0 6px rgba(255, 245, 230, 0.35);
 }
 
 * { box-sizing: border-box; }
@@ -48,6 +50,7 @@ html, body {
   transition: none;
   font-kerning: none;
   -webkit-font-smoothing: antialiased;
+  text-shadow: var(--tube);
 }
 
 #line.fading {
@@ -121,6 +124,7 @@ html, body {
   letter-spacing: 0.08em;
   color: rgba(237, 230, 220, 0.62);
   -webkit-font-smoothing: antialiased;
+  text-shadow: var(--tube);
 }
 #captions .cap { position: absolute; left: 0; top: 0; white-space: pre; }
 #captions .big { font-size: 64px; line-height: 1; letter-spacing: 0; }

@@ -4,6 +4,13 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-10-03
 
+- **Open source** ("opensource this, let's keep any confidential info out"): the repository public under MIT; keys only
+  in `.env.local` (never committed — history checked); the AI-persona reviews say so.
+- **A vintage monitor look** ("more refined … a bit Akira VHS rendering style in pixels and colors", on three references
+  of 3D cubic data viz; "could be a shader … you know better"): one post pass over everything — glow, misregistration,
+  tape chroma, scanlines, grain; no flashes.
+- **No buzz after the mark** ("it makes a zzzzz type of sound"): the held tones of what matters were beating.
+
 - **No strobe; the cells' arrival a glint** ("the white flashing is annoying for some of the analysis, like war"): the
   negative strobe removed (and its silences); a cell's arrival a brief dim glint instead of a white flash. The ending's
   labels never collide ("the graph and the labels conflict on the last screen").

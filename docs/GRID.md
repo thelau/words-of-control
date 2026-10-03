@@ -42,9 +42,13 @@ say, qualities, everyday sentences — never visitors' words. The ending says th
 
 ## Engine
 
-One render pass straight to the canvas at native resolution: a fullscreen triangle (src/render/shaders/grid.wgsl —
-the room, the wait, the cells, the square, the number, the black), then during a space its points (instanced dots)
-and lines (1 px) in the step's rectangle (space.wgsl). The score (src/show/grid.ts) is computed once per word; the
+The scene at native resolution into a float texture: a fullscreen triangle (src/render/shaders/grid.wgsl — the room,
+the wait, the cells, the square, the number, the black), then during a space its points (instanced dots) and lines
+(1 px) in the step's rectangle (space.wgsl). Then **the monitor** (post.wgsl): everything is seen on a worn video
+tube — phosphor glow from a quarter-size copy blurred across and, longer, down (light streaks down the tube), the
+three guns slightly out of register (more at the edges), colour smeared along the line as on tape, scanlines two CSS
+px apart (filled in where bright), grain, darker corners. Never a flash. The DOM captions and the typed words carry
+the same misregistration and glow (style.css --tube). Cost: ~1–3 ms GPU at 3456 × 2234. The score (src/show/grid.ts) is computed once per word; the
 spaces' geometry and the steps' sound are built in a worker while the grid fills (src/show/prepare.worker.ts), so
 Enter never stalls the page. Per frame the CPU supplies only the clock, the step on screen and its camera.
 
