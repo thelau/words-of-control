@@ -13,9 +13,6 @@ const FIELDS = [
   'viz', 'full', 'beatU',
   // the room: how far it has come back from black, how much the typing has charged it, the last keystroke
   'fade', 'charge', 'kick',
-  // where the words stand (the last step): which answer (cell), when the step began (lt), the bar graph's rect (px),
-  // and the values of their three nearest on it (-1: none)
-  'standK', 'st', 'sgX', 'sgY', 'sgW', 'sgH', 'n1', 'n2', 'n3',
 ] as const;
 type Field = (typeof FIELDS)[number];
 

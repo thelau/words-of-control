@@ -15,9 +15,10 @@ struct Cam { vp: mat4x4f, pal: array<vec4f, 9>, px: vec4f, fx: vec4f };
 struct VOut { @builtin(position) pos: vec4f, @location(0) col: vec3f, @location(1) uv: vec2f };
 
 fn tint(w: f32, depth: f32) -> vec3f {
-  let c = C.pal[u32(w)].rgb * fract(w) * 0.55 * clamp(1.7 - 0.7 * depth / C.fx.z, 0.25, 1.0);
-  // (linear light, added up: the monitor rolls off where it crowds)
-  return c * C.fx.w;
+  let c = C.pal[u32(w)].rgb * fract(w) * 1.5 * clamp(1.7 - 0.7 * depth / C.fx.z, 0.25, 1.0);
+  // (the canvas is not sRGB; additive light is close enough in this space — the view's brightness after the curve,
+  // so a dimmed view is truly dim)
+  return pow(c, vec3f(1.0 / 2.2)) * C.fx.w;
 }
 
 @vertex
@@ -44,4 +45,4 @@ fn vs_line(@location(0) p: vec4f) -> VOut {
 }
 
 @fragment
-fn fs_line(v: VOut) -> @location(0) vec4f { return vec4f(v.col * 0.5, 1.0); } // (lines quieter than points: they add up)
+fn fs_line(v: VOut) -> @location(0) vec4f { return vec4f(v.col, 1.0); }

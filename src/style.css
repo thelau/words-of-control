@@ -1,20 +1,10 @@
-/* The panel's type (as on an instrument): printed labels in a condensed grotesque (Barlow Semi Condensed), lit
-   numerals in a mono (Geist Mono), the visitor's words in a light grotesque (Barlow), as typed. */
-@import '@fontsource/barlow/300.css';
-@import '@fontsource/barlow-semi-condensed/500.css';
-@import '@fontsource/geist-mono/400.css';
+@import '@fontsource/ibm-plex-mono/400.css';
 
 :root {
-  --bg: #000;
-  --ink: #eef4ff;            /* white phosphor: the visitor's words */
-  --phos: #52f2d2;           /* the panel's phosphor (render/shaders/grid.wgsl PHOS) */
-  --print: #8c96a3;          /* the silkscreen's grey (grid.wgsl PRINT) */
-  --cursor: #eef4ff;
-  --type-size: 40px;
-  --label: 'Barlow Semi Condensed', 'Helvetica Neue', Arial, sans-serif;
-  --mono: 'Geist Mono', ui-monospace, monospace;
-  /* lit text glows a little, as the panel's light does (post.wgsl) */
-  --glow: 0 0 10px color-mix(in srgb, currentColor 45%, transparent);
+  --bg: #0a0806;
+  --ink: #ede6dc;
+  --cursor: #e8e2da;
+  --type-size: 28px;
 }
 
 * { box-sizing: border-box; }
@@ -42,11 +32,12 @@ html, body {
   align-items: center;
   justify-content: center;
   pointer-events: none;
+  --type-size: 28px;
 }
 
 #line {
-  font-family: 'Barlow', 'Helvetica Neue', Arial, sans-serif;
-  font-weight: 300;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-weight: 400;
   font-size: var(--type-size);
   line-height: 1;
   color: var(--ink);
@@ -55,8 +46,8 @@ html, body {
   align-items: baseline;
   opacity: 1;
   transition: none;
+  font-kerning: none;
   -webkit-font-smoothing: antialiased;
-  text-shadow: var(--glow);
 }
 
 #line.fading {
@@ -64,14 +55,13 @@ html, body {
   transition: opacity 300ms linear;
 }
 
-/* An underscore, as on a terminal: a letter's width, sitting on the baseline. */
+/* Plain solid rectangle, hard edges, ~1:1.7, height ≈ cap height (Plex Mono cap ≈ 0.698em). */
 #cursor {
   display: inline-block;
-  width: calc(var(--type-size) * 0.5);
-  height: max(2px, calc(var(--type-size) * 0.06));
+  width: calc(var(--type-size) * 0.698 / 1.7);
+  height: calc(var(--type-size) * 0.698);
   background: var(--cursor);
-  box-shadow: var(--glow);
-  margin-left: 0.06em;
+  margin-left: 0.08em;
 }
 #text:empty + #cursor { margin-left: 0; }
 
@@ -96,7 +86,7 @@ html, body {
   align-items: center;
   justify-content: center;
   color: var(--ink);
-  font-family: var(--label);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
   font-size: 18px;
   line-height: 1.9;
 }
@@ -108,14 +98,14 @@ html, body {
 
 #nogpu {
   position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-  color: var(--ink); font: 500 14px var(--label); letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.7;
+  color: var(--ink); font: 16px 'IBM Plex Mono', monospace; opacity: 0.7;
 }
 
 /* the machine's note under the word when it cannot answer: same type, small, quiet */
 #note {
   position: absolute; left: 0; right: 0; top: calc(50% + var(--type-size) * 1.2);
-  text-align: center; font-family: var(--label);
-  font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--print);
+  text-align: center; font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 12px; letter-spacing: 0.04em; color: var(--ink); opacity: 0.45;
 }
 #note .detail { font-size: 10px; margin-top: 6px; opacity: 0.6; }
 
@@ -125,25 +115,20 @@ html, body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  font-family: var(--label);
-  font-weight: 500;
-  font-size: 13px;
-  line-height: 1.2;
-  letter-spacing: 0.14em;
-  color: var(--print);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  color: rgba(237, 230, 220, 0.62);
   -webkit-font-smoothing: antialiased;
 }
-#captions .cap { position: absolute; left: 0; top: 0; white-space: pre; animation: cap-in 220ms ease-out; }
-/* (a caption comes on like the panel's light: never a pop) */
-@keyframes cap-in { from { opacity: 0; } }
-#captions .lit { color: var(--phos); text-shadow: var(--glow); }
-#captions .fit { overflow: hidden; text-overflow: ellipsis; }
-#captions .big { font-family: 'Barlow', 'Helvetica Neue', Arial, sans-serif; font-weight: 300; font-size: 72px; line-height: 1; letter-spacing: 0; color: var(--ink); text-shadow: var(--glow); }
-#captions .mid { font-size: 34px; letter-spacing: 0.06em; text-shadow: var(--glow); }
-#captions .tiny { font-size: 10px; letter-spacing: 0.12em; }
-#captions .rule { height: 1px; background: color-mix(in srgb, var(--print) 45%, transparent); }
+#captions .cap { position: absolute; left: 0; top: 0; white-space: pre; }
+#captions .big { font-size: 64px; line-height: 1; letter-spacing: 0; }
+#captions .mid { font-size: 16px; }
+#captions .tiny { font-size: 9px; letter-spacing: 0.06em; opacity: 0.7; }
+#captions .rule { height: 1px; background: rgba(237, 230, 220, 0.4); }
 #captions .me::before { width: 9px; height: 9px; margin-right: 0; }
-#captions .anchor { color: color-mix(in srgb, var(--ink) 80%, transparent); }
+#captions .anchor { color: rgba(237, 230, 220, 0.8); }
 #captions .anchor::before {
   content: '';
   display: inline-block;

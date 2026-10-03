@@ -15,7 +15,7 @@ import { playPerformance, TAIL } from './audio/score.ts';
 import { analyze } from './jev/client.ts';
 import { buildAppraisal, type Appraisal } from './jev/appraisal.ts';
 import type { Answers } from './jev/types.ts';
-import { grid, layout, pack, RING, stage, standGraph, VIZ, type Grid } from './show/grid.ts';
+import { grid, layout, pack, RING, stage, VIZ, type Grid } from './show/grid.ts';
 import { notes } from './show/notes.ts';
 import { showCaptions, type Caption } from './captions.ts';
 import { camera, stageView, type Geometry, type Space, type View } from './show/space.ts';
@@ -100,10 +100,10 @@ async function boot() {
     const A = buildAppraisal(answers, text, seedFromText(text));
     const g = grid(A);
     renderer.setScore(pack(A, g));
-    // the spaces' palette: the panel's phosphor (the reference words), then the marked cells' inks
+    // the spaces' palette: white, then the marked cells' colours
     cams.fill(0);
     for (let v = 0; v < VIEWS_MAX; v++) {
-      cams.set([0.084, 0.888, 0.645, 1], v * CAM_SLOT + 16);
+      cams.set([0.85, 0.85, 0.85, 1], v * CAM_SLOT + 16);
       g.colours.forEach((c, i) => cams.set([...c, 1], v * CAM_SLOT + 20 + i * 4));
     }
     ensureAudio();
@@ -256,13 +256,6 @@ async function boot() {
         const st = show.g.steps.find((x) => t >= x.t && t < x.t + x.dur);
         if (st) {
           f('viz', VIZ.indexOf(st.viz)); f('full', st.full ? 1 : 0);
-          if (st.viz === 'stand') {
-            // where the words stand: the shader draws the bar graph, notes.ts the words around it
-            const g = show.g, c = g.cells[g.stand], sg = standGraph(stage(renderer.width, renderer.height));
-            f('standK', g.nonsense ? -1 : g.stand); f('st', st.t); // (nonsense: no graph)
-            f('sgX', sg[0]); f('sgY', sg[1]); f('sgW', sg[2]); f('sgH', sg[3]);
-            f('n1', c.lex[g.standNear[0]] ?? -1); f('n2', c.lex[g.standNear[1]] ?? -1); f('n3', c.lex[g.standNear[2]] ?? -1);
-          }
           // the spaces: the one on the stage (or the whole frame) and, in the cells of the ring, the small multiples;
           // the ring is empty on the merged cells and on the ending
           const isSpace = VIZ.indexOf(st.viz) >= 2;
@@ -318,7 +311,7 @@ async function boot() {
     // the room draws the drone as it sounds (before the first key there is no sound yet: a still line)
     if (phase === 'room' || phase === 'wait') { drone?.wave(wave); renderer.setWave(wave); }
     // the room, nothing typed yet: an invitation, faint, above where the word will be
-    if (phase === 'room' && state === 'idle') caps = [{ key: 'hint', text: 'YOUR WORDS', x: renderer.width / renderer.dpr / 2, y: renderer.height / renderer.dpr / 2 - 62, align: 'c' }];
+    if (phase === 'room' && state === 'idle') caps = [{ key: 'hint', text: 'YOUR WORDS', x: renderer.width / renderer.dpr / 2, y: renderer.height / renderer.dpr / 2 - 56, align: 'c', colour: 'rgba(237,230,220,0.35)' }];
     renderer.render(frame.f32, space);
     showCaptions(caps);
     for (const h of app.frameHooks) h(now);

@@ -6,7 +6,7 @@
  */
 import type { Caption } from '../captions.ts';
 import type { Grid } from './grid.ts';
-import { LABELS, layout, RING, stage, standGraph } from './grid.ts';
+import { LABELS, layout, RING, stage } from './grid.ts';
 import type { Geometry, Space } from './space.ts';
 import { plain, type Appraisal } from '../jev/appraisal.ts';
 
@@ -43,24 +43,24 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
   out.push({ key: 'head', text: `${word} · ${mood} ${Math.max(m.pos, m.neu, m.neg).toFixed(2)}`, x: gx, y: gy - 10, align: 'bl' });
   const S = stage(w, h).map((x) => x / dpr);
   if (st.viz === 'stand') {
-    // where the words stand, read like an instrument, built slowly: the words alone; then the answer that sets them
-    // most apart, in the battery's own words (when Jev is unsure it wavers between two readings before it settles),
-    // the measure printed above it; the reference words' spread on it as a large bar graph lighting left to right
-    // (grid.wgsl), the words' needle in their ink and their name over it; then, as fields along the bottom — a printed
-    // label over a lit value, each cut to its width so nothing ever overlaps — their nearest on this answer (numbered
-    // like the ticks under the scale), their nearest on all the answers, who answered and how sure. Nonsense: the
-    // words, and that nothing stands out.
+    // where the words stand, built slowly: the words alone first; then the answer that sets them most apart (when Jev
+    // is unsure, it wavers between two readings before it settles); the reference words as a dot plot along it (0 … 1,
+    // stacked where they agree), filling in, the words among them — the rank seen, not written; one by one the nearest
+    // on this answer, a line to their dot; the nearest on all the answers; who answered and how sure; and last, alone,
+    // how many reference words. Nonsense: the words, and that nothing stands out.
     const lt = t - st.t, k = g.stand, c = g.cells[k], colour = srgb(g.colours[Math.max(0, c.key)] ?? [0.85, 0.85, 0.85]);
-    const cx = S[0] + S[2] / 2, H = S[3], [bx, by, bw, bh] = standGraph(S);
-    const short = (w2: string, n2 = 26) => (w2.length > n2 ? `${w2.slice(0, n2 - 1)}…` : w2);
-    // (a long phrase is set smaller, to fit: Barlow's light lowercase advances about 0.5 em)
-    out.push({ key: 'word', text: word, x: cx, y: S[1] + H * 0.19, align: 'c', size: 'big', px: Math.min(72, (S[2] * 0.86) / (word.length * 0.5)) });
-    if (g.member && lt > 1.5) out.push({ key: 'member', text: `also one of the ${g.total}`, x: cx, y: S[1] + H * 0.06, align: 'c' });
+    const cx = S[0] + S[2] / 2, cy = S[1] + S[3] / 2, x0 = S[0] + S[2] * 0.12, x1 = S[0] + S[2] * 0.88, ly = cy + 40;
+    const at = (v: number) => x0 + v * (x1 - x0);
+    const short = (w2: string) => (w2.length > 22 ? `${w2.slice(0, 21)}…` : w2);
+    // (a long phrase is set smaller, to fit the stage: Plex Mono's advance is 0.6 em)
+    out.push({ key: 'word', text: word, x: cx, y: cy - 96, align: 'c', size: 'big', colour, px: Math.min(64, (S[2] * 0.8) / (word.length * 0.6)) });
+    if (g.member && lt > 1.5) out.push({ key: 'member', text: `also one of the ${g.total}`, x: cx, y: cy - 142, align: 'c' });
     if (g.nonsense) {
-      if (lt > 1.2) out.push({ key: 'answer', text: 'nothing stands out', x: cx, y: S[1] + H * 0.42, align: 'c', size: 'mid', lit: true });
+      if (lt > 1.2) out.push({ key: 'answer', text: 'nothing stands out', x: cx, y: cy - 30, align: 'c', size: 'mid' });
       return out;
     }
     if (lt < 1.5) return out;
+    // the answer in the battery's own words ("COMPLETELY SINCERE", "AWE"), the measure and its value small beneath
     const human = c.kind === 1 ? LABELS[c.opt] : plain(c.id, c.value);
     let shown = human;
     if (c.conf < 0.75 && lt < 4 && Math.floor(lt / 0.22) % 2 === 1) {
@@ -68,35 +68,53 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
       if (c.kind === 1) { const ti = c.probs.indexOf(Math.max(...c.probs)); const si = c.probs.map((p, i) => [p, i] as const).filter(([, i]) => i !== ti).sort((a2, b2) => b2[0] - a2[0])[0][1]; shown = LABELS[c.opt - ti + si]; }
       else shown = plain(c.id, c.value + (c.value > 0.5 ? -0.25 : 0.25));
     }
-    out.push({ key: 'measure', text: `${c.id}  ·  ${c.value.toFixed(2)}`, x: cx, y: S[1] + H * 0.335, align: 'c' });
-    out.push({ key: 'answer', text: shown, x: cx, y: S[1] + H * 0.405, align: 'c', size: 'mid', colour });
-    out.push({ key: 'r0', text: '0', x: bx, y: by + bh + 22, align: 'c' }, { key: 'r1', text: '1', x: bx + bw, y: by + bh + 22, align: 'c' });
-    // their name over their needle, once the light has passed it (kept inside the graph)
-    if (lt > 1.5 + 1.2 * c.value) {
-      const half = Math.min(word.length * 7.5, 280) / 2 + 4;
-      out.push({ key: 'me', text: word, x: Math.max(bx + half, Math.min(bx + bw - half, bx + c.value * bw)), y: by - bh * 0.08 - 12, align: 'c', colour, lit: true, maxw: 280 });
-    }
-    // the ticks' numbers under the scale (grid.wgsl draws the ticks), spread at least a numeral apart and clear of
-    // the scale's own 0 and 1
-    if (lt > 3.5) {
-      const xs = g.standNear.map((j) => bx + c.lex[j] * bw);
-      for (let i2 = 0; i2 < xs.length; i2++) xs[i2] = Math.max(xs[i2], i2 ? xs[i2 - 1] + 12 : bx + 16);
-      for (let i2 = xs.length - 1; i2 >= 0; i2--) xs[i2] = Math.min(xs[i2], i2 < xs.length - 1 ? xs[i2 + 1] - 12 : bx + bw - 16);
-      xs.forEach((x2, i2) => out.push({ key: `t${i2}`, text: String(i2 + 1), x: x2, y: by + bh + 22, align: 'c', lit: true }));
-    }
-    // the fields
-    const fw = bw / 3, fy = S[1] + H * 0.83;
-    const field = (i2: number, at: number, label: string, value: string) => {
-      if (lt < at) return;
-      out.push({ key: `fr${i2}`, text: '', x: bx + i2 * fw, y: fy - 10, rule: fw - 16 });
-      out.push({ key: `fl${i2}`, text: label, x: bx + i2 * fw, y: fy, maxw: fw - 16 });
-      out.push({ key: `fv${i2}`, text: value, x: bx + i2 * fw, y: fy + 20, maxw: fw - 16, lit: true });
-    };
-    field(0, 3.5, `nearest on ${c.id}`, g.standNear.map((j, i2) => `${i2 + 1} ${short(g.refs[j], 18)}`).join('   '));
-    field(1, 6.5, `nearest on all ${n} answers`, g.near.slice(0, 3).map((j) => short(g.refs[j], 18)).join(' · '));
+    out.push({ key: 'answer', text: shown, x: cx, y: cy - 44, align: 'c', size: 'mid', colour });
+    out.push({ key: 'measure', text: `${c.id}  ${c.value.toFixed(2)}`, x: cx, y: cy - 22, align: 'c', colour });
+    out.push({ key: 'rule', text: '', x: x0, y: ly, rule: x1 - x0 });
+    out.push({ key: 'r0', text: '0', x: x0 - 16, y: ly, align: 'c' }, { key: 'r1', text: '1', x: x1 + 16, y: ly, align: 'c' });
+    // (a stack never rises past 40 px: a tall one packs its dots closer)
+    const bins = c.lex.map((v) => Math.round(at(v) / 7)), count = new Map<number, number>(), stack = new Map<number, number>();
+    for (const b of bins) count.set(b, (count.get(b) ?? 0) + 1);
+    const dotY = c.lex.map((v, j) => {
+      const b = bins[j], hh = stack.get(b) ?? 0, gap = Math.min(6, 40 / (count.get(b) ?? 1));
+      stack.set(b, hh + 1);
+      if (lt > 1.5 + j * 0.006) out.push({ key: `d${j}`, text: '', x: at(v), y: ly - 5 - gap * hh, align: 'c', anchor: true });
+      return ly - 5 - gap * hh;
+    });
+    out.push({ key: 'me', text: '', x: at(c.value), y: ly - 5, align: 'c', anchor: true, me: true, colour });
+    // the words' own label: above the tallest stack it spans (never on the dots), a thin line down to their dot
+    const CHAR = 8.5; // (a caption's advance: 12.5 px Plex Mono, 0.6 em + 0.08 em tracking)
+    const xw = at(c.value), half = (word.length * CHAR) / 2;
+    const lx = Math.max(x0 + half, Math.min(x1 - half, xw));
+    const top = Math.min(ly - 5, ...c.lex.map((v, j) => (Math.abs(at(v) - lx) <= half + 4 ? dotY[j] : ly)));
+    const labelY = Math.min(ly - 24, top - 16);
+    out.push({ key: 'melabel', text: word, x: lx, y: labelY, align: 'c', colour });
+    out.push({ key: 'meline', text: '', x: xw, y: labelY + 8, vline: Math.max(0, ly - 9 - (labelY + 8)) });
+    // the nearest on this answer, one by one (their own family left out; left to right, each on its own line, a line
+    // up to its dot)
+    const kin = new Set(g.near);
+    const onAxis = c.lex.map((v, j) => [j, Math.abs(v - c.value)] as const).filter(([j]) => kin.has(j)).sort((a2, b2) => a2[1] - b2[1]).slice(0, 3).map(([j]) => j).sort((a2, b2) => c.lex[a2] - c.lex[b2]);
+    // (one row below the line, spread so no two labels overlap; each joined to its dot by an elbow: down from the dot,
+    // along, down to the label)
+    const rowY = ly + 34, elbow = ly + 14;
+    const width = onAxis.map((j) => short(g.refs[j]).length * CHAR + 18), right = S[0] + S[2] - 12;
+    const place = onAxis.map((j) => at(c.lex[j]));
+    // (pushed right past each other, then back from the stage's edge, so none overlaps)
+    for (let i = 0; i < place.length; i++) place[i] = Math.max(place[i], i ? place[i - 1] + (width[i - 1] + width[i]) / 2 : S[0] + 12 + width[i] / 2);
+    for (let i = place.length - 1; i >= 0; i--) place[i] = Math.min(place[i], i < place.length - 1 ? place[i + 1] - (width[i] + width[i + 1]) / 2 : right - width[i] / 2);
+    onAxis.forEach((j, i) => {
+      if (lt < 3 + i * 1.2) return;
+      const dx = at(c.lex[j]), lxn = place[i];
+      out.push({ key: `nl${i}`, text: '', x: dx, y: dotY[j] + 4, vline: elbow - dotY[j] - 4 });
+      if (Math.abs(lxn - dx) > 1) out.push({ key: `nh${i}`, text: '', x: Math.min(dx, lxn), y: elbow, rule: Math.abs(lxn - dx) });
+      out.push({ key: `nv${i}`, text: '', x: lxn, y: elbow, vline: rowY - elbow - 9 });
+      out.push({ key: `n${i}`, text: short(g.refs[j]), x: lxn, y: rowY, align: 'c' });
+    });
+    if (lt > 6.5) out.push({ key: 'overall', text: `nearest on all ${n} answers: ${g.near.slice(0, 3).map((j) => short(g.refs[j])).join(' · ')}`, x: cx, y: S[1] + S[3] - 56, align: 'c' });
     // (words in another script than English's are still measured against English words: said plainly)
     const foreign = /[^\u0000-\u024f\s\p{P}\p{N}\p{S}]/u.test(word);
-    field(2, 8, `answered by an AI (Jev)${foreign ? ' · in English' : ''}`, `sure to ${c.conf.toFixed(2)} · ${g.total} reference words`);
+    if (lt > 8) out.push({ key: 'ai', text: `${n} questions answered by an AI (Jev), sure to ${c.conf.toFixed(2)}${foreign ? ' · measured against English words' : ''}`, x: cx, y: S[1] + S[3] - 36, align: 'c' });
+    if (lt > 9.5) out.push({ key: 'note', text: `${g.total} reference words`, x: cx, y: S[1] + S[3] - 16, align: 'c' });
     return out;
   }
   const text = st.viz === 'tiles' ? `${K} answers that matter`

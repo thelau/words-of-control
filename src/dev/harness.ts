@@ -10,7 +10,7 @@ import { startRecording } from './record.ts';
 
 const CSS = `
 #harness { position: fixed; top: 0; right: 0; bottom: 0; width: 300px; overflow-y: auto; z-index: 10; cursor: auto;
-  background: rgba(12,10,8,.94); color: #d9d2c8; font: 11px/1.5 'Geist Mono', monospace; padding: 10px 12px 40px;
+  background: rgba(12,10,8,.94); color: #d9d2c8; font: 11px/1.5 'IBM Plex Mono', monospace; padding: 10px 12px 40px;
   border-left: 1px solid #2a2622; }
 #harness[hidden] { display: none; }
 #harness h3 { font-size: 11px; font-weight: 400; color: #8f877c; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .08em; }

@@ -17,9 +17,9 @@ export class Display {
   set(value: string) {
     this.text.textContent = value;
     // a sentence stays on one line: the type shrinks only once the line would outgrow the screen
-    // (64 px of margin)
+    // (monospace advance ≈ 0.6 em; 32 px of margin)
     const n = [...new Intl.Segmenter().segment(value)].length + 1;
-    const size = Math.min(56, (window.innerWidth - 64) / (Math.max(n, 12) * 0.5)); // (Barlow light: ~0.5 em a letter)
+    const size = Math.min(28, (window.innerWidth - 32) / (Math.max(n, 12) * 0.6));
     this.line.style.setProperty('--type-size', `${size.toFixed(1)}px`);
     this.wake();
   }

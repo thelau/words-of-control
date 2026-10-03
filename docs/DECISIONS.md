@@ -4,6 +4,11 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-10-03
 
+- **Back to the look before the inspiration round** ("i am tempted to go back to before inspirations and tweak color
+  and fonts from there"; the instrument panel, VFD segments, seven-segment numerals and glow rejected: "equalizer
+  style", "too many grids in grids", "glowing shadows are terrible", "the lcd font is not nice"): the grid as it was
+  at 408ee0d, with the new sound kept. Next: colour and type only — "Ryoji Ikeda if he used more colors".
+
 - **Quality audio render** ("a bit more tapping into quality audio render … modular quality, echo, reverb"): the
   voices plucked complex oscillators through a low-pass gate (FM, wavefold, resonant filter; the patch by space), a
   tape echo (wow, darkening repeats, saturation), ticks rung through resonant filters, kicks with a pitch drop, a send
