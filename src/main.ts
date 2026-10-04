@@ -311,7 +311,7 @@ async function boot() {
     // the room draws the drone as it sounds (before the first key there is no sound yet: a still line)
     if (phase === 'room' || phase === 'wait') { drone?.wave(wave); renderer.setWave(wave); }
     // the room, nothing typed yet: an invitation, faint, above where the word will be
-    if (phase === 'room' && state === 'idle') caps = [{ key: 'hint', text: 'YOUR WORDS', x: renderer.width / renderer.dpr / 2, y: renderer.height / renderer.dpr / 2 - 56, align: 'c', colour: 'rgba(237,230,220,0.35)' }];
+    if (phase === 'room' && state === 'idle') caps = [{ key: 'hint', text: 'YOUR WORDS', x: renderer.width / renderer.dpr / 2, y: renderer.height / renderer.dpr / 2 - 56, align: 'c', colour: 'rgba(255,255,255,0.35)' }];
     renderer.render(frame.f32, space);
     showCaptions(caps);
     for (const h of app.frameHooks) h(now);

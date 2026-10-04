@@ -46,15 +46,13 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
     // where the words stand, built slowly: the words alone first; then the answer that sets them most apart (when Jev
     // is unsure, it wavers between two readings before it settles); the reference words as a dot plot along it (0 … 1,
     // stacked where they agree), filling in, the words among them — the rank seen, not written; one by one the nearest
-    // on this answer, a line to their dot; the nearest on all the answers; who answered and how sure; and last, alone,
-    // how many reference words. Nonsense: the words, and that nothing stands out.
+    // on this answer, a line to their dot; and last, who answered, against how many words. Nothing more. Nonsense: the words, and that nothing stands out.
     const lt = t - st.t, k = g.stand, c = g.cells[k], colour = srgb(g.colours[Math.max(0, c.key)] ?? [0.85, 0.85, 0.85]);
     const cx = S[0] + S[2] / 2, cy = S[1] + S[3] / 2, x0 = S[0] + S[2] * 0.12, x1 = S[0] + S[2] * 0.88, ly = cy + 40;
     const at = (v: number) => x0 + v * (x1 - x0);
     const short = (w2: string) => (w2.length > 22 ? `${w2.slice(0, 21)}…` : w2);
     // (a long phrase is set smaller, to fit the stage: Plex Mono's advance is 0.6 em)
     out.push({ key: 'word', text: word, x: cx, y: cy - 96, align: 'c', size: 'big', colour, px: Math.min(64, (S[2] * 0.8) / (word.length * 0.6)) });
-    if (g.member && lt > 1.5) out.push({ key: 'member', text: `also one of the ${g.total}`, x: cx, y: cy - 142, align: 'c' });
     if (g.nonsense) {
       if (lt > 1.2) out.push({ key: 'answer', text: 'nothing stands out', x: cx, y: cy - 30, align: 'c', size: 'mid' });
       return out;
@@ -110,11 +108,9 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
       out.push({ key: `nv${i}`, text: '', x: lxn, y: elbow, vline: rowY - elbow - 9 });
       out.push({ key: `n${i}`, text: short(g.refs[j]), x: lxn, y: rowY, align: 'c' });
     });
-    if (lt > 6.5) out.push({ key: 'overall', text: `nearest on all ${n} answers: ${g.near.slice(0, 3).map((j) => short(g.refs[j])).join(' · ')}`, x: cx, y: S[1] + S[3] - 56, align: 'c' });
     // (words in another script than English's are still measured against English words: said plainly)
     const foreign = /[^\u0000-\u024f\s\p{P}\p{N}\p{S}]/u.test(word);
-    if (lt > 8) out.push({ key: 'ai', text: `${n} questions answered by an AI (Jev), sure to ${c.conf.toFixed(2)}${foreign ? ' · measured against English words' : ''}`, x: cx, y: S[1] + S[3] - 36, align: 'c' });
-    if (lt > 9.5) out.push({ key: 'note', text: `${g.total} reference words`, x: cx, y: S[1] + S[3] - 16, align: 'c' });
+    if (lt > 8) out.push({ key: 'ai', text: `answered by an AI (Jev) · ${g.total} reference words${foreign ? ' · in English' : ''}`, x: cx, y: S[1] + S[3] - 20, align: 'c' });
     return out;
   }
   const text = st.viz === 'tiles' ? `${K} answers that matter`

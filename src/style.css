@@ -1,9 +1,9 @@
 @import '@fontsource/ibm-plex-mono/400.css';
 
 :root {
-  --bg: #0a0806;
-  --ink: #ede6dc;
-  --cursor: #e8e2da;
+  --bg: #000;
+  --ink: #fff;
+  --cursor: #fff;
   --type-size: 28px;
 }
 
@@ -119,16 +119,16 @@ html, body {
   font-size: 12.5px;
   line-height: 1.4;
   letter-spacing: 0.08em;
-  color: rgba(237, 230, 220, 0.62);
+  color: rgba(255, 255, 255, 0.62);
   -webkit-font-smoothing: antialiased;
 }
 #captions .cap { position: absolute; left: 0; top: 0; white-space: pre; }
 #captions .big { font-size: 64px; line-height: 1; letter-spacing: 0; }
 #captions .mid { font-size: 16px; }
 #captions .tiny { font-size: 9px; letter-spacing: 0.06em; opacity: 0.7; }
-#captions .rule { height: 1px; background: rgba(237, 230, 220, 0.4); }
+#captions .rule { height: 1px; background: rgba(255, 255, 255, 0.4); }
 #captions .me::before { width: 9px; height: 9px; margin-right: 0; }
-#captions .anchor { color: rgba(237, 230, 220, 0.8); }
+#captions .anchor { color: rgba(255, 255, 255, 0.8); }
 #captions .anchor::before {
   content: '';
   display: inline-block;

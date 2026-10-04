@@ -19,7 +19,7 @@ const ROWS = 5.0;
 const LABEL_W = 512.0; // label atlas slot (gpu.ts makeLabelAtlas)
 const LABEL_H = 48.0;
 const LABEL_PER_ROW = 4.0;
-const WHITE = vec3f(0.93, 0.92, 0.9);
+const WHITE = vec3f(1.0); // pure white: the piece is black, white and one colour
 
 fn nCells() -> u32 { return u32(D[0]); }
 fn nKeys() -> u32 { return u32(D[1]); }
@@ -167,7 +167,8 @@ fn cellDraw(k: u32, p: vec2f, r: vec4f, t: f32) -> vec4f {
   let settle = t - arrive;
   // (an answer Jev is unsure of arrives with false starts: on, off, on, before it holds)
   if (clamp((0.75 - cf(k, 1u)) / 0.6, 0.0, 1.0) > 0.3 && settle < 0.6 && fract(settle * 9.0) > 0.5) { return vec4f(0.0); }
-  let lab = label(p, r.xy + pad, th, cf(k, 6u), r.z - 2.0 * pad) * 0.62;
+  // (a marked cell's name at full ink: grey on white or on a colour would not read)
+  let lab = label(p, r.xy + pad, th, cf(k, 6u), r.z - 2.0 * pad) * select(0.62, 1.0, a > 0.0);
   var txt = lab;
   let kind = u32(cf(k, 2u));
   if (kind == 1u) { txt = max(txt, label(p, r.xy + vec2f(pad, pad + th * 1.25), th, cf(k, 7u), r.z - 2.0 * pad)); }
@@ -175,7 +176,7 @@ fn cellDraw(k: u32, p: vec2f, r: vec4f, t: f32) -> vec4f {
   txt = max(txt, number(p, vec2f(r.x + pad, r.y + r.w - pad - vh), vh, cf(k, 0u), select(0.0, 1.0, settle < 0.3)));
   let fb = vec4f(r.x + pad, r.y + pad + th * 2.9, r.z - 2.0 * pad, r.w - 2.0 * pad - th * 2.9 - vh - pad * 0.6);
   let fig = figure(k, p, fb, easeOut(settle / 0.4));
-  c = mix(c, fg, max(txt, fig * 0.9));
+  c = mix(c, fg, max(txt, fig * select(0.9, 1.0, a > 0.0)));
   cov = max(cov, max(txt, fig));
   c = mix(c, WHITE, flash);
   cov = max(cov, flash);
@@ -230,7 +231,8 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
     let amp = F.resY * 0.05 * (0.35 + 0.65 * F.charge + 0.6 * F.kick);
     let y = F.resY * 0.68 - v * amp;
     let slope = (wave[i + 1u] - wave[i]) * amp / (F.resX / 255.0);
-    let c = WHITE * line((p.y - y) / sqrt(1.0 + slope * slope)) * (0.3 + 0.3 * F.charge) * F.fade;
+    // (exactly one pixel, as a measuring instrument draws it)
+    let c = WHITE * line((p.y - y) / sqrt(1.0 + slope * slope)) * (0.5 + 0.4 * F.charge) * F.fade;
     return out(c);
   }
   // ---- a performance

@@ -50,9 +50,9 @@ export type Grid = {
   cells: Cell[]; keys: number[];
   /** Every cell, by how much it matters (keys are the first). */
   rank: number[];
-  /** The reference words the words are measured against (never visitors' words), how many there are in all, and
-   *  whether the typed words are themselves one of them (left out of their own norm). */
-  refs: string[]; total: number; member: boolean;
+  /** The reference words the words are measured against (never visitors' words; the typed words themselves left out
+   *  of their own norm), and how many there are in all. */
+  refs: string[]; total: number;
   /** The reference words by nearness on all the answers, nearest first (their own family left out). */
   near: number[];
   /** Jev reads them as nonsense: nothing is marked, no steps. */
@@ -163,7 +163,7 @@ export function grid(A: Appraisal): Grid {
   const stand = keys.find((k) => !CATEGORY.has(cells[k].id) && !echo(k)) ?? keys.find((k) => !CATEGORY.has(cells[k].id)) ?? keys[0];
   if (nonsense) for (const c of cells) { c.markAt = Infinity; c.vanish = Math.min(c.vanish, select + Math.floor(rand() * 6) / 12); }
   const g: Grid = {
-    cells, keys, rank, refs: words, total: Object.keys(LEX).length, member: words.length < Object.keys(LEX).length,
+    cells, keys, rank, refs: words, total: Object.keys(LEX).length,
     near, nonsense, colours, mark, select, seq, end: t, bpm, beat, steps, stand,
     onsets: onsets(A, steps, beat),
   };
@@ -171,44 +171,36 @@ export function grid(A: Appraisal): Grid {
   return g;
 }
 
-/** Named colours of the `colour` question, linear RGB. */
-const COLOURS: Record<string, RGB> = {
-  black: [0.02, 0.02, 0.02], white: [0.9, 0.88, 0.85], grey: [0.35, 0.35, 0.36], red: [0.9, 0.03, 0.02], orange: [1, 0.3, 0.04],
-  yellow: [1, 0.72, 0.12], green: [0.12, 0.6, 0.18], blue: [0.05, 0.25, 0.95], violet: [0.35, 0.1, 0.8], pink: [1, 0.35, 0.5],
-  brown: [0.45, 0.2, 0.07],
-};
+/** The piece's colours: pure, flat, digital — a test card's, never a glow (sRGB hex). Everything else is black and
+ *  white. */
+const PURE = {
+  red: 0xff1e1e, orange: 0xff6a00, yellow: 0xffd000, green: 0x00e05a, cyan: 0x00d8ff, blue: 0x1f4dff, violet: 0x7b3cff,
+  pink: 0xff2d95, brown: 0xc0551a, white: 0xffffff,
+} as const;
+type Pure = keyof typeof PURE;
+const lin = (h: number): RGB => [16, 8, 0].map((sh) => { const x = ((h >> sh) & 255) / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }) as RGB;
 
 const NEUTRAL = new Set(['white', 'grey', 'black']);
-/** The colour of a matter, for a word Jev sees as white, grey or black (linear RGB). */
-const MATTER: Record<string, RGB> = {
-  fire: [1, 0.3, 0.04], water: [0.05, 0.35, 0.9], ice: [0.55, 0.8, 1], metal: [0.45, 0.55, 0.72], wood: [0.55, 0.28, 0.1],
-  flesh: [1, 0.4, 0.45], stone: [0.62, 0.56, 0.46], sand: [0.85, 0.65, 0.3], light: [1, 0.85, 0.4], smoke: [0.6, 0.6, 0.66],
-  cloth: [0.75, 0.55, 0.62], glass: [0.6, 0.9, 0.85],
+/** The colour of a matter, for a word Jev sees as white, grey or black. */
+const MATTER: Record<string, Pure> = {
+  fire: 'orange', water: 'blue', ice: 'cyan', metal: 'white', wood: 'brown', flesh: 'pink', stone: 'white',
+  sand: 'yellow', light: 'yellow', smoke: 'white', cloth: 'violet', glass: 'cyan',
 };
-/** A colourless word: white and grey. */
-const COLOURLESS: RGB = [0.85, 0.85, 0.85];
 
-/** The words' colour: Jev's colour answer, blended toward its second colour when that one is strong (love and war do
- *  not share one red); a word seen as white, grey or black takes its second colour, else its matter's; a word with
- *  neither (void, silence) stays colourless — white and grey. */
-function wordColour(A: Appraisal): RGB {
+/** The words' colours, from Jev's colour answer: its first colour, and its second when that one is strong (love: red
+ *  and pink; war: red alone); a word seen as white, grey or black takes its second colour, else its matter's; a word
+ *  with neither (void, silence) is white. */
+function wordColours(A: Appraisal): [Pure, Pure] {
   const ranked = Object.entries(A.c.colour.p).sort((a, b) => b[1] - a[1]);
-  const [top, p1] = ranked[0];
-  const second = ranked.find(([k, p], i) => i > 0 && !NEUTRAL.has(k) && p >= 0.15);
-  if (!NEUTRAL.has(top)) {
-    const c = COLOURS[top];
-    if (!second) return c;
-    const w = (0.8 * second[1]) / (p1 + second[1]);
-    return c.map((x, i) => x + (COLOURS[second[0]][i] - x) * w) as RGB;
-  }
-  if (second) return COLOURS[second[0]];
-  return MATTER[A.c.material.top] ?? COLOURLESS;
+  const strong = ranked.filter(([k, p], i) => i > 0 && !NEUTRAL.has(k) && p >= 0.15 && k in PURE).map(([k]) => k as Pure);
+  const first: Pure = !NEUTRAL.has(ranked[0][0]) && ranked[0][0] in PURE ? (ranked[0][0] as Pure) : strong.shift() ?? MATTER[A.c.material.top] ?? 'white';
+  return [first, strong.find((x) => x !== first) ?? first];
 }
 
+/** The marked cells' colours, flat: the first colour, and the second in turn when there is one — colour as data. */
 function keyColours(A: Appraisal, n: number): RGB[] {
-  // one hue, deeper for each answer that stands out less
-  const c = wordColour(A);
-  return Array.from({ length: n }, (_, i) => c.map((x) => x * (1 - (0.55 * i) / Math.max(1, n - 1))) as RGB);
+  const [a, b] = wordColours(A);
+  return Array.from({ length: n }, (_, i) => lin(PURE[i % 2 ? b : a]));
 }
 
 /** k onsets spread evenly over n steps (Bjorklund's rhythm), rotated by r. */
