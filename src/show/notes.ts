@@ -40,13 +40,13 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
   const st = g.steps[i];
   if (!st) return out;
   const m = A.mood, mood = m.neg >= m.pos && m.neg >= m.neu ? 'negative' : m.pos >= m.neu ? 'positive' : 'neutral';
-  out.push({ key: 'head', text: `${word} · ${mood} ${Math.max(m.pos, m.neu, m.neg).toFixed(2)}`, x: gx, y: gy - 10, align: 'bl' });
+  out.push({ key: 'head', text: `${word} · ${mood}`, x: gx, y: gy - 10, align: 'bl' });
   const S = stage(w, h).map((x) => x / dpr);
   if (st.viz === 'stand') {
     // where the words stand, built slowly: the words alone first; then the answer that sets them most apart (when Jev
     // is unsure, it wavers between two readings before it settles); the reference words as a dot plot along it (0 … 1,
     // stacked where they agree), filling in, the words among them — the rank seen, not written; one by one the nearest
-    // on this answer, a line to their dot; and last, who answered, against how many words. Nothing more. Nonsense: the words, and that nothing stands out.
+    // on all the answers, a line to where they stand on this one; and last, who answered, against how many words. Nothing more. Nonsense: the words, and that nothing stands out.
     const lt = t - st.t, k = g.stand, c = g.cells[k], colour = srgb(g.colours[Math.max(0, c.key)] ?? [0.85, 0.85, 0.85]);
     const cx = S[0] + S[2] / 2, cy = S[1] + S[3] / 2, x0 = S[0] + S[2] * 0.12, x1 = S[0] + S[2] * 0.88, ly = cy + 40;
     const at = (v: number) => x0 + v * (x1 - x0);
@@ -67,7 +67,10 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
       else shown = plain(c.id, c.value + (c.value > 0.5 ? -0.25 : 0.25));
     }
     out.push({ key: 'answer', text: shown, x: cx, y: cy - 44, align: 'c', size: 'mid', colour });
-    out.push({ key: 'measure', text: `${c.id}  ${c.value.toFixed(2)}`, x: cx, y: cy - 22, align: 'c', colour });
+    // (how far out, said plainly — simulated visitors read "VIOLENCE 0.99" under VIOLENCE as a bug, and wanted the
+    // rank: "violence · higher than 99 % of 993 words")
+    const pct = 100 - Math.abs(c.share);
+    out.push({ key: 'measure', text: `${c.id} · ${c.share > 0 ? 'higher' : 'lower'} than ${pct}% of ${g.total} words`, x: cx, y: cy - 22, align: 'c', colour });
     out.push({ key: 'rule', text: '', x: x0, y: ly, rule: x1 - x0 });
     out.push({ key: 'r0', text: '0', x: x0 - 16, y: ly, align: 'c' }, { key: 'r1', text: '1', x: x1 + 16, y: ly, align: 'c' });
     // the reference words as columns of dots, one every 7 px of the scale, as high as how many gave that value (the
@@ -86,9 +89,10 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
     const labelY = Math.min(ly - 24, top - 16);
     out.push({ key: 'melabel', text: word, x: lx, y: labelY, align: 'c', colour });
     out.push({ key: 'meline', text: '', x: xw, y: labelY + 8, vline: Math.max(0, ly - 9 - (labelY + 8)) });
-    // the nearest on this answer, one by one (their own family left out; left to right)
-    const kin = new Set(g.near);
-    const onAxis = c.lex.map((v, j) => [j, Math.abs(v - c.value)] as const).filter(([j]) => kin.has(j)).sort((a2, b2) => a2[1] - b2[1]).slice(0, 3).map(([j]) => j).sort((a2, b2) => c.lex[a2] - c.lex[b2]);
+    // their three nearest words, one by one (their own family left out; left to right)
+    // (their nearest on all the answers — the strongest evidence that the reading is real; simulated visitors found
+    // the nearest on one answer alone read as noise — shown where they stand on this one)
+    const onAxis = g.near.slice(0, 3).sort((a2, b2) => c.lex[a2] - c.lex[b2]);
     // (one row below the line, spread so no two labels overlap; each joined to its place on the scale by an elbow:
     // down from the scale, along, down to the label)
     const rowY = ly + 34, elbow = ly + 14;
@@ -149,9 +153,16 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
         chosen.keys.add(k);
       });
     }
-    anchors.forEach((a, k) => {
+    // (and on every frame, as the camera turns, one that would land on a label already shown waits — the words'
+    // own first — so no two ever print over each other)
+    const shown: { x: number; y: number; w: number }[] = [];
+    [...anchors.entries()].sort(([, a], [, b]) => Number(b.text === word) - Number(a.text === word)).forEach(([k, a]) => {
       const q = chosen.keys.has(k) ? project(a.p) : null;
-      if (q) out.push({ key: `a${k}`, text: a.text, x: q[0], y: q[1] - 7, anchor: true, colour: a.c ? srgb(g.colours[a.c - 1]) : undefined });
+      if (!q) return;
+      const w = a.text.length * 8.5 + 12;
+      if (shown.some((o) => Math.abs(o.y - q[1]) < 14 && q[0] < o.x + o.w && o.x < q[0] + w)) return;
+      shown.push({ x: q[0], y: q[1], w });
+      out.push({ key: `a${k}`, text: a.text, x: q[0], y: q[1] - 7, anchor: true, colour: a.c ? srgb(g.colours[a.c - 1]) : undefined });
     });
   }
   return out;

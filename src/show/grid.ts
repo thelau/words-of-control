@@ -48,6 +48,8 @@ export type Cell = {
   id: string; kind: 0 | 1 | 2; value: number; conf: number;
   /** How far from the reference words, in their spread (|σ|); how rare among them (bits: 1 = half as far out, 5 = 1 in 32). */
   z: number; rare: number;
+  /** The share of reference words at least as far out (%): positive at the top, negative at the bottom. */
+  share: number;
   /** Its label (index into LABELS); a choice's top option and its option probabilities. */
   label: number; opt: number; probs: number[];
   /** The same measurement for each reference word (lexicon.json, in the order of Grid.refs). */
@@ -95,12 +97,15 @@ export function grid(A: Appraisal): Grid {
     const lex = words.map((w) => (kind === 0 ? LEX[w].s[id] ?? 0.5 : kind === 1 ? LEX[w].c[id]?.[A.c[id].top] ?? 0 : LEX[w].n[id] ?? 0));
     const m = lex.reduce((a, b) => a + b, 0) / lex.length;
     const sd = Math.sqrt(lex.reduce((a, b) => a + (b - m) ** 2, 0) / lex.length) + 0.05;
-    // how rare: the share of reference words at least as far out on the same side (ties count), as surprise (bits) —
-    // the same measure for a score and a choice (a choice's confidence would otherwise always look extreme)
-    const up = value >= m, beyond = lex.filter((v) => (up ? v >= value - 1e-6 : v <= value + 1e-6)).length;
+    // how rare: the share of reference words at least as far out on the same side, as surprise (bits) — the same
+    // measure for a score and a choice (a choice's confidence would otherwise always look extreme). Ties within 0.04
+    // count: Jev says 0.00 for a flat no where most words get 0.01–0.05, and that is not "beyond them all"
+    const up = value >= m, beyond = lex.filter((v) => (up ? v >= value - 0.04 : v <= value + 0.04)).length;
     const rare = -Math.log2((beyond + 1) / (lex.length + 1));
+    // how far out, as a visitor reads it: the share of reference words at least as far out (top or bottom, %)
+    const share = Math.max(1, Math.round((100 * beyond) / (lex.length + 1))) * (up ? 1 : -1);
     return {
-      id, kind, value, conf: A.k[id] ?? 1, z: Math.abs(value - m) / sd, rare, label: k,
+      id, kind, value, conf: A.k[id] ?? 1, z: Math.abs(value - m) / sd, rare, share, label: k,
       opt: kind === 1 ? OPT0[id] + OPTIONS[id].indexOf(A.c[id].top) : -1,
       probs: kind === 1 ? OPTIONS[id].map((o) => A.c[id].p[o] ?? 0) : [], lex,
       arrive: 0, vanish: Infinity, key: -1, markAt: Infinity,
@@ -167,11 +172,17 @@ export function grid(A: Appraisal): Grid {
   // then where the words stand: the slow ending, built name by name (show/notes.ts), long enough to be read
   bar++;
   push('stand', nonsense ? 4 : Math.max(12, 16 * beat), false, false);
-  // where they stand: the marked answer that sets them most apart — one a person would say (not a category slot like
-  // who, act or kind), and not a mere echo of the words themselves ("love" does not end on LOVE)
+  // where they stand: of the marked answers, the one that sets them farthest apart (|σ|) — one a person would say
+  // (not a category slot like who or kind, nor what they are made of or their colour: those are literal), a presence
+  // and not an absence ("not absurd" under a death is no answer), and not a mere echo of the words themselves ("love"
+  // does not end on LOVE). (Simulated visitors: endings on weak, literal or negated answers undid the performance.)
   const said = (k: number) => (cells[k].kind === 1 ? LABELS[cells[k].opt] : plain(cells[k].id, cells[k].value)).toLowerCase();
   const echo = (k: number) => own.some((y) => said(k).includes(y)) || content(said(k)).some((x) => text.includes(x));
-  const stand = keys.find((k) => !CATEGORY.has(cells[k].id) && !echo(k)) ?? keys.find((k) => !CATEGORY.has(cells[k].id)) ?? keys[0];
+  const sayable = (k: number) => !CATEGORY.has(cells[k].id) && !LITERAL.has(cells[k].id) && !(cells[k].kind === 2 && cells[k].value < 0.5);
+  const strongest = (ks: number[]) => [...ks].sort((a, b) => cells[b].z - cells[a].z)[0];
+  // (when no marked answer will do, the strongest such answer among all of them that Jev is sure of)
+  const all = cells.map((_, k) => k).filter((k) => sayable(k) && !echo(k) && cells[k].conf >= 0.45);
+  const stand = strongest(keys.filter((k) => sayable(k) && !echo(k))) ?? strongest(all) ?? keys[0];
   if (nonsense) for (const c of cells) { c.markAt = Infinity; c.vanish = Math.min(c.vanish, select + Math.floor(rand() * 6) / 12); }
   const g: Grid = {
     cells, keys, rank, refs: words, total: Object.keys(LEX).length,
@@ -246,6 +257,8 @@ const content = (t: string) => t.toLowerCase().split(/[^\p{L}']+/u).filter((w) =
 
 /** Answers that are category slots, not something a person would say of a word: never where it ends. */
 const CATEGORY = new Set(['who', 'act', 'kind', 'time', 'daytime', 'sense', 'rhythm', 'domain']);
+/** Answers too literal to end on (they may still matter). */
+const LITERAL = new Set(['material', 'colour']);
 
 /** A measurement as it is written in the captions: its name, and a choice's answer ("texture: cracked"). */
 export function name(g: Grid, k: number): string {
@@ -285,8 +298,8 @@ function tiles(z: number[]): Float32Array {
 
 const CELL = 12, KEY_MAX = 8, KEY = 12, BYTE_MAX = 256, BINS = 128;
 /** The score as the shader's buffer (grid.wgsl): a header (cells, keys, steps' start, reference words), then per cell
- *  (value, conf, kind, arrive, vanish, key, label, opt, 0, markAt, |z|, z: how far it stands from the reference words,
- *  in their spread), then per key (cell, value, colour, its tile on the stage, 0 ×3), then the words' bytes (their
+ *  (value, conf, kind, arrive, vanish, key, label, opt, 0, markAt, |z|, share: the % of reference words at least as
+ *  far out, + at the top, − at the bottom), then per key (cell, value, colour, its tile on the stage, 0 ×3), then the words' bytes (their
  *  count, then each), then per cell the reference words' values as a histogram of BINS bins over 0…1 (how many
  *  reference words gave each value: the strip every cell draws). The step on screen is a uniform (main.ts). */
 export function pack(A: Appraisal, g: Grid): Float32Array {
@@ -295,9 +308,7 @@ export function pack(A: Appraisal, g: Grid): Float32Array {
   const out = new Float32Array(h0 + n * BINS);
   out.set([n, g.keys.length, g.seq, g.refs.length], 0);
   g.cells.forEach((c, k) => {
-    const mean = c.lex.reduce((a, b) => a + b, 0) / c.lex.length;
-    const sd = Math.sqrt(c.lex.reduce((a, b) => a + (b - mean) ** 2, 0) / c.lex.length) + 0.05;
-    out.set([c.value, c.conf, c.kind, c.arrive, Math.min(c.vanish, 1e4), c.key, c.label, c.opt, 0, Math.min(c.markAt, 1e4), c.z, Math.max(-4.9, Math.min(4.9, (c.value - mean) / sd))], 16 + k * CELL);
+    out.set([c.value, c.conf, c.kind, c.arrive, Math.min(c.vanish, 1e4), c.key, c.label, c.opt, 0, Math.min(c.markAt, 1e4), c.z, c.share], 16 + k * CELL);
     for (const v of c.lex) out[h0 + k * BINS + Math.min(BINS - 1, Math.floor(Math.max(0, v) * BINS))] += 1;
   });
   const T = tiles(g.keys.map((k) => g.cells[k].z));

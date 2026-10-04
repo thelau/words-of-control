@@ -66,24 +66,31 @@ fn label(p: vec2f, org: vec2f, h: f32, idx: f32, maxW: f32) -> f32 {
   let slot = vec2f(idx % LABEL_PER_ROW, floor(idx / LABEL_PER_ROW)) * vec2f(LABEL_W, LABEL_H);
   return bilinear(labels, slot + q);
 }
-/** Glyph g of the digit atlas (row 0: 0-9 A-F; row 1: . - x :), cell 40 × 60. */
+/** Glyph g of the digit atlas (row 0: 0-9 A-F; row 1: . - x : + T O P L W %), cell 40 × 60. */
 fn glyph(g: f32, uv: vec2f, big: bool) -> f32 {
   let a = (vec2f(g % 16.0, floor(g / 16.0)) + clamp(uv, vec2f(0.0), vec2f(1.0))) * vec2f(40.0, 60.0);
   if (big) { return bilinear(glyphsBig, a * 3.0); }
   return bilinear(glyphs, a);
 }
-/** How far an answer stands from the reference words, "+2.9σ", top-left at org, h px high. */
-fn sigma(p: vec2f, org: vec2f, h: f32, z: f32) -> f32 {
+/** How far out an answer is among the reference words, as a visitor reads it: "TOP 3%" (at least as high as only 3 %
+ *  of them) or "LOW 12%", its right edge at `right`, top at y, h px high (share: grid.ts Cell.share). */
+fn rank(p: vec2f, right: f32, y: f32, h: f32, share: f32) -> f32 {
   let w = h * 27.0 / 60.0;
-  let q = (p - org) / vec2f(w, h);
-  if (q.x < 0.0 || q.y < 0.0 || q.x >= 5.0 || q.y >= 1.0) { return 0.0; }
-  let i = i32(floor(q.x));
-  let a = min(abs(z), 9.9);
-  var g = select(17.0, 20.0, z >= 0.0); // − or +
-  if (i == 1) { g = floor(a); }
-  else if (i == 2) { g = 16.0; }
-  else if (i == 3) { g = floor(fract(a) * 10.0); }
-  else if (i == 4) { g = 21.0; } // σ
+  let n = u32(clamp(abs(share), 1.0, 99.0));
+  let digits = select(1u, 2u, n >= 10u);
+  let len = 5u + digits;
+  let q = (p - vec2f(right - f32(len) * w, y)) / vec2f(w, h);
+  if (q.x < 0.0 || q.y < 0.0 || q.x >= f32(len) || q.y >= 1.0) { return 0.0; }
+  let i = u32(floor(q.x));
+  var g = -1.0;
+  let top = share >= 0.0;
+  if (i == 0u) { g = select(24.0, 21.0, top); } // T / L
+  else if (i == 1u) { g = 22.0; } // O
+  else if (i == 2u) { g = select(25.0, 23.0, top); } // P / W
+  else if (i == 4u) { g = f32(select(n % 10u, n / 10u, digits == 2u)); }
+  else if (i == 5u && digits == 2u) { g = f32(n % 10u); }
+  else if (i == len - 1u) { g = 26.0; } // %
+  if (g < 0.0) { return 0.0; }
   return glyph(g, vec2f(0.5 + (fract(q.x) - 0.5) * 27.0 / 40.0, q.y), h > 60.0);
 }
 /** "0.xyz" of v, top-left at org, h px high; `scramble` > 0: the digits still searching. */
@@ -198,10 +205,10 @@ fn viz(tiles: bool, p: vec2f, r: vec4f) -> vec3f {
         let ink = max(number(p, tr.xy + vec2f(pad, tr.w - h * 1.5), h, keyVal(i), 0.0),
           label(p, tr.xy + pad, h * 0.6, cf(keyCell(i), 6u), tr.z - 2.0 * pad) * 0.8);
         let opt = cf(keyCell(i), 7u);
-        // how far it stands from the reference words (σ), and the strip that shows it
+        // how far out it is among the reference words (TOP 3%), and the strip that shows it
         let z = cf(keyCell(i), 11u);
         let fig = figure(keyCell(i), p, vec4f(tr.x + pad, tr.y + tr.w * 0.38, tr.z - 2.0 * pad, tr.w * 0.3), 1.0);
-        let ink2 = max(max(ink, sigma(p, tr.xy + vec2f(tr.z - pad - h * 0.6 * 27.0 / 60.0 * 5.0, pad), h * 0.6, z)), fig);
+        let ink2 = max(max(ink, rank(p, tr.x + tr.z - pad, tr.y + pad, h * 0.6, z)), fig);
         c = mix(c, inkOn(c), select(ink2, max(ink2, label(p, tr.xy + vec2f(pad, pad + h * 0.8), h * 0.6, opt, tr.z - 2.0 * pad)), opt >= 0.0));
         let edge = min(min(p.x - tr.x, tr.x + tr.z - p.x), min(p.y - tr.y, tr.y + tr.w - p.y));
         c *= 1.0 - line(edge) * 0.6;

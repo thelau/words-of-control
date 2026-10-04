@@ -86,11 +86,11 @@ export class Renderer {
     });
     this.bg = d.createBindGroup({ layout: this.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: this.fBuf } },
-      { binding: 1, resource: atlas(d, 16, 40, 60, 44, [...'0123456789ABCDEF.-x:+σ'], 'center').createView() },
+      { binding: 1, resource: atlas(d, 16, 40, 60, 44, [...'0123456789ABCDEF.-x:+TOPLW%'], 'center').createView() },
       { binding: 2, resource: { buffer: this.scoreBuf } },
       { binding: 3, resource: atlas(d, 4, 512, 48, 32, LABELS.map((l) => l.toUpperCase()), 'left', 3).createView() },
       // (the same digits at three times the size, for the big number: sharp at any size)
-      { binding: 4, resource: atlas(d, 16, 120, 180, 132, [...'0123456789ABCDEF.-x:+σ'], 'center').createView() },
+      { binding: 4, resource: atlas(d, 16, 120, 180, 132, [...'0123456789ABCDEF.-x:+TOPLW%'], 'center').createView() },
       { binding: 5, resource: { buffer: this.waveBuf } },
     ] });
     // the spaces: additive light, no depth (points and lines add up where they crowd)

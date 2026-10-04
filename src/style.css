@@ -130,7 +130,8 @@ html, body {
 #captions .stack { width: 3px; background: repeating-linear-gradient(to top, rgba(255, 255, 255, 0.75) 0 3px, transparent 3px 5px); }
 #captions .rule { height: 1px; background: rgba(255, 255, 255, 0.4); }
 #captions .me::before { width: 9px; height: 9px; margin-right: 0; }
-#captions .anchor { color: rgba(255, 255, 255, 0.8); }
+/* (on black: a label on the data stays readable over the lines and points under it) */
+#captions .anchor { color: rgba(255, 255, 255, 0.8); background: rgba(0, 0, 0, 0.8); padding: 1px 4px 1px 0; }
 #captions .anchor::before {
   content: '';
   display: inline-block;

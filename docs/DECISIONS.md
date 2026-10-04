@@ -4,6 +4,11 @@ Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
 ## 2026-10-04
 
+- **Simulated visitors experiencing it** ("did you run simulations with users"): four personas judged their own words'
+  performances (docs/reviews/visitors-2026-10-04.md). From them: the ending is the strongest answer a person would
+  say (no category, material, colour, absence or echo), with the nearest words on all the answers; ranks ("TOP 1%",
+  "higher than 99% of 993 words") instead of σ; a flat 0.00 is no longer "beyond every word".
+
 - **More reference words, matched to what people type** ("is the 400 words enough" → "ok go, just more precision and
   correlation to what's being typed … test that by simulating users"): ~600 more (talking to the machine,
   confessions, questions, anger, images, the world, names, daily life, children, sayings, long sentences), chosen
