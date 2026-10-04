@@ -126,6 +126,8 @@ html, body {
 #captions .big { font-size: 64px; line-height: 1; letter-spacing: 0; }
 #captions .mid { font-size: 16px; }
 #captions .tiny { font-size: 9px; letter-spacing: 0.06em; opacity: 0.7; }
+/* a column of dots (the ending's dot plot): 3 px dots, 5 px apart, standing on its point */
+#captions .stack { width: 3px; background: repeating-linear-gradient(to top, rgba(255, 255, 255, 0.75) 0 3px, transparent 3px 5px); }
 #captions .rule { height: 1px; background: rgba(255, 255, 255, 0.4); }
 #captions .me::before { width: 9px; height: 9px; margin-right: 0; }
 #captions .anchor { color: rgba(255, 255, 255, 0.8); }

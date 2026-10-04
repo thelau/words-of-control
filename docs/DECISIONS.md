@@ -2,6 +2,13 @@
 
 Decisions by Laurent that refine or override docs/SPEC.md. Newest first.
 
+## 2026-10-04
+
+- **More reference words, matched to what people type** ("is the 400 words enough" → "ok go, just more precision and
+  correlation to what's being typed … test that by simulating users"): ~600 more (talking to the machine,
+  confessions, questions, anger, images, the world, names, daily life, children, sayings, long sentences), chosen
+  against a held-out set of simulated visitors; plain translations dropped. 993 entries; nearest distance −34 %.
+
 ## 2026-10-03
 
 - **Back to the look before the inspiration round** ("i am tempted to go back to before inspirations and tweak color

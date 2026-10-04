@@ -44,6 +44,7 @@ node scripts/film.ts word …       # record performances as video; flags jumps 
 node scripts/sequence.ts word …   # one visitor, several words in a row (one session) → docs/captures/sequence.png
 node scripts/reference.ts          # record Jev's answers for the reference words (docs/reference-words.md; resumes)
 node scripts/lexicon.ts            # rebuild the grid's reference lexicon from them (never visitors' words)
+node scripts/simulate.ts           # simulated visitors (held out) vs the reference words: nearness, neighbours → .cache/simulation.md
 node scripts/appraise.ts word …   # full battery on real words → table (uses the API key)
 node scripts/fixtures.ts          # re-record Jev answers for the test words (mock mode + tests)
 node scripts/probe.ts             # safety calibration probe (see docs/jev-calibration.md)

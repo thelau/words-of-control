@@ -18,7 +18,18 @@ import { mulberry32 } from '../core/rng.ts';
 import lexicon from '../jev/lexicon.json';
 
 type Ref = { s: Record<string, number>; n: Record<string, number>; c: Record<string, Record<string, number>> };
-const LEX = lexicon as Record<string, Ref>;
+/** The reference words' readings, unpacked from the compact lexicon (scripts/lexicon.ts: the keys once, then each
+ *  word's values in hundredths, in that order). */
+const LEX: Record<string, Ref> = (() => {
+  const { keys, words } = lexicon as { keys: { s: string[]; n: string[]; c: Record<string, string[]> }; words: Record<string, number[]> };
+  return Object.fromEntries(Object.entries(words).map(([w, v]) => {
+    let i = 0;
+    const next = () => v[i++] / 100;
+    const s = Object.fromEntries(keys.s.map((k) => [k, next()])), n = Object.fromEntries(keys.n.map((k) => [k, next()]));
+    const c = Object.fromEntries(Object.entries(keys.c).map(([k, os]) => [k, Object.fromEntries(os.map((o) => [o, next()]))]));
+    return [w, { s, n, c }];
+  }));
+})();
 
 export const COLS = 9, ROWS = 5;
 const DIMS = [...SCORE_IDS.map((id) => [id, 0] as const), ...CHOICE_IDS.map((id) => [id, 1] as const), ...NOUL_IDS.map((id) => [id, 2] as const)];
@@ -226,8 +237,8 @@ function onsets(A: Appraisal, steps: Step[], beat: number): { t: number; v: 0 | 
 }
 
 /** Where "how unusual" (mean rarity of what matters, bits) earns a second, third and fourth bar of steps — set at the
- *  quartiles over the recorded test words. */
-const UNUSUAL = [5.3, 6.0, 6.75];
+ *  quartiles over the recorded test words and the simulated visitors (209), against the 993 reference words. */
+const UNUSUAL = [4.55, 5.41, 6.27];
 
 const STOP = new Set(['the', 'and', 'you', 'was', 'are', 'for', 'not', 'but', 'with', 'this', 'that', 'have', 'has', 'will', 'all', 'his', 'her', 'she', 'him', 'they', 'them', 'our', 'your', 'its', 'who', 'what', 'were', 'been', 'from', 'can', 'just', 'never', 'again', 'too', 'very', 'don\'t', 'i\'m', 'it\'s']);
 /** A text's content words (three letters or more, not the little words), for finding its family among the references. */

@@ -92,8 +92,9 @@ export function build(g: Grid, seed: number, word: string): Geometry {
   const axes = (a = 0, b = 1, c = 2) => { mark(nm(a), [1.05, -1, -1]); mark(nm(b), [-1, 1.05, -1]); mark(nm(c), [-1, -1, 1.05]); };
 
   space('cloud', () => {
-    // one point a word, a stem to the floor to read its depth
-    for (let j = 0; j < R; j++) { const c = at(j); pt(c[0], c[1], c[2], WHITE(0.9)); seg(c, [c[0], -1, c[2]], WHITE(0.14)); }
+    // one point a word, a stem to the floor to read its depth (the stems fainter the more words: they add up)
+    const stem = Math.min(0.14, (0.14 * 400) / R);
+    for (let j = 0; j < R; j++) { const c = at(j); pt(c[0], c[1], c[2], WHITE(0.9)); seg(c, [c[0], -1, c[2]], WHITE(stem)); }
     for (let n = 0; n < 5; n++) pt(me[0], me[1], me[2], KEY(0, 0.99));
     seg(me, [me[0], -1, me[2]], KEY(0, 0.7));
     for (const d of [[0.06, 0, 0], [0, 0.06, 0], [0, 0, 0.06]]) seg(me.map((x, i) => x - d[i]), me.map((x, i) => x + d[i]), KEY(0, 0.95));

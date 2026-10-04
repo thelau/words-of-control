@@ -17,6 +17,8 @@ export type Caption = {
   /** A hairline this wide (CSS px), instead of text; or a vertical one this tall. */
   rule?: number;
   vline?: number;
+  /** A column of dots this tall (CSS px), standing on (x, y). */
+  stack?: number;
   /** A larger dot (the word, among the others). */
   me?: boolean;
   /** Font size (CSS px), over the class's. */
@@ -38,16 +40,16 @@ export function showCaptions(items: Caption[]) {
       e = { el, state: '' };
       live.set(c.key, e);
     }
-    const state = `${c.text}|${Math.round(c.x)}|${Math.round(c.y)}|${c.align}|${c.anchor}|${c.colour}|${c.size}|${c.rule}|${c.vline}|${c.me}|${c.px}`;
+    const state = `${c.text}|${Math.round(c.x)}|${Math.round(c.y)}|${c.align}|${c.anchor}|${c.colour}|${c.size}|${c.rule}|${c.vline}|${c.me}|${c.px}|${c.stack}`;
     if (state === e.state) continue;
     e.state = state;
     const el = e.el;
-    el.className = ['cap', c.anchor && 'anchor', c.me && 'me', (c.rule || c.vline) && 'rule', c.size].filter(Boolean).join(' ');
+    el.className = ['cap', c.anchor && 'anchor', c.me && 'me', (c.rule || c.vline) && 'rule', c.stack && 'stack', c.size].filter(Boolean).join(' ');
     el.textContent = c.text;
     el.style.transform = `translate(${Math.round(c.x)}px, ${Math.round(c.y)}px)${SHIFT[c.align ?? 'tl']}`;
     el.style.color = c.colour ?? '';
     el.style.width = c.rule ? `${Math.round(c.rule)}px` : c.vline ? '1px' : '';
-    el.style.height = c.vline ? `${Math.round(c.vline)}px` : '';
+    el.style.height = c.vline ? `${Math.round(c.vline)}px` : c.stack ? `${Math.round(c.stack)}px` : '';
     el.style.fontSize = c.px ? `${Math.round(c.px)}px` : '';
   }
   for (const [k, e] of live) if (!seen.has(k)) { e.el.remove(); live.delete(k); }

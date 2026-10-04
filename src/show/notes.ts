@@ -70,30 +70,27 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
     out.push({ key: 'measure', text: `${c.id}  ${c.value.toFixed(2)}`, x: cx, y: cy - 22, align: 'c', colour });
     out.push({ key: 'rule', text: '', x: x0, y: ly, rule: x1 - x0 });
     out.push({ key: 'r0', text: '0', x: x0 - 16, y: ly, align: 'c' }, { key: 'r1', text: '1', x: x1 + 16, y: ly, align: 'c' });
-    // (a stack never rises past 40 px: a tall one packs its dots closer)
-    const bins = c.lex.map((v) => Math.round(at(v) / 7)), count = new Map<number, number>(), stack = new Map<number, number>();
-    for (const b of bins) count.set(b, (count.get(b) ?? 0) + 1);
-    const dotY = c.lex.map((v, j) => {
-      const b = bins[j], hh = stack.get(b) ?? 0, gap = Math.min(6, 40 / (count.get(b) ?? 1));
-      stack.set(b, hh + 1);
-      if (lt > 1.5 + j * 0.006) out.push({ key: `d${j}`, text: '', x: at(v), y: ly - 5 - gap * hh, align: 'c', anchor: true });
-      return ly - 5 - gap * hh;
-    });
+    // the reference words as columns of dots, one every 7 px of the scale, as high as how many gave that value (the
+    // tallest 40 px), filling in left to right
+    const bins = new Map<number, number>();
+    for (const v of c.lex) { const b = Math.round(at(v) / 7); bins.set(b, (bins.get(b) ?? 0) + 1); }
+    const peak = Math.max(...bins.values()), first = Math.min(...bins.keys());
+    const height = (b: number) => (bins.has(b) ? Math.max(1, Math.round((8 * bins.get(b)!) / peak)) * 5 : 0);
+    for (const b of bins.keys()) if (lt > 1.5 + (b - first) * 0.008) out.push({ key: `d${b}`, text: '', x: b * 7 - 1, y: ly - 3, align: 'bl', stack: height(b) });
     out.push({ key: 'me', text: '', x: at(c.value), y: ly - 5, align: 'c', anchor: true, me: true, colour });
     // the words' own label: above the tallest stack it spans (never on the dots), a thin line down to their dot
     const CHAR = 8.5; // (a caption's advance: 12.5 px Plex Mono, 0.6 em + 0.08 em tracking)
     const xw = at(c.value), half = (word.length * CHAR) / 2;
     const lx = Math.max(x0 + half, Math.min(x1 - half, xw));
-    const top = Math.min(ly - 5, ...c.lex.map((v, j) => (Math.abs(at(v) - lx) <= half + 4 ? dotY[j] : ly)));
+    const top = Math.min(ly - 5, ...[...bins.keys()].filter((b) => Math.abs(b * 7 - lx) <= half + 4).map((b) => ly - 3 - height(b)));
     const labelY = Math.min(ly - 24, top - 16);
     out.push({ key: 'melabel', text: word, x: lx, y: labelY, align: 'c', colour });
     out.push({ key: 'meline', text: '', x: xw, y: labelY + 8, vline: Math.max(0, ly - 9 - (labelY + 8)) });
-    // the nearest on this answer, one by one (their own family left out; left to right, each on its own line, a line
-    // up to its dot)
+    // the nearest on this answer, one by one (their own family left out; left to right)
     const kin = new Set(g.near);
     const onAxis = c.lex.map((v, j) => [j, Math.abs(v - c.value)] as const).filter(([j]) => kin.has(j)).sort((a2, b2) => a2[1] - b2[1]).slice(0, 3).map(([j]) => j).sort((a2, b2) => c.lex[a2] - c.lex[b2]);
-    // (one row below the line, spread so no two labels overlap; each joined to its dot by an elbow: down from the dot,
-    // along, down to the label)
+    // (one row below the line, spread so no two labels overlap; each joined to its place on the scale by an elbow:
+    // down from the scale, along, down to the label)
     const rowY = ly + 34, elbow = ly + 14;
     const width = onAxis.map((j) => short(g.refs[j]).length * CHAR + 18), right = S[0] + S[2] - 12;
     const place = onAxis.map((j) => at(c.lex[j]));
@@ -103,7 +100,7 @@ function words(A: Appraisal, g: Grid, geo: Geometry | null, t: number, w: number
     onAxis.forEach((j, i) => {
       if (lt < 3 + i * 1.2) return;
       const dx = at(c.lex[j]), lxn = place[i];
-      out.push({ key: `nl${i}`, text: '', x: dx, y: dotY[j] + 4, vline: elbow - dotY[j] - 4 });
+      out.push({ key: `nl${i}`, text: '', x: dx, y: ly + 3, vline: elbow - ly - 3 });
       if (Math.abs(lxn - dx) > 1) out.push({ key: `nh${i}`, text: '', x: Math.min(dx, lxn), y: elbow, rule: Math.abs(lxn - dx) });
       out.push({ key: `nv${i}`, text: '', x: lxn, y: elbow, vline: rowY - elbow - 9 });
       out.push({ key: `n${i}`, text: short(g.refs[j]), x: lxn, y: rowY, align: 'c' });
