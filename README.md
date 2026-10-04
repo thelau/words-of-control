@@ -38,6 +38,7 @@ src/
 proxy/                  Jev proxy core (dev: Vite middleware)
 scripts/                perf, e2e, capture, film, listen, sequence, lexicon, appraise, fixtures, probe (see AGENTS.md)
 docs/                   grid (current direction), spec, decisions, engineering, Jev docs, reviews
+public/                 favicon, touch icon, social preview (og.png: a frame of the piece, 1200 × 630)
 references/             artist's references (local only, not in git)
 ```
 
