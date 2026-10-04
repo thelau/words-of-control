@@ -2,7 +2,9 @@
  * Visual check: perform recorded words headless and save a contact sheet per
  * word to docs/captures/<dir>/ (local only, not in git): the grid filling, marked, cleared, merging, a few of its
  * steps, the black, the room after.
- *   node scripts/capture.ts [--dir v2] [--size 1280x720x1] word …
+ *   node scripts/capture.ts [--dir v2] [--size 1280x720x1] [--answers .cache/simulated.json] word …
+ * --answers: real recorded answers for the words (e.g. the simulated visitors'); otherwise the test words' fixtures,
+ * and any other phrase borrows one (said in the output: its performance is not about it).
  * Needs ffmpeg for the sheets (frames are kept either way).
  */
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
@@ -16,10 +18,13 @@ const opt = (k: string, d: string) => { const i = args.indexOf(`--${k}`); if (i 
 const dir = path.resolve('docs/captures', opt('dir', 'v2'));
 const [W, H, DPR] = opt('size', '1280x720x1').split('x').map(Number);
 const fixtures = JSON.parse(readFileSync('src/jev/fixtures.json', 'utf8'));
+const extra = (() => { const f = opt('answers', ''); return f ? JSON.parse(readFileSync(f, 'utf8')) : {}; })();
 // (a phrase with no recorded answers borrows one, as mock mode does: src/jev/mock.ts)
 const answersFor = (w: string) => {
   const key = normalizeInput(w);
+  if (extra[w]) return extra[w];
   if (fixtures[key]) return fixtures[key];
+  console.log(`  (${w}: no recorded answers — borrowed)`);
   const all = Object.keys(fixtures).filter((x) => x !== 'want to die' && x !== 'fuck you');
   return fixtures[all[xmur3(key)() % all.length]];
 };
